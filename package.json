@@ -1,0 +1,21 @@
+{
+  "name": "aicity-backend",
+  "version": "1.0.50",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.1.1",
+    "@elysiajs/stream": "^1.1.0",
+    "@elysiajs/swagger": "^1.1.6",
+    "@elysiajs/websocket": "^0.2.8",
+    "@pinecone-database/pinecone": "^4.0.0",
+    "elysia": "1.0.0",
+    "together-ai": "^0.10.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "module": "src/index.js"
+}

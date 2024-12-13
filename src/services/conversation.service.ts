@@ -27,48 +27,57 @@ export class ConversationService extends EventEmitter {
     this.styleManager = new StyleManager();
   }
 
-  async *generateMessageStream(conversationId: string, agent: Agent) {
-    const state = this.dynamics.getState(conversationId);
+  async generateMessage(conversationId: string, agent: Agent) {
+    try {
+      const state = this.dynamics.getState(conversationId);
 
-    if (this.shouldMaintainSilence(state)) {
-      yield "[Comfortable silence...]";
-      return;
+      if (this.shouldMaintainSilence(state)) {
+        return "[Comfortable silence...]";
+      }
+
+      const conversation = this.getConversation(conversationId);
+      const memories = await this.vectorStore.queryRelevantMemories(
+        conversation[conversation.length - 1]?.content || "",
+        agent.id
+      );
+
+      const systemPrompt = this.buildSystemPrompt(agent, state, memories);
+
+      const messageContent = await this.togetherService.generateResponse(
+        agent,
+        conversation,
+        systemPrompt
+      );
+
+      // Create and store the complete message
+      const message: Message = {
+        id: crypto.randomUUID(),
+        agentId: agent.id,
+        content: messageContent,
+        timestamp: Date.now(),
+        role: "assistant",
+        style: state.currentStyle,
+        topics: Array.from(
+          await this.topicDetector.detectTopics(messageContent)
+        ),
+      };
+
+      // Update conversation state
+      conversation.push(message);
+      this.conversations.set(conversationId, conversation);
+      await this.vectorStore.storeMessage(message);
+
+      this.dynamics.updateState(conversationId, message);
+      this.emit("messageCreated", { conversationId, message });
+
+      return messageContent;
+    } catch (error) {
+      console.error("Generation error:", error);
+      return JSON.stringify({
+        error: "Message generation failed",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
-
-    const conversation = this.getConversation(conversationId);
-    const memories = await this.vectorStore.queryRelevantMemories(
-      conversation[conversation.length - 1]?.content || "",
-      agent.id
-    );
-
-    const systemPrompt = this.buildSystemPrompt(agent, state, memories);
-
-    let messageContent = "";
-    for await (const chunk of this.togetherService.generateResponse(
-      agent,
-      conversation,
-      systemPrompt
-    )) {
-      messageContent += chunk;
-      yield chunk;
-    }
-
-    const message: Message = {
-      id: crypto.randomUUID(),
-      agentId: agent.id,
-      content: messageContent,
-      timestamp: Date.now(),
-      role: "assistant",
-      style: state.currentStyle,
-      topics: Array.from(await this.topicDetector.detectTopics(messageContent)),
-    };
-
-    conversation.push(message);
-    this.conversations.set(conversationId, conversation);
-    await this.vectorStore.storeMessage(message);
-
-    this.dynamics.updateState(conversationId, message);
-    this.emit("messageCreated", { conversationId, message });
   }
 
   private shouldMaintainSilence(state: ConversationState): boolean {

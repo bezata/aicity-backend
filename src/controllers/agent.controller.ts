@@ -8,19 +8,10 @@ let customAgents: Agent[] = [...agents];
 
 export const AgentController = new Elysia({ prefix: "/agents" })
   .use(AgentModel)
-  .decorate("auth", async (authorization?: string) => {
-    if (!authorization?.startsWith("Bearer ")) {
-      throw new Error("Invalid authorization header");
-    }
-    // Add your auth logic here
-    return true;
-  })
-  .get("/", async ({ auth }) => {
-    await auth();
+  .get("/", async () => {
     return customAgents;
   })
-  .get("/:id", async ({ params: { id }, auth }) => {
-    await auth();
+  .get("/:id", async ({ params: { id } }) => {
     const agent = customAgents.find((agent) => agent.id === id);
     if (!agent) {
       throw new Error("Agent not found");
@@ -29,8 +20,7 @@ export const AgentController = new Elysia({ prefix: "/agents" })
   })
   .post(
     "/",
-    async ({ body, auth }) => {
-      await auth();
+    async ({ body }) => {
       const newAgent: Agent = {
         ...body,
         id: crypto.randomUUID(),
@@ -56,8 +46,7 @@ export const AgentController = new Elysia({ prefix: "/agents" })
   )
   .put(
     "/:id",
-    async ({ params: { id }, body, auth }) => {
-      await auth();
+    async ({ params: { id }, body }) => {
       const index = customAgents.findIndex((agent) => agent.id === id);
       if (index === -1) {
         throw new Error("Agent not found");
@@ -76,8 +65,7 @@ export const AgentController = new Elysia({ prefix: "/agents" })
       body: "agent.update",
     }
   )
-  .delete("/:id", async ({ params: { id }, auth }) => {
-    await auth();
+  .delete("/:id", async ({ params: { id } }) => {
     const index = customAgents.findIndex((agent) => agent.id === id);
     if (index === -1) {
       throw new Error("Agent not found");

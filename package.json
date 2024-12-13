@@ -6,13 +6,15 @@
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {
-    "@elysiajs/cors": "^1.1.1",
-    "@elysiajs/stream": "^1.1.0",
-    "@elysiajs/swagger": "^1.1.6",
+    "@elysiajs/cors": "^0.8.0",
+    "@elysiajs/stream": "^0.8.0",
+    "@elysiajs/swagger": "^0.8.5",
     "@elysiajs/websocket": "^0.2.8",
     "@pinecone-database/pinecone": "^4.0.0",
-    "elysia": "1.0.0",
-    "together-ai": "^0.10.0"
+    "elysia": "^1.1.26",
+    "together-ai": "^0.10.0",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
     "bun-types": "latest"

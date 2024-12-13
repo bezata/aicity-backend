@@ -1,7 +1,7 @@
 // src/services/vector-store.service.ts
 import { Pinecone } from "@pinecone-database/pinecone";
 import type { Message } from "../types/conversation.types";
-import type { RecordMetadata } from "@pinecone-database/pinecone";
+import Together from "together-ai";
 
 // Define metadata interface that extends RecordMetadata
 interface MessageMetadata {
@@ -29,26 +29,34 @@ export class VectorStoreService {
   private async initializeIndex() {
     const indexName = "conversations";
 
-    // Check if index exists
-    const indexes = await this.pinecone.listIndexes();
-    const indexExists = Object.values(indexes).some((index: { name: string }) => index.name === indexName);
+    try {
+      // Try to get the index first
+      this.index = this.pinecone.index(indexName);
 
-    if (!indexExists) {
-      // Create index if it doesn't exist
-      await this.pinecone.createIndex({
-        name: indexName,
-        dimension: 1024, // Dimension for m2-bert-80M-8k-base
-        metric: "cosine",
-        spec: {
-          serverless: {
-            cloud: "aws",
-            region: "us-east-1",
+      // Verify the index exists by listing indexes
+      const indexList = await this.pinecone.listIndexes();
+      if (!indexList?.indexes?.some((index) => index.name === indexName)) {
+        throw { status: 404 };
+      }
+    } catch (error: any) {
+      // Only create if the index doesn't exist
+      if (error.status === (404 as unknown)) {
+        await this.pinecone.createIndex({
+          name: indexName,
+          dimension: 1024,
+          metric: "cosine",
+          spec: {
+            serverless: {
+              cloud: "aws",
+              region: "us-east-1",
+            },
           },
-        },
-      });
+        });
+        this.index = this.pinecone.index(indexName);
+      } else {
+        throw error;
+      }
     }
-
-    this.index = this.pinecone.index(indexName);
   }
 
   async storeMessage(message: Message) {
@@ -63,8 +71,7 @@ export class VectorStoreService {
         timestamp: message.timestamp,
         context: message.context,
         topics: message.topics,
-        // Add any additional metadata fields here
-        type: "message", // Example of additional metadata
+        type: "message",
         indexed_at: new Date().toISOString(),
       } satisfies MessageMetadata,
     };
@@ -86,28 +93,20 @@ export class VectorStoreService {
       includeMetadata: true,
     });
 
-    return results.matches.map((match: { metadata: MessageMetadata }) => match.metadata);
+    return results.matches.map(
+      (match: { metadata: MessageMetadata }) => match.metadata
+    );
   }
 
   private async getEmbedding(text: string): Promise<number[]> {
-    const response = await fetch("https://api.together.xyz/api/embeddings", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.TOGETHER_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "togethercomputer/m2-bert-80M-8k-base",
-        input: text,
-      }),
+    const together = new Together({ apiKey: process.env.TOGETHER_API_KEY! });
+
+    const response = await together.embeddings.create({
+      model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      input: text,
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to get embedding: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.data[0].embedding;
+    return response.data[0].embedding;
   }
 
   // Helper method to delete index if needed

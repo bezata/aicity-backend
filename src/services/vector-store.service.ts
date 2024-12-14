@@ -1,23 +1,24 @@
 // src/services/vector-store.service.ts
 import { Pinecone } from "@pinecone-database/pinecone";
 import type { Message } from "../types/conversation.types";
-import Together from "together-ai";
 
-// Define metadata interface that extends RecordMetadata
 interface MessageMetadata {
   agentId: string;
   content: string;
   timestamp: number;
-  context?: string;
+  conversationId: string;
+  role: "assistant" | "user";
   topics?: string[];
-  type?: string;
-  indexed_at?: string;
-  [key: string]: string | number | boolean | string[] | undefined;
+  style?: string;
+  sentiment?: string;
+  indexed_at: string;
 }
 
 export class VectorStoreService {
   private pinecone: Pinecone;
   private index: any;
+  private readonly indexName = "conversations";
+  private readonly namespace = "chat-memory";
 
   constructor(apiKey: string) {
     this.pinecone = new Pinecone({
@@ -27,90 +28,121 @@ export class VectorStoreService {
   }
 
   private async initializeIndex() {
-    const indexName = "conversations";
-
     try {
-      // Try to get the index first
-      this.index = this.pinecone.index(indexName);
+      this.index = this.pinecone.index(this.indexName);
 
-      // Verify the index exists by listing indexes
-      const indexList = await this.pinecone.listIndexes();
-      if (!indexList?.indexes?.some((index) => index.name === indexName)) {
-        throw { status: 404 };
+      // Verify index exists
+      const indexes = await this.pinecone.listIndexes();
+      if (!indexes?.indexes?.some((index) => index.name === this.indexName)) {
+        await this.createIndex();
       }
-    } catch (error: any) {
-      // Only create if the index doesn't exist
-      if (error.status === (404 as unknown)) {
-        await this.pinecone.createIndex({
-          name: indexName,
-          dimension: 1024,
-          metric: "cosine",
-          spec: {
-            serverless: {
-              cloud: "aws",
-              region: "us-east-1",
-            },
-          },
-        });
-        this.index = this.pinecone.index(indexName);
-      } else {
-        throw error;
-      }
+    } catch (error) {
+      console.error("Error initializing index:", error);
+      await this.createIndex();
     }
   }
 
-  async storeMessage(message: Message) {
-    const embedding = await this.getEmbedding(message.content);
-
-    const record = {
-      id: message.id,
-      values: embedding,
-      metadata: {
-        agentId: message.agentId,
-        content: message.content,
-        timestamp: message.timestamp,
-        context: message.context,
-        topics: message.topics,
-        type: "message",
-        indexed_at: new Date().toISOString(),
-      } satisfies MessageMetadata,
-    };
-
-    await this.index.upsert([record]);
-  }
-
-  async queryRelevantMemories(
-    query: string,
-    agentId: string,
-    limit: number = 5
-  ) {
-    const queryEmbedding = await this.getEmbedding(query);
-
-    const results = await this.index.query({
-      vector: queryEmbedding,
-      filter: { agentId },
-      topK: limit,
-      includeMetadata: true,
+  private async createIndex() {
+    await this.pinecone.createIndex({
+      name: this.indexName,
+      dimension: 1024,
+      metric: "cosine",
+      spec: {
+        serverless: {
+          cloud: "aws",
+          region: "us-west1",
+        },
+      },
     });
-
-    return results.matches.map(
-      (match: { metadata: MessageMetadata }) => match.metadata
-    );
+    this.index = this.pinecone.index(this.indexName);
   }
 
-  private async getEmbedding(text: string): Promise<number[]> {
-    const together = new Together({ apiKey: process.env.TOGETHER_API_KEY! });
-
-    const response = await together.embeddings.create({
-      model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-      input: text,
-    });
-
-    return response.data[0].embedding;
+  async upsert({
+    id,
+    values,
+    metadata,
+  }: {
+    id: string;
+    values: number[];
+    metadata: Partial<MessageMetadata>;
+  }) {
+    try {
+      await this.index.upsert({
+        vectors: [
+          {
+            id,
+            values,
+            metadata: {
+              ...metadata,
+              indexed_at: new Date().toISOString(),
+            },
+          },
+        ],
+        namespace: this.namespace,
+      });
+    } catch (error) {
+      console.error("Error upserting vector:", error);
+      throw new Error(
+        `Failed to upsert vector: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
   }
 
-  // Helper method to delete index if needed
+  async query({
+    vector,
+    topK = 5,
+    filter = {},
+  }: {
+    vector: number[];
+    topK?: number;
+    filter?: Record<string, any>;
+  }) {
+    try {
+      return await this.index.query({
+        vector,
+        topK,
+        filter,
+        namespace: this.namespace,
+        includeMetadata: true,
+      });
+    } catch (error) {
+      console.error("Error querying vectors:", error);
+      throw new Error(
+        `Failed to query vectors: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  async deleteConversation(conversationId: string) {
+    try {
+      await this.index.deleteMany({
+        filter: { conversationId },
+        namespace: this.namespace,
+      });
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      throw new Error(
+        `Failed to delete conversation: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
   async deleteIndex() {
-    await this.pinecone.deleteIndex("conversations");
+    try {
+      await this.pinecone.deleteIndex(this.indexName);
+    } catch (error) {
+      console.error("Error deleting index:", error);
+      throw new Error(
+        `Failed to delete index: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
   }
 }

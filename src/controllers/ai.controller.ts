@@ -27,7 +27,6 @@ export const AIController = new Elysia({ prefix: "/ai" })
     async ({
       params: { conversationId, agentId },
       body,
-      store,
       store: { services },
     }) => {
       try {
@@ -35,52 +34,35 @@ export const AIController = new Elysia({ prefix: "/ai" })
         if (!agent) {
           return new Response(JSON.stringify({ error: "Agent not found" }), {
             status: 404,
-            headers: { "Content-Type": "application/json" },
           });
         }
 
-        // Get or initialize conversation history
-        const history = store.conversations.get(conversationId) || [];
-
+        // First add user message
         const userMessage: Message = {
           id: crypto.randomUUID(),
-          agentId: agent.id,
-          role: "user" as const,
+          agentId: "user",
           content: body.content,
           timestamp: Date.now(),
+          role: "user",
+          style: undefined,
+          topics: [],
+          sentiment: undefined,
         };
 
-        // Add user message to history
-        history.push(userMessage);
-
-        const response = await services.togetherService.generateResponse(
-          agent,
-          history, // Pass full history
-          agent.systemPrompt
+        await services.conversationService.addMessage(
+          conversationId,
+          userMessage
         );
 
-        const agentMessage: Message = {
-          id: crypto.randomUUID(),
-          agentId: agent.id,
-          role: "assistant" as const,
-          content: response,
-          timestamp: Date.now(),
-        };
-
-        // Add agent response to history
-        history.push(agentMessage);
-        store.conversations.set(conversationId, history);
-
-        return new Response(
-          JSON.stringify({
-            userMessage,
-            agentResponse: agentMessage,
-            history,
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
+        // Then generate agent response
+        const response = await services.conversationService.generateMessage(
+          conversationId,
+          agent
         );
+
+        return new Response(JSON.stringify({ content: response }), {
+          headers: { "Content-Type": "application/json" },
+        });
       } catch (error) {
         console.error("Message send error:", error);
         return new Response(

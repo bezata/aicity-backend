@@ -2,6 +2,8 @@ import { Elysia, t } from "elysia";
 import { AgentModel } from "../models/agent.model";
 import { agents } from "../config/agents";
 import type { Agent } from "../types/agent.types";
+import { Message } from "../types/conversation.types";
+import { ConversationService } from "../services/conversation.service";
 
 // In-memory store for custom agents
 let customAgents: Agent[] = [...agents];
@@ -79,6 +81,55 @@ export const AgentController = new Elysia({ prefix: "/agents" })
     customAgents = customAgents.filter((agent) => agent.id !== id);
     return { success: true, message: "Agent deleted" };
   })
+  .post(
+    "/send-message/:conversationId/:agentId",
+    async ({
+      params: { conversationId, agentId },
+      body,
+      store,
+    }: {
+      params: { conversationId: string; agentId: string };
+      body: { content: string };
+      store: { services: { conversationService: ConversationService } };
+    }) => {
+      try {
+        const agent = agents.find((a) => a.id === agentId);
+        if (!agent) {
+          return new Response(JSON.stringify({ error: "Agent not found" }), {
+            status: 404,
+          });
+        }
+
+        const userMessage: Message = {
+          id: crypto.randomUUID(),
+          agentId: "user",
+          content: body.content,
+          timestamp: Date.now(),
+          role: "user",
+          style: undefined,
+          topics: [],
+          sentiment: undefined,
+        };
+
+        await store.services.conversationService.addMessage(
+          conversationId,
+          userMessage
+        );
+
+        const response =
+          await store.services.conversationService.generateMessage(
+            conversationId,
+            agent
+          );
+
+        return new Response(JSON.stringify({ content: response }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (error) {
+        // ... error handling
+      }
+    }
+  )
   .onError(({ code, error }) => {
     if (code === "NOT_FOUND") {
       return { error: "Agent not found", code };

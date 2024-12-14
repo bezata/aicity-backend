@@ -9,6 +9,24 @@ export class TogetherService {
     this.client = new Together({ apiKey });
   }
 
+  async createEmbedding(text: string): Promise<number[]> {
+    try {
+      const response = await this.client.embeddings.create({
+        model: "togethercomputer/m2-bert-80M-8k-base",
+        input: text,
+      });
+
+      return response.data[0].embedding;
+    } catch (error) {
+      console.error("Error creating embedding:", error);
+      throw new Error(
+        `Failed to create embedding: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
   async generateResponse(
     agent: Agent,
     conversationHistory: Message[],
@@ -30,8 +48,9 @@ export class TogetherService {
         temperature: 0.7,
         top_p: 0.7,
         top_k: 50,
-        repetition_penalty: 1,
-        stop: ["<|eot_id|>", "<|eom_id|>"],
+        repetition_penalty: 1.1,
+        max_tokens: 1024,
+        stop: ["<|endoftext|>", "<|im_end|>", "<|im_sep|>"],
       });
 
       let completeResponse = "";
@@ -39,18 +58,27 @@ export class TogetherService {
       for await (const chunk of stream) {
         const content = chunk.choices?.[0]?.delta?.content;
         if (content !== undefined && content !== null) {
-          console.log("Received chunk:", content);
           completeResponse += content;
         }
       }
 
-      console.log("Complete response:", completeResponse);
-      return completeResponse;
+      return completeResponse.trim();
     } catch (error) {
       console.error("Error generating response:", error);
-      return `Error: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`;
+      throw new Error(
+        `Failed to generate response: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
+  }
+
+  private formatConversationHistory(messages: Message[]): string {
+    return messages
+      .map(
+        (msg) =>
+          `${msg.role === "assistant" ? "Assistant" : "User"}: ${msg.content}`
+      )
+      .join("\n");
   }
 }

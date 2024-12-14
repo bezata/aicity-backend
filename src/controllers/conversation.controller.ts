@@ -3,7 +3,8 @@ import { ConversationModel } from "../models/conversation.model";
 import type { Message } from "../types/conversation.types";
 import type { ConversationStyle } from "../types/common.types";
 import { t } from "elysia";
-import type { WebSocket } from "ws";
+import { VectorStoreService } from "../services/vector-store.service";
+import { TogetherService } from "../services/together.service";
 
 interface WSMessage {
   type: "message" | "error" | "status";
@@ -28,15 +29,30 @@ type WSConnection = {
 type Store = {
   conversations: Map<string, Message[]>;
   wsConnections: Map<string, Set<WSConnection>>;
+  vectorStore: VectorStoreService;
+  togetherService: TogetherService;
 };
+
+// Add this interface to define the message body type
+interface MessageBody {
+  agentId: string;
+  content: string;
+  style?: ConversationStyle;
+  topics?: string[];
+  sentiment?: string; // Make sure this is string type
+}
 
 export const ConversationController = new Elysia({ prefix: "/conversations" })
   .use(ConversationModel)
   .state("conversations", new Map<string, Message[]>())
   .state("wsConnections", new Map<string, Set<WSConnection>>())
+  .state("vectorStore", new VectorStoreService(process.env.PINECONE_API_KEY!))
+  .state("togetherService", new TogetherService(process.env.TOGETHER_API_KEY!))
   .derive(({ store }: { store: Store }) => ({
     getConversation: (id: string) => store.conversations.get(id) || [],
     getWSConnections: (id: string) => store.wsConnections.get(id) || new Set(),
+    vectorStore: store.vectorStore,
+    togetherService: store.togetherService,
   }))
   .get("/", ({ store }: { store: Store }) => {
     const conversations: Record<string, Message[]> = {};
@@ -50,50 +66,92 @@ export const ConversationController = new Elysia({ prefix: "/conversations" })
   }))
   .post(
     "/:id/messages",
-    ({
+    async ({
       params: { id },
       body,
       store,
       set,
+      vectorStore,
+      togetherService,
     }: {
       params: { id: string };
-      body: any;
+      body: MessageBody; // Use the new interface
       store: Store;
       set: any;
+      vectorStore: VectorStoreService;
+      togetherService: TogetherService;
     }) => {
-      const conversation = store.conversations.get(id) || [];
+      try {
+        const conversation = store.conversations.get(id) || [];
 
-      const message: Message = {
-        id: crypto.randomUUID(),
-        agentId: body.agentId,
-        content: body.content,
-        timestamp: Date.now(),
-        role: "user",
-        style: body.style as ConversationStyle | undefined,
-        topics: body.topics,
-        sentiment: body.sentiment,
-      };
-
-      conversation.push(message);
-      store.conversations.set(id, conversation);
-
-      // Broadcast the new message to all connected clients
-      const connections = store.wsConnections.get(id);
-      if (connections) {
-        const response: WSMessage = {
-          type: "message",
-          data: message,
+        // Create the message
+        const message: Message = {
+          id: crypto.randomUUID(),
+          agentId: body.agentId,
+          content: body.content,
+          timestamp: Date.now(),
+          role: "user",
+          style: body.style,
+          topics: body.topics,
+          sentiment: body.sentiment ? Number(body.sentiment) : undefined,
         };
-        for (const ws of connections) {
-          ws.send(JSON.stringify(response));
-        }
-      }
 
-      set.status = 201;
-      return message;
+        // Generate embedding for the message
+        const embedding = await togetherService.createEmbedding(
+          message.content
+        );
+
+        // Store in vector database
+        await vectorStore.upsert({
+          id: message.id,
+          values: embedding,
+          metadata: {
+            conversationId: id,
+            agentId: message.agentId,
+            content: message.content,
+            timestamp: message.timestamp,
+            role: message.role,
+            topics: message.topics,
+            style: message.style,
+            sentiment: message.sentiment?.toString(),
+          },
+        });
+
+        // Update conversation in memory
+        conversation.push(message);
+        store.conversations.set(id, conversation);
+
+        // Broadcast to WebSocket connections
+        const connections = store.wsConnections.get(id);
+        if (connections) {
+          const response: WSMessage = {
+            type: "message",
+            data: message,
+          };
+          for (const ws of connections) {
+            ws.send(JSON.stringify(response));
+          }
+        }
+
+        set.status = 201;
+        return message;
+      } catch (error) {
+        console.error("Error processing message:", error);
+        set.status = 500;
+        return {
+          error: "Failed to process message",
+          details: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
     },
     {
-      body: "conversation.message",
+      body: t.Object({
+        agentId: t.String(),
+        content: t.String(),
+        style: t.Optional(t.String()),
+        topics: t.Optional(t.Array(t.String())),
+        sentiment: t.Optional(t.String()),
+      }),
     }
   )
   .ws("/ws/:id", {
@@ -105,42 +163,56 @@ export const ConversationController = new Elysia({ prefix: "/conversations" })
       const conversationId = ws.data.params.id;
       const store = (this as any).store as Store;
 
-      // Initialize connections set if it doesn't exist
       if (!store.wsConnections.has(conversationId)) {
         store.wsConnections.set(conversationId, new Set());
       }
 
-      // Add the connection to the set
       const connections = store.wsConnections.get(conversationId);
       connections?.add(ws);
-
-      // Subscribe to the room
       ws.subscribe(conversationId);
 
-      // Send connection confirmation
       ws.send(
         JSON.stringify({
           type: "status",
           message: "Connected successfully",
         })
       );
-
-      console.log(`WebSocket connected to conversation: ${conversationId}`);
     },
 
-    message(ws: WSConnection, message: { type: string; data: any }) {
+    message: async function (
+      ws: WSConnection,
+      message: { type: string; data: any }
+    ) {
       const conversationId = ws.data.params.id;
       const store = (this as any).store as Store;
 
       try {
         const parsedMessage = message.data;
 
+        // Generate embedding
+        const embedding = await store.togetherService.createEmbedding(
+          parsedMessage.content
+        );
+
+        // Store in vector database
+        await store.vectorStore.upsert({
+          id: parsedMessage.id || crypto.randomUUID(),
+          values: embedding,
+          metadata: {
+            conversationId,
+            content: parsedMessage.content,
+            timestamp: Date.now(),
+            agentId: parsedMessage.agentId,
+            role: parsedMessage.role || "user",
+          },
+        });
+
         const response: WSMessage = {
           type: "message",
           data: parsedMessage,
         };
 
-        // Broadcast to all clients in the room
+        // Broadcast to all clients
         const connections = store.wsConnections.get(conversationId);
         if (connections) {
           for (const client of connections) {
@@ -165,22 +237,14 @@ export const ConversationController = new Elysia({ prefix: "/conversations" })
       const conversationId = ws.data.params.id;
       const store = (this as any).store as Store;
 
-      // Remove the connection from the set
       const connections = store.wsConnections.get(conversationId);
       if (connections) {
         connections.delete(ws);
-
-        // Clean up empty connection sets
         if (connections.size === 0) {
           store.wsConnections.delete(conversationId);
         }
       }
 
-      // Unsubscribe from the room
       ws.unsubscribe(conversationId);
-
-      console.log(
-        `WebSocket disconnected from conversation: ${conversationId}`
-      );
     },
   });

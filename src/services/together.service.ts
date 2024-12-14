@@ -12,9 +12,13 @@ export class TogetherService {
   async createEmbedding(text: string): Promise<number[]> {
     try {
       const response = await this.client.embeddings.create({
-        model: "togethercomputer/m2-bert-80M-8k-base",
+        model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         input: text,
       });
+
+      if (!response?.data?.[0]?.embedding) {
+        throw new Error("Invalid embedding response");
+      }
 
       return response.data[0].embedding;
     } catch (error) {
@@ -41,6 +45,9 @@ export class TogetherService {
         })),
       ];
 
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), 25000); // 25 second timeout
+
       const stream = await this.client.chat.completions.create({
         messages,
         model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
@@ -54,17 +61,29 @@ export class TogetherService {
       });
 
       let completeResponse = "";
-
-      for await (const chunk of stream) {
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content !== undefined && content !== null) {
-          completeResponse += content;
+      try {
+        for await (const chunk of stream) {
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content !== undefined && content !== null) {
+            completeResponse += content;
+          }
         }
+      } finally {
+        clearTimeout(timeout);
       }
 
-      return completeResponse.trim();
+      return (
+        completeResponse.trim() ||
+        "I apologize, but I couldn't generate a response in time."
+      );
     } catch (error) {
       console.error("Error generating response:", error);
+      if (
+        error instanceof Error &&
+        (error.name === "AbortError" || error.message.includes("timeout"))
+      ) {
+        throw new Error("Request timed out while generating response");
+      }
       throw new Error(
         `Failed to generate response: ${
           error instanceof Error ? error.message : "Unknown error"

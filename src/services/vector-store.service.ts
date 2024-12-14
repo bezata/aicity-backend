@@ -1,24 +1,30 @@
 // src/services/vector-store.service.ts
-import { Pinecone } from "@pinecone-database/pinecone";
+import {
+  Pinecone,
+  RecordMetadata,
+  RecordMetadataValue,
+} from "@pinecone-database/pinecone";
 import type { Message } from "../types/conversation.types";
 
-interface MessageMetadata {
+// Define metadata type for better type safety
+interface ChatMetadata {
+  conversationId: string;
   agentId: string;
   content: string;
   timestamp: number;
-  conversationId: string;
   role: "assistant" | "user";
   topics?: string[];
   style?: string;
   sentiment?: string;
-  indexed_at: string;
+  indexed_at?: string;
+  [key: string]: RecordMetadataValue | RecordMetadataValue[] | null | undefined;
 }
 
 export class VectorStoreService {
   private pinecone: Pinecone;
   private index: any;
-  private readonly indexName = "conversations";
-  private readonly namespace = "chat-memory";
+  private readonly indexName = "chat-memory";
+  private readonly namespace = "conversations";
 
   constructor(apiKey: string) {
     this.pinecone = new Pinecone({
@@ -29,16 +35,25 @@ export class VectorStoreService {
 
   private async initializeIndex() {
     try {
-      this.index = this.pinecone.index(this.indexName);
-
-      // Verify index exists
       const indexes = await this.pinecone.listIndexes();
-      if (!indexes?.indexes?.some((index) => index.name === this.indexName)) {
+      const indexExists = indexes.indexes?.some(
+        (idx) => idx.name === this.indexName
+      );
+
+      if (indexExists) {
+        // If index exists, just get it
+        this.index = await this.pinecone.index<RecordMetadata>(this.indexName);
+      } else {
+        // Create new index only if it doesn't exist
         await this.createIndex();
       }
     } catch (error) {
       console.error("Error initializing index:", error);
-      await this.createIndex();
+      if (error instanceof Error && !error.message.includes("ALREADY_EXISTS")) {
+        throw error;
+      }
+      // If index already exists, just get it
+      this.index = await this.pinecone.index<RecordMetadata>(this.indexName);
     }
   }
 
@@ -50,11 +65,12 @@ export class VectorStoreService {
       spec: {
         serverless: {
           cloud: "aws",
-          region: "us-west1",
+          region: "us-east-1",
         },
       },
+      waitUntilReady: true,
     });
-    this.index = this.pinecone.index(this.indexName);
+    this.index = await this.pinecone.index<RecordMetadata>(this.indexName);
   }
 
   async upsert({
@@ -64,22 +80,20 @@ export class VectorStoreService {
   }: {
     id: string;
     values: number[];
-    metadata: Partial<MessageMetadata>;
+    metadata: Partial<ChatMetadata>;
   }) {
     try {
-      await this.index.upsert({
-        vectors: [
-          {
-            id,
-            values,
-            metadata: {
-              ...metadata,
-              indexed_at: new Date().toISOString(),
-            },
+      const namespace = this.index.namespace(this.namespace);
+      await namespace.upsert([
+        {
+          id,
+          values,
+          metadata: {
+            ...metadata,
+            indexed_at: new Date().toISOString(),
           },
-        ],
-        namespace: this.namespace,
-      });
+        },
+      ]);
     } catch (error) {
       console.error("Error upserting vector:", error);
       throw new Error(
@@ -100,11 +114,11 @@ export class VectorStoreService {
     filter?: Record<string, any>;
   }) {
     try {
-      return await this.index.query({
+      const namespace = this.index.namespace(this.namespace);
+      return await namespace.query({
         vector,
         topK,
         filter,
-        namespace: this.namespace,
         includeMetadata: true,
       });
     } catch (error) {
@@ -117,29 +131,40 @@ export class VectorStoreService {
     }
   }
 
-  async deleteConversation(conversationId: string) {
+  async getConversationContext(conversationId: string, messageId: string) {
     try {
-      await this.index.deleteMany({
+      const namespace = this.index.namespace(this.namespace);
+      const result = await namespace.fetch([messageId]);
+      if (!result.records[messageId]) {
+        return null;
+      }
+
+      return await namespace.query({
+        vector: result.records[messageId].values,
+        topK: 5,
         filter: { conversationId },
-        namespace: this.namespace,
+        includeMetadata: true,
       });
     } catch (error) {
-      console.error("Error deleting conversation:", error);
+      console.error("Error getting conversation context:", error);
       throw new Error(
-        `Failed to delete conversation: ${
+        `Failed to get conversation context: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
     }
   }
 
-  async deleteIndex() {
+  async deleteConversation(conversationId: string) {
     try {
-      await this.pinecone.deleteIndex(this.indexName);
+      const namespace = this.index.namespace(this.namespace);
+      await namespace.deleteMany({
+        filter: { conversationId },
+      });
     } catch (error) {
-      console.error("Error deleting index:", error);
+      console.error("Error deleting conversation:", error);
       throw new Error(
-        `Failed to delete index: ${
+        `Failed to delete conversation: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );

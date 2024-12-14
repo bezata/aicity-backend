@@ -3,6 +3,7 @@ import { cors } from "@elysiajs/cors";
 import { AIController } from "./controllers/ai.controller";
 import { AgentController } from "./controllers/agent.controller";
 import { ConversationController } from "./controllers/conversation.controller";
+import { ChatController } from "./controllers/chat.controller";
 import { swagger } from "@elysiajs/swagger";
 
 const app = new Elysia()
@@ -41,8 +42,16 @@ const app = new Elysia()
   .use(AIController)
   .use(AgentController)
   .use(ConversationController)
+  .use(ChatController)
   .onError(({ code, error, set }) => {
     console.error(`Error [${code}]:`, error);
+    if (error.message.includes("timeout")) {
+      set.status = 504;
+      return {
+        error: "Request timed out",
+        status: 504,
+      };
+    }
     set.status = code === "NOT_FOUND" ? 404 : 500;
     return {
       error: error.message,

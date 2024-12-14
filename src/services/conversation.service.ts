@@ -81,45 +81,25 @@ export class ConversationService extends EventEmitter {
         relevantMemories
       );
 
-      const messageContent = await this.togetherService.generateResponse(
+      // Generate response using the full conversation history
+      const response = await this.togetherService.generateResponse(
         agent,
-        conversation,
+        conversation, // Pass the full conversation history
         systemPrompt
       );
 
-      // Create the new message
+      // Create and store the agent's response message
       const message: Message = {
         id: crypto.randomUUID(),
         agentId: agent.id,
-        content: messageContent,
+        content: response,
         timestamp: Date.now(),
         role: "assistant",
         style: state.currentStyle,
-        topics: Array.from(
-          await this.topicDetector.detectTopics(messageContent)
-        ),
+        topics: Array.from(await this.topicDetector.detectTopics(response)),
       };
 
-      // Generate embedding for the new message
-      const messageEmbedding = await this.togetherService.createEmbedding(
-        messageContent
-      );
-
-      // Store in vector database
-      await this.vectorStore.upsert({
-        id: message.id,
-        values: messageEmbedding,
-        metadata: {
-          conversationId,
-          agentId: agent.id,
-          content: messageContent,
-          timestamp: message.timestamp,
-          topics: message.topics,
-          style: message.style,
-        },
-      });
-
-      // Update conversation state
+      // Add to conversation history
       conversation.push(message);
       this.conversations.set(conversationId, conversation);
 
@@ -127,13 +107,10 @@ export class ConversationService extends EventEmitter {
       this.dynamics.updateState(conversationId, message);
       this.emit("messageCreated", { conversationId, message });
 
-      return messageContent;
+      return response;
     } catch (error) {
       console.error("Generation error:", error);
-      return JSON.stringify({
-        error: "Message generation failed",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      throw error;
     }
   }
 

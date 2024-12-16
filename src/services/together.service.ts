@@ -4,6 +4,7 @@ import type { Message } from "../types/conversation.types";
 
 export class TogetherService {
   private client: Together;
+  private readonly embeddingModel = "togethercomputer/m2-bert-80M-8k-retrieval"; // Using m2-bert for better retrieval performance
 
   constructor(apiKey: string) {
     this.client = new Together({ apiKey });
@@ -12,7 +13,7 @@ export class TogetherService {
   async createEmbedding(text: string): Promise<number[]> {
     try {
       const response = await this.client.embeddings.create({
-        model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        model: this.embeddingModel,
         input: text,
       });
 
@@ -33,71 +34,39 @@ export class TogetherService {
 
   async generateResponse(
     agent: Agent,
-    conversationHistory: Message[],
+    messages: Message[],
     systemPrompt: string
-  ) {
+  ): Promise<string> {
     try {
-      const messages = [
-        { role: "system" as const, content: systemPrompt },
-        ...conversationHistory.map((msg) => ({
-          role: msg.role as "assistant" | "user",
-          content: msg.content,
-        })),
-      ];
+      const formattedMessages = messages
+        .map(
+          (msg) =>
+            `${msg.role === "user" ? "Human" : "Assistant"}: ${msg.content}`
+        )
+        .join("\n");
 
-      const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), 25000); // 25 second timeout
+      const prompt = `${systemPrompt}\n\nConversation History:\n${formattedMessages}\nAssistant:`;
 
-      const stream = await this.client.chat.completions.create({
-        messages,
-        model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        stream: true,
-        temperature: 0.7,
-        top_p: 0.7,
-        top_k: 50,
-        repetition_penalty: 1.1,
-        max_tokens: 1024,
-        stop: ["<|endoftext|>", "<|im_end|>", "<|im_sep|>"],
+      const response = await this.client.completions.create({
+        model: agent.model || "meta-llama/Llama-2-70b-chat",
+        prompt,
+        temperature: agent.temperature || 0.7,
+        max_tokens: agent.maxTokens || 500,
+        stop: ["Human:", "Assistant:"],
       });
 
-      let completeResponse = "";
-      try {
-        for await (const chunk of stream) {
-          const content = chunk.choices?.[0]?.delta?.content;
-          if (content !== undefined && content !== null) {
-            completeResponse += content;
-          }
-        }
-      } finally {
-        clearTimeout(timeout);
+      if (!response?.choices?.[0]?.text) {
+        throw new Error("Invalid response from language model");
       }
 
-      return (
-        completeResponse.trim() ||
-        "I apologize, but I couldn't generate a response in time."
-      );
+      return response.choices[0].text.trim();
     } catch (error) {
       console.error("Error generating response:", error);
-      if (
-        error instanceof Error &&
-        (error.name === "AbortError" || error.message.includes("timeout"))
-      ) {
-        throw new Error("Request timed out while generating response");
-      }
       throw new Error(
         `Failed to generate response: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
     }
-  }
-
-  private formatConversationHistory(messages: Message[]): string {
-    return messages
-      .map(
-        (msg) =>
-          `${msg.role === "assistant" ? "Assistant" : "User"}: ${msg.content}`
-      )
-      .join("\n");
   }
 }

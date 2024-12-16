@@ -1,13 +1,10 @@
 // src/services/vector-store.service.ts
-import {
-  Pinecone,
-  RecordMetadata,
-  RecordMetadataValue,
-} from "@pinecone-database/pinecone";
+import { MongoClient, Collection, ObjectId } from "mongodb";
 import type { Message } from "../types/conversation.types";
 
 // Define metadata type for better type safety
 interface ChatMetadata {
+  _id?: ObjectId;
   conversationId: string;
   agentId: string;
   content: string;
@@ -16,61 +13,58 @@ interface ChatMetadata {
   topics?: string[];
   style?: string;
   sentiment?: string;
-  indexed_at?: string;
-  [key: string]: RecordMetadataValue | RecordMetadataValue[] | null | undefined;
+  embedding?: number[];
 }
 
 export class VectorStoreService {
-  private pinecone: Pinecone;
-  private index: any;
-  private readonly indexName = "chat-memory";
-  private readonly namespace = "conversations";
+  private client: MongoClient;
+  private collection!: Collection<ChatMetadata>;
+  private readonly dbName = "ai_city";
+  private readonly collectionName = "chat_memory";
+  private initialized = false;
 
-  constructor(apiKey: string) {
-    this.pinecone = new Pinecone({
-      apiKey,
-    });
-    this.initializeIndex();
+  constructor(mongoUri: string) {
+    this.client = new MongoClient(mongoUri);
+    this.initializeDB();
   }
 
-  private async initializeIndex() {
+  private async initializeDB() {
     try {
-      const indexes = await this.pinecone.listIndexes();
-      const indexExists = indexes.indexes?.some(
-        (idx) => idx.name === this.indexName
+      await this.client.connect();
+      const db = this.client.db(this.dbName);
+      this.collection = db.collection<ChatMetadata>(this.collectionName);
+
+      // Create vector search index if it doesn't exist
+      const indexes = await this.collection.listIndexes().toArray();
+      const hasVectorIndex = indexes.some(
+        (index) => index.name === "vector_index"
       );
 
-      if (indexExists) {
-        // If index exists, just get it
-        this.index = await this.pinecone.index<RecordMetadata>(this.indexName);
-      } else {
-        // Create new index only if it doesn't exist
-        await this.createIndex();
+      if (!hasVectorIndex) {
+        await db.command({
+          createIndexes: this.collectionName,
+          indexes: [
+            {
+              name: "vector_index",
+              key: { embedding: "vector" },
+              vectorOptions: {
+                dimension: 768,
+                similarity: "cosine",
+              },
+            },
+          ],
+        });
       }
-    } catch (error) {
-      console.error("Error initializing index:", error);
-      if (error instanceof Error && !error.message.includes("ALREADY_EXISTS")) {
-        throw error;
-      }
-      // If index already exists, just get it
-      this.index = await this.pinecone.index<RecordMetadata>(this.indexName);
-    }
-  }
 
-  private async createIndex() {
-    await this.pinecone.createIndex({
-      name: this.indexName,
-      dimension: 1024,
-      metric: "cosine",
-      spec: {
-        serverless: {
-          cloud: "aws",
-          region: "us-east-1",
-        },
-      },
-      waitUntilReady: true,
-    });
-    this.index = await this.pinecone.index<RecordMetadata>(this.indexName);
+      this.initialized = true;
+    } catch (error) {
+      console.error("Error initializing MongoDB:", error);
+      throw new Error(
+        `Failed to initialize MongoDB: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
   }
 
   async upsert({
@@ -83,21 +77,23 @@ export class VectorStoreService {
     metadata: Partial<ChatMetadata>;
   }) {
     try {
-      const namespace = this.index.namespace(this.namespace);
-      await namespace.upsert([
+      if (!this.initialized) await this.initializeDB();
+
+      await this.collection.updateOne(
+        { _id: new ObjectId(id) },
         {
-          id,
-          values,
-          metadata: {
+          $set: {
             ...metadata,
+            embedding: values,
             indexed_at: new Date().toISOString(),
           },
         },
-      ]);
+        { upsert: true }
+      );
     } catch (error) {
-      console.error("Error upserting vector:", error);
+      console.error("Error upserting document:", error);
       throw new Error(
-        `Failed to upsert vector: ${
+        `Failed to upsert document: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
@@ -114,13 +110,40 @@ export class VectorStoreService {
     filter?: Record<string, any>;
   }) {
     try {
-      const namespace = this.index.namespace(this.namespace);
-      return await namespace.query({
-        vector,
-        topK,
-        filter,
-        includeMetadata: true,
-      });
+      if (!this.initialized) await this.initializeDB();
+
+      const pipeline = [
+        {
+          $vectorSearch: {
+            queryVector: vector,
+            path: "embedding",
+            numCandidates: topK * 10,
+            limit: topK,
+            index: "vector_index",
+          },
+        },
+        {
+          $match: filter,
+        },
+      ];
+
+      const results = await this.collection.aggregate(pipeline).toArray();
+      return {
+        matches: results.map((doc) => ({
+          id: doc._id,
+          score: doc.score,
+          metadata: {
+            conversationId: doc.conversationId,
+            content: doc.content,
+            timestamp: doc.timestamp,
+            agentId: doc.agentId,
+            role: doc.role,
+            style: doc.style,
+            topics: doc.topics,
+            sentiment: doc.sentiment,
+          },
+        })),
+      };
     } catch (error) {
       console.error("Error querying vectors:", error);
       throw new Error(
@@ -133,17 +156,18 @@ export class VectorStoreService {
 
   async getConversationContext(conversationId: string, messageId: string) {
     try {
-      const namespace = this.index.namespace(this.namespace);
-      const result = await namespace.fetch([messageId]);
-      if (!result.records[messageId]) {
-        return null;
-      }
+      if (!this.initialized) await this.initializeDB();
 
-      return await namespace.query({
-        vector: result.records[messageId].values,
+      const message = await this.collection.findOne({
+        _id: new ObjectId(messageId),
+      });
+
+      if (!message?.embedding) return null;
+
+      return this.query({
+        vector: message.embedding,
         topK: 5,
         filter: { conversationId },
-        includeMetadata: true,
       });
     } catch (error) {
       console.error("Error getting conversation context:", error);
@@ -157,10 +181,9 @@ export class VectorStoreService {
 
   async deleteConversation(conversationId: string) {
     try {
-      const namespace = this.index.namespace(this.namespace);
-      await namespace.deleteMany({
-        filter: { conversationId },
-      });
+      if (!this.initialized) await this.initializeDB();
+
+      await this.collection.deleteMany({ conversationId });
     } catch (error) {
       console.error("Error deleting conversation:", error);
       throw new Error(
@@ -168,6 +191,12 @@ export class VectorStoreService {
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
+    }
+  }
+
+  async close() {
+    if (this.client) {
+      await this.client.close();
     }
   }
 }

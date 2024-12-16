@@ -5,16 +5,18 @@ import { AgentController } from "./controllers/agent.controller";
 import { ConversationController } from "./controllers/conversation.controller";
 import { ChatController } from "./controllers/chat.controller";
 import { swagger } from "@elysiajs/swagger";
+import { createStore, AppStore } from "./services/app.services";
 
 const app = new Elysia()
   .use(
     cors({
-      origin: ["http://localhost:3001"], // Your frontend URL
+      origin: ["http://localhost:3000"], // Your frontend URL
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       credentials: true,
     })
   )
   .use(swagger())
+  .state(createStore())
   .get("/", () => ({
     message: "Welcome to AI City Backend API",
     docs: "/swagger",
@@ -58,8 +60,15 @@ const app = new Elysia()
       status: set.status,
     };
   })
-  .listen(3000);
+  .listen(3001);
 
 console.log(
   `🦊 Server is running at ${app.server?.hostname}:${app.server?.port}`
 );
+
+// Add this to your shutdown handling
+process.on("SIGTERM", async () => {
+  const store = app.store as AppStore;
+  await store.services.vectorStore.close();
+  process.exit(0);
+});

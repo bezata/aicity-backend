@@ -4,6 +4,7 @@ import { agents } from "../config/agents";
 import type { Agent } from "../types/agent.types";
 import { Message } from "../types/conversation.types";
 import { ConversationService } from "../services/conversation.service";
+import type { AppStore } from "../services/app.services";
 
 // In-memory store for custom agents
 let customAgents: Agent[] = [...agents];
@@ -130,6 +131,39 @@ export const AgentController = new Elysia({ prefix: "/agents" })
       }
     }
   )
+  .post(
+    "/interact/:agentId1/:agentId2",
+    async ({ params: { agentId1, agentId2 }, store }) => {
+      const appStore = store as AppStore;
+      try {
+        const agent1 = customAgents.find((a) => a.id === agentId1);
+        const agent2 = customAgents.find((a) => a.id === agentId2);
+
+        if (!agent1 || !agent2) throw new Error("Agent not found");
+
+        // Generate interaction between agents
+        const conversation =
+          await appStore.services.conversationService.generateAgentInteraction(
+            agent1,
+            agent2
+          );
+
+        return conversation;
+      } catch (error) {
+        // ... error handling
+      }
+    }
+  )
+  .get("/city-status", async ({ store }) => {
+    const appStore = store as AppStore;
+    return {
+      weather: await appStore.services.cityService.getCurrentWeather(),
+      mood: await appStore.services.cityService.getCityMood(),
+      activeAgents: customAgents.filter((a) => a.isActive),
+      currentInteractions:
+        await appStore.services.conversationService.getActiveInteractions(),
+    };
+  })
   .onError(({ code, error }) => {
     if (code === "NOT_FOUND") {
       return { error: "Agent not found", code };

@@ -43,7 +43,7 @@ export class ConversationService extends EventEmitter {
     this.styleManager = new StyleManager();
   }
 
-  async generateMessage(conversationId: string, agent: Agent) {
+  async generateMessage(conversationId: string, agent: Agent): Promise<string> {
     try {
       const state = this.dynamics.getState(conversationId);
       const conversation = this.getConversation(conversationId);
@@ -216,5 +216,165 @@ Instructions:
 
     this.emit("messageCreated", { conversationId, message });
     return message;
+  }
+
+  async getConversations(): Promise<Message[][]> {
+    const conversations: Message[][] = [];
+    for (const [, messages] of this.conversations) {
+      if (messages.length > 0) {
+        conversations.push(messages);
+      }
+    }
+    return conversations;
+  }
+
+  async generateGroupResponse(
+    conversationId: string,
+    participants: Agent[],
+    content: string
+  ): Promise<string> {
+    try {
+      const state = this.dynamics.getState(conversationId);
+      const conversation = this.getConversation(conversationId);
+
+      // Create a special system prompt for group chat
+      const systemPrompt = this.buildGroupChatPrompt(participants, state);
+
+      // Generate response using the main agent's perspective
+      const response = await this.togetherService.generateResponse(
+        participants[0], // Use first agent as primary responder
+        conversation,
+        systemPrompt
+      );
+
+      // Create and store the response message
+      const message: Message = {
+        id: crypto.randomUUID(),
+        agentId: participants[0].id,
+        content: response,
+        timestamp: Date.now(),
+        role: "assistant",
+        style: state.currentStyle,
+        topics: Array.from(await this.topicDetector.detectTopics(response)),
+      };
+
+      conversation.push(message);
+      this.conversations.set(conversationId, conversation);
+      this.dynamics.updateState(conversationId, message);
+
+      return response;
+    } catch (error) {
+      console.error("Group chat error:", error);
+      throw error;
+    }
+  }
+
+  private buildGroupChatPrompt(
+    participants: Agent[],
+    state: ConversationState
+  ): string {
+    const participantInfo = participants
+      .map(
+        (agent) =>
+          `${agent.name} (${
+            agent.personality
+          }, interests: ${agent.interests.join(", ")})`
+      )
+      .join("\n");
+
+    return `Group conversation between:
+${participantInfo}
+
+Conversation state:
+- Style: ${state.currentStyle}
+- Momentum: ${state.momentum}
+- Time of day: ${state.timeOfDay}
+
+Instructions:
+1. Maintain natural group dynamics
+2. Keep responses concise
+3. Stay in character for each participant
+4. React to others' personalities and interests
+`;
+  }
+
+  async generateAgentInteraction(
+    agent1: Agent,
+    agent2: Agent
+  ): Promise<Message[]> {
+    const conversationId = crypto.randomUUID();
+    const state = this.dynamics.getState(conversationId);
+
+    // Start with a greeting from agent1
+    const greeting = await this.togetherService.generateResponse(
+      agent1,
+      [],
+      this.buildAgentInteractionPrompt(agent1, agent2, state)
+    );
+
+    const firstMessage: Message = {
+      id: crypto.randomUUID(),
+      agentId: agent1.id,
+      content: greeting,
+      timestamp: Date.now(),
+      role: "assistant",
+      style: state.currentStyle,
+      topics: Array.from(await this.topicDetector.detectTopics(greeting)),
+    };
+
+    // Get response from agent2
+    const response = await this.togetherService.generateResponse(
+      agent2,
+      [firstMessage],
+      this.buildAgentInteractionPrompt(agent2, agent1, state)
+    );
+
+    const secondMessage: Message = {
+      id: crypto.randomUUID(),
+      agentId: agent2.id,
+      content: response,
+      timestamp: Date.now(),
+      role: "assistant",
+      style: state.currentStyle,
+      topics: Array.from(await this.topicDetector.detectTopics(response)),
+    };
+
+    const conversation = [firstMessage, secondMessage];
+    this.conversations.set(conversationId, conversation);
+    return conversation;
+  }
+
+  async getActiveInteractions(): Promise<Message[][]> {
+    const activeInteractions = Array.from(this.conversations.values()).filter(
+      (messages) =>
+        messages.length >= 2 &&
+        Date.now() - messages[messages.length - 1].timestamp < 300000 // 5 minutes
+    );
+    return activeInteractions;
+  }
+
+  private buildAgentInteractionPrompt(
+    speaker: Agent,
+    listener: Agent,
+    state: ConversationState
+  ): string {
+    return `You are ${speaker.name}, talking to ${listener.name}.
+
+Your personality: ${speaker.personality}
+Your interests: ${speaker.interests.join(", ")}
+
+${listener.name}'s personality: ${listener.personality}
+${listener.name}'s interests: ${listener.interests.join(", ")}
+
+Conversation state:
+- Style: ${state.currentStyle}
+- Time of day: ${state.timeOfDay}
+
+Instructions:
+1. Stay in character as ${speaker.name}
+2. Engage with ${listener.name}'s interests and personality
+3. Keep responses natural and concise
+4. React to the conversation context
+`;
   }
 }

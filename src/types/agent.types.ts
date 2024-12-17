@@ -31,4 +31,5 @@ export interface Agent {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  isActive?: boolean;
 }

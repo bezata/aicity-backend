@@ -4,6 +4,7 @@ import { agents } from "../config/agents";
 import type { Agent } from "../types/agent.types";
 import type { Message } from "../types/conversation.types";
 import type { AppStore } from "../services/app.services";
+import { getCityContext } from "../utils/city-context";
 
 export const AIController = new Elysia({ prefix: "/ai" })
   .post(
@@ -22,9 +23,13 @@ export const AIController = new Elysia({ prefix: "/ai" })
         const userMessage: Message = {
           id: crypto.randomUUID(),
           agentId: "user",
-          content: body.content,
+          content: body.message,
           timestamp: Date.now(),
           role: "user",
+          context: await getCityContext(
+            await appStore.services.cityService.getCurrentWeather(),
+            await appStore.services.cityService.getCityMood()
+          ),
           style: undefined,
           topics: [],
           sentiment: undefined,
@@ -61,9 +66,13 @@ export const AIController = new Elysia({ prefix: "/ai" })
     },
     {
       body: t.Object({
-        content: t.String(),
+        message: t.String(),
       }),
     }
+  )
+  .options(
+    "/send-message/:conversationId/:agentId",
+    () => new Response(null, { status: 204 })
   )
   .get("/conversations/:id", async ({ params: { id }, store }) => {
     const appStore = store as AppStore;

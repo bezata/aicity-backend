@@ -1,20 +1,13 @@
 import { Elysia } from "elysia";
-import { cors } from "@elysiajs/cors";
 import { AIController } from "./controllers/ai.controller";
 import { AgentController } from "./controllers/agent.controller";
 import { ConversationController } from "./controllers/conversation.controller";
 import { ChatController } from "./controllers/chat.controller";
 import { swagger } from "@elysiajs/swagger";
 import { createStore, AppStore } from "./services/app.services";
+import { CityController } from "./controllers/city.controller";
 
 const app = new Elysia()
-  .use(
-    cors({
-      origin: ["http://localhost:3000"], // Your frontend URL
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      credentials: true,
-    })
-  )
   .use(swagger())
   .state(createStore())
   .get("/", () => ({
@@ -28,6 +21,9 @@ const app = new Elysia()
     timestamp: new Date().toISOString(),
     version: "1.0.0",
   }))
+  .get("/service-worker.js", () => {
+    return new Response("", { status: 204 });
+  })
   .onRequest(({ request }) => {
     console.log(`\n🌐 [${new Date().toISOString()}]`);
     console.log(`📍 ${request.method} ${request.url}`);
@@ -42,6 +38,7 @@ const app = new Elysia()
     };
   })
   .use(AIController)
+  .use(CityController)
   .use(AgentController)
   .use(ConversationController)
   .use(ChatController)

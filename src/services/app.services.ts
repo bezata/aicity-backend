@@ -2,6 +2,8 @@
 import { TogetherService } from "./together.service";
 import { VectorStoreService } from "./vector-store.service";
 import { ConversationService } from "./conversation.service";
+import { CityService } from "./city.service";
+import { AnalyticsService } from "./analytics.service";
 
 // Define store type
 export type AppStore = {
@@ -9,6 +11,8 @@ export type AppStore = {
     togetherService: TogetherService;
     vectorStore: VectorStoreService;
     conversationService: ConversationService;
+    cityService: CityService;
+    analyticsService: AnalyticsService;
   };
   conversations: Map<string, any[]>;
 };
@@ -29,6 +33,8 @@ const conversationService = new ConversationService(
   togetherService,
   vectorStore
 );
+const cityService = new CityService();
+const analyticsService = new AnalyticsService();
 
 // Create initial store
 export const createStore = (): AppStore => ({
@@ -36,6 +42,8 @@ export const createStore = (): AppStore => ({
     togetherService,
     vectorStore,
     conversationService,
+    cityService,
+    analyticsService,
   },
   conversations: new Map(),
 });

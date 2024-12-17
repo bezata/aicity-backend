@@ -12,11 +12,25 @@ export const AIController = new Elysia({ prefix: "/ai" })
     async ({ params: { conversationId, agentId }, body, store }) => {
       const appStore = store as AppStore;
       try {
+        console.log("🚀 Processing message request:", {
+          conversationId,
+          agentId,
+          body,
+        });
+
         const agent = agents.find((a) => a.id === agentId);
         if (!agent) {
+          console.log("❌ Agent not found:", agentId);
           return new Response(JSON.stringify({ error: "Agent not found" }), {
             status: 404,
           });
+        }
+        console.log("✅ Found agent:", agent.name);
+
+        // Initialize conversation if it doesn't exist
+        if (!appStore.conversations.has(conversationId)) {
+          console.log("📝 Initializing new conversation:", conversationId);
+          appStore.conversations.set(conversationId, []);
         }
 
         // First add user message
@@ -30,28 +44,28 @@ export const AIController = new Elysia({ prefix: "/ai" })
             await appStore.services.cityService.getCurrentWeather(),
             await appStore.services.cityService.getCityMood()
           ),
-          style: undefined,
-          topics: [],
-          sentiment: undefined,
         };
 
+        console.log("📨 Adding user message:", userMessage);
         await appStore.services.conversationService.addMessage(
           conversationId,
           userMessage
         );
 
         // Then generate agent response
+        console.log("🤖 Generating agent response...");
         const response =
           await appStore.services.conversationService.generateMessage(
             conversationId,
             agent
           );
+        console.log("✅ Generated response:", response);
 
         return new Response(JSON.stringify({ content: response }), {
           headers: { "Content-Type": "application/json" },
         });
       } catch (error) {
-        console.error("Message send error:", error);
+        console.error("❌ Message send error:", error);
         return new Response(
           JSON.stringify({
             error: "Failed to send message",

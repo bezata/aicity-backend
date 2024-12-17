@@ -22,13 +22,9 @@ if (!process.env.TOGETHER_API_KEY) {
   throw new Error("TOGETHER_API_KEY environment variable is not set");
 }
 
-if (!process.env.MONGODB_URI) {
-  throw new Error("MONGODB_URI environment variable is not set");
-}
-
 // Initialize services
 const togetherService = new TogetherService(process.env.TOGETHER_API_KEY);
-const vectorStore = new VectorStoreService(process.env.MONGODB_URI);
+const vectorStore = new VectorStoreService();
 const conversationService = new ConversationService(
   togetherService,
   vectorStore

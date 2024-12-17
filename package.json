@@ -10,9 +10,12 @@
     "@elysiajs/stream": "^0.8.0",
     "@elysiajs/swagger": "^0.8.5",
     "@elysiajs/websocket": "^0.2.8",
+    "@langchain/community": "^0.3.19",
+    "@langchain/mongodb": "^0.1.0",
     "@pinecone-database/pinecone": "^4.0.0",
     "elysia": "^1.1.26",
     "mongodb": "^6.12.0",
+    "pinecone": "^0.1.0",
     "together-ai": "^0.10.0",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.1"

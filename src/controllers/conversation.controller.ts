@@ -46,7 +46,7 @@ export const ConversationController = new Elysia({ prefix: "/conversations" })
   .use(ConversationModel)
   .state("conversations", new Map<string, Message[]>())
   .state("wsConnections", new Map<string, Set<WSConnection>>())
-  .state("vectorStore", new VectorStoreService(process.env.MONGODB_URI!))
+  .state("vectorStore", new VectorStoreService())
   .state("togetherService", new TogetherService(process.env.TOGETHER_API_KEY!))
   .derive(({ store }: { store: Store }) => ({
     getConversation: (id: string) => store.conversations.get(id) || [],

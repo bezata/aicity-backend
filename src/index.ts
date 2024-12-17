@@ -6,8 +6,18 @@ import { ChatController } from "./controllers/chat.controller";
 import { swagger } from "@elysiajs/swagger";
 import { createStore, AppStore } from "./services/app.services";
 import { CityController } from "./controllers/city.controller";
+import { cors } from "@elysiajs/cors";
 
 const app = new Elysia()
+  .use(
+    cors({
+      origin: /localhost:\d+/,
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      credentials: true,
+      allowedHeaders: ["Content-Type", "Authorization"],
+      preflight: true,
+    })
+  )
   .use(swagger())
   .state(createStore())
   .get("/", () => ({

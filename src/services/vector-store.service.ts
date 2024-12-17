@@ -1,10 +1,8 @@
 // src/services/vector-store.service.ts
-import { MongoClient, Collection, ObjectId } from "mongodb";
-import type { Message } from "../types/conversation.types";
+import { Pinecone } from "@pinecone-database/pinecone";
+import { RecordMetadata } from "@pinecone-database/pinecone";
 
-// Define metadata type for better type safety
 interface ChatMetadata {
-  _id?: ObjectId;
   conversationId: string;
   agentId: string;
   content: string;
@@ -13,57 +11,29 @@ interface ChatMetadata {
   topics?: string[];
   style?: string;
   sentiment?: string;
-  embedding?: number[];
 }
 
 export class VectorStoreService {
-  private client: MongoClient;
-  private collection!: Collection<ChatMetadata>;
-  private readonly dbName = "ai_city";
-  private readonly collectionName = "chat_memory";
-  private initialized = false;
+  private client: Pinecone;
+  private index: any;
 
-  constructor(mongoUri: string) {
-    this.client = new MongoClient(mongoUri);
-    this.initializeDB();
+  constructor() {
+    console.log("🔑 Initializing Pinecone client...");
+    this.client = new Pinecone({
+      apiKey: process.env.PINECONE_API_KEY!,
+    });
+
+    // Get index reference
+    this.index = this.client.index<ChatMetadata & RecordMetadata>("aicity");
   }
 
-  private async initializeDB() {
+  async ping(): Promise<boolean> {
     try {
-      await this.client.connect();
-      const db = this.client.db(this.dbName);
-      this.collection = db.collection<ChatMetadata>(this.collectionName);
-
-      // Create vector search index if it doesn't exist
-      const indexes = await this.collection.listIndexes().toArray();
-      const hasVectorIndex = indexes.some(
-        (index) => index.name === "vector_index"
-      );
-
-      if (!hasVectorIndex) {
-        await db.command({
-          createIndexes: this.collectionName,
-          indexes: [
-            {
-              name: "vector_index",
-              key: { embedding: "vector" },
-              vectorOptions: {
-                dimension: 768,
-                similarity: "cosine",
-              },
-            },
-          ],
-        });
-      }
-
-      this.initialized = true;
+      await this.client.describeIndex("aicity");
+      return true;
     } catch (error) {
-      console.error("Error initializing MongoDB:", error);
-      throw new Error(
-        `Failed to initialize MongoDB: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      console.error("Pinecone ping failed:", error);
+      return false;
     }
   }
 
@@ -77,26 +47,17 @@ export class VectorStoreService {
     metadata: Partial<ChatMetadata>;
   }) {
     try {
-      if (!this.initialized) await this.initializeDB();
-
-      await this.collection.updateOne(
-        { _id: new ObjectId(id) },
+      await this.index.upsert([
         {
-          $set: {
-            ...metadata,
-            embedding: values,
-            indexed_at: new Date().toISOString(),
-          },
+          id,
+          values,
+          metadata,
         },
-        { upsert: true }
-      );
+      ]);
+      return { success: true, id };
     } catch (error) {
-      console.error("Error upserting document:", error);
-      throw new Error(
-        `Failed to upsert document: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      console.error("Upsert failed:", error);
+      throw error;
     }
   }
 
@@ -107,96 +68,29 @@ export class VectorStoreService {
   }: {
     vector: number[];
     topK?: number;
-    filter?: Record<string, any>;
+    filter?: any;
   }) {
     try {
-      if (!this.initialized) await this.initializeDB();
-
-      const pipeline = [
-        {
-          $vectorSearch: {
-            queryVector: vector,
-            path: "embedding",
-            numCandidates: topK * 10,
-            limit: topK,
-            index: "vector_index",
-          },
-        },
-        {
-          $match: filter,
-        },
-      ];
-
-      const results = await this.collection.aggregate(pipeline).toArray();
+      const results = await this.index.query({
+        vector,
+        topK,
+        filter,
+        includeMetadata: true,
+      });
       return {
-        matches: results.map((doc) => ({
-          id: doc._id,
-          score: doc.score,
-          metadata: {
-            conversationId: doc.conversationId,
-            content: doc.content,
-            timestamp: doc.timestamp,
-            agentId: doc.agentId,
-            role: doc.role,
-            style: doc.style,
-            topics: doc.topics,
-            sentiment: doc.sentiment,
-          },
+        matches: results.matches.map((match: any) => ({
+          id: match.id,
+          score: match.score,
+          metadata: match.metadata,
         })),
       };
     } catch (error) {
-      console.error("Error querying vectors:", error);
-      throw new Error(
-        `Failed to query vectors: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
-    }
-  }
-
-  async getConversationContext(conversationId: string, messageId: string) {
-    try {
-      if (!this.initialized) await this.initializeDB();
-
-      const message = await this.collection.findOne({
-        _id: new ObjectId(messageId),
-      });
-
-      if (!message?.embedding) return null;
-
-      return this.query({
-        vector: message.embedding,
-        topK: 5,
-        filter: { conversationId },
-      });
-    } catch (error) {
-      console.error("Error getting conversation context:", error);
-      throw new Error(
-        `Failed to get conversation context: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
-    }
-  }
-
-  async deleteConversation(conversationId: string) {
-    try {
-      if (!this.initialized) await this.initializeDB();
-
-      await this.collection.deleteMany({ conversationId });
-    } catch (error) {
-      console.error("Error deleting conversation:", error);
-      throw new Error(
-        `Failed to delete conversation: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      console.error("Query failed:", error);
+      throw error;
     }
   }
 
   async close() {
-    if (this.client) {
-      await this.client.close();
-    }
+    // Pinecone client doesn't need explicit cleanup
   }
 }

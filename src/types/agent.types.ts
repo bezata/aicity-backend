@@ -1,12 +1,20 @@
 import { ConversationStyle } from "./common.types";
 
 export interface AgentTraits {
-  curiosity: number;
-  enthusiasm: number;
-  formality: number;
-  empathy: number;
   analyticalThinking: number;
   creativity: number;
+  empathy: number;
+  curiosity: number;
+  enthusiasm: number;
+  efficiency?: number;
+  adaptability?: number;
+  reliability?: number;
+  innovation?: number;
+  communication?: number;
+  environmentalAwareness?: number;
+  longTermThinking?: number;
+  advocacy?: number;
+  formality?: number;
 }
 
 export interface AgentContextualResponses {
@@ -26,7 +34,7 @@ export interface Agent {
     min: number;
     max: number;
   };
-  traits?: AgentTraits;
+  traits: AgentTraits;
   contextualResponses?: AgentContextualResponses;
   model?: string;
   temperature?: number;

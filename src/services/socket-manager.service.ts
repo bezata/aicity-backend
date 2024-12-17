@@ -1,67 +1,74 @@
 import { WebSocket } from "ws";
 import { EventEmitter } from "events";
-import { Message } from "../types/conversation.types";
+import { AgentCollaborationService } from "./agent-collaboration.service";
+import { CityEvent } from "../types/city-events";
+import { getAgent } from "../config/city-agents";
 
-export class SocketManager extends EventEmitter {
-  private rooms: Map<string, Set<WebSocket>> = new Map();
+interface WebSocketConnection extends WebSocket {
+  sessionId?: string;
+}
 
-  constructor() {
+export class SocketManagerService extends EventEmitter {
+  private connections: Map<string, Set<WebSocketConnection>> = new Map();
+
+  constructor(private collaborationService: AgentCollaborationService) {
     super();
-    this.setupEventListeners();
+    this.setupCollaborationListeners();
   }
 
-  private setupEventListeners() {
-    this.on(
-      "messageCreated",
-      (data: { conversationId: string; message: Message }) => {
-        this.broadcastToRoom(data.conversationId, {
-          type: "message",
-          payload: data.message,
-        });
-      }
-    );
-
-    this.on("stateUpdated", (data: { conversationId: string; state: any }) => {
-      this.broadcastToRoom(data.conversationId, {
-        type: "state",
-        payload: data.state,
+  private setupCollaborationListeners() {
+    this.collaborationService.on("messageAdded", (data) => {
+      this.broadcastToSession(data.sessionId, {
+        type: "agentMessage",
+        data: {
+          agent: getAgent(data.agentId),
+          content: data.content,
+          timestamp: Date.now(),
+        },
       });
     });
 
-    this.on(
-      "agentTyping",
-      (data: { conversationId: string; agentId: string }) => {
-        this.broadcastToRoom(data.conversationId, {
-          type: "typing",
-          payload: { agentId: data.agentId },
-        });
-      }
-    );
-  }
-
-  joinRoom(conversationId: string, socket: WebSocket) {
-    if (!this.rooms.has(conversationId)) {
-      this.rooms.set(conversationId, new Set());
-    }
-    this.rooms.get(conversationId)!.add(socket);
-  }
-
-  leaveRoom(conversationId: string, socket: WebSocket) {
-    this.rooms.get(conversationId)?.delete(socket);
-    if (this.rooms.get(conversationId)?.size === 0) {
-      this.rooms.delete(conversationId);
-    }
-  }
-
-  private broadcastToRoom(roomId: string, message: any) {
-    const room = this.rooms.get(roomId);
-    if (!room) return;
-
-    const payload = JSON.stringify(message);
-    room.forEach((socket) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(payload);
-      }
+    this.collaborationService.on("decisionsReached", (data) => {
+      this.broadcastToSession(data.sessionId, {
+        type: "decisions",
+        data: {
+          decisions: data.decisions,
+          agents: data.agents.map((id: string) => getAgent(id)),
+        },
+      });
     });
+  }
+
+  handleConnection(ws: WebSocketConnection, sessionId: string) {
+    ws.sessionId = sessionId;
+
+    if (!this.connections.has(sessionId)) {
+      this.connections.set(sessionId, new Set());
+    }
+
+    this.connections.get(sessionId)!.add(ws);
+
+    ws.send(
+      JSON.stringify({
+        type: "connected",
+        message: `Connected to collaboration session ${sessionId}`,
+      })
+    );
+
+    ws.on("close", () => {
+      this.connections.get(sessionId)?.delete(ws);
+    });
+  }
+
+  private broadcastToSession(sessionId: string, message: any) {
+    const connections = this.connections.get(sessionId);
+    if (!connections) return;
+
+    const messageStr = JSON.stringify(message);
+    for (const client of connections) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(messageStr);
+      }
+    }
   }
 }

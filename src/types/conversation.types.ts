@@ -33,3 +33,12 @@ export interface Event {
   timestamp: number;
   effects: string[];
 }
+
+export interface ChatMetadata {
+  // ... existing properties ...
+  type?: "conversation" | "collaboration" | "district" | "transport";
+  eventId?: string;
+  districtId?: string;
+  agentId?: string;
+  context?: string;
+}

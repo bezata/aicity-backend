@@ -59,10 +59,11 @@ export class ConversationService extends EventEmitter {
         );
 
         // Query vector store for relevant context
-        const queryResult = await this.vectorStore.query({
-          vector: embedding,
-          topK: 5,
-          filter: {
+        const queryResult = await this.vectorStore.query(
+          {
+            vector: embedding,
+            topK: 5,
+            filter: {
             agentId: agent.id,
             conversationId: conversationId,
           },

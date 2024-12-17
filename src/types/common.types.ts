@@ -1,6 +1,9 @@
 export type ConversationStyle =
-  | "casual"
   | "formal"
-  | "philosophical"
-  | "playful"
-  | "serious";
+  | "casual"
+  | "technical"
+  | "empathetic"
+  | "analytical"
+  | "visionary"
+  | "nurturing"
+  | "precise";

@@ -1,17 +1,19 @@
 export type TransportType = "bus" | "train" | "subway";
 
 export interface TransportSchedule {
+  frequency: number; // minutes
+  startTime: string; // HH:mm
+  endTime: string; // HH:mm
+}
+
+export interface TransportHub {
   id: string;
   type: TransportType;
-  route: string[]; // district IDs
-  schedule: {
-    frequency: number; // minutes
-    startTime: string; // HH:mm
-    endTime: string; // HH:mm
-  };
-  currentLocation?: string; // district ID
-  passengers: string[]; // agent IDs
-  status: "active" | "delayed" | "suspended";
+  capacity: number;
+  schedule: TransportSchedule;
+  currentUtilization: number;
+  status: "active" | "maintenance" | "inactive";
+  lastMaintenance: number;
 }
 
 export interface TransportEvent {

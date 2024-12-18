@@ -1,4 +1,5 @@
 import { CityEventCategory } from "./city-events";
+import { TransportHub } from "./transport.types";
 
 export type DistrictType =
   | "residential"
@@ -15,14 +16,13 @@ export interface District {
   population: number;
   ambiance: number;
   currentEvents: LocalEvent[];
-  activeAgents: string[];
+  transportHubs: TransportHub[];
   contextualFactors: {
     noise: number;
     crowding: number;
     safety: number;
     cleanliness: number;
   };
-  transportHubs: string[];
   schedules: string[];
 }
 

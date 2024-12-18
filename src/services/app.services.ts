@@ -6,6 +6,7 @@ import { CityService } from "./city.service";
 import { AnalyticsService } from "./analytics.service";
 import { AgentCollaborationService } from "./agent-collaboration.service";
 import { SocketManagerService } from "./socket-manager.service";
+import { DistrictService } from "./district.service";
 
 // Define store type
 export type AppStore = {
@@ -17,6 +18,7 @@ export type AppStore = {
     analyticsService: AnalyticsService;
     collaborationService: AgentCollaborationService;
     socketManager: SocketManagerService;
+    districtService: DistrictService;
   };
   conversations: Map<string, any[]>;
 };
@@ -35,9 +37,11 @@ const conversationService = new ConversationService(
 );
 const cityService = new CityService();
 const analyticsService = new AnalyticsService();
+const districtService = new DistrictService(cityService, vectorStore);
 const collaborationService = new AgentCollaborationService(
   togetherService,
-  vectorStore
+  vectorStore,
+  cityService
 );
 const socketManager = new SocketManagerService(collaborationService);
 
@@ -51,6 +55,7 @@ export const createStore = (): AppStore => ({
     analyticsService,
     collaborationService,
     socketManager,
+    districtService,
   },
   conversations: new Map(),
 });

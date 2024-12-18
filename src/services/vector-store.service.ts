@@ -58,7 +58,6 @@ export class VectorStoreService {
         filter,
         topK,
         includeMetadata,
-        namespace,
       });
     } catch (error) {
       console.error("Pinecone query failed:", error);
@@ -66,23 +65,39 @@ export class VectorStoreService {
     }
   }
 
-  async upsert(data: {
+  async upsert({
+    id,
+    values,
+    metadata,
+  }: {
     id: string;
     values: number[];
-    metadata: Partial<ChatMetadata & RecordMetadata & { type: string }>;
+    metadata: Partial<ChatMetadata>;
+  }) {
+    try {
+      await this.index.upsert([
+        {
+          id,
+          values,
+          metadata,
+        },
+      ]);
+      return { success: true, id };
+    } catch (error) {
+      console.error("Upsert failed:", error);
+      throw error;
+    }
+  }
+  async upsertMany(data: {
+    vectors: Array<{
+      id: string;
+      values: number[];
+      metadata: Partial<ChatMetadata & RecordMetadata & { type: string }>;
+    }>;
     namespace?: string;
   }) {
     try {
-      await this.index.upsert({
-        vectors: [
-          {
-            id: data.id,
-            values: data.values,
-            metadata: data.metadata,
-          },
-        ],
-        namespace: data.namespace,
-      });
+      await this.index.upsert(data.vectors, data.namespace);
       return data;
     } catch (error) {
       console.error("Pinecone upsert failed:", error);

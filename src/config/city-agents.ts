@@ -73,6 +73,13 @@ export const cityManagementAgents: Agent[] = [
       empathy: 0.85,
       analyticalThinking: 0.8,
       creativity: 0.75,
+      curiosity: 0.8,
+      enthusiasm: 0.85,
+    },
+    memoryWindowSize: 10,
+    emotionalRange: {
+      min: 0.3,
+      max: 0.8,
     },
   },
   {
@@ -95,6 +102,15 @@ export const cityManagementAgents: Agent[] = [
       efficiency: 0.9,
       innovation: 0.85,
       reliability: 0.9,
+      creativity: 0.8,
+      empathy: 0.7,
+      curiosity: 0.85,
+      enthusiasm: 0.8,
+    },
+    memoryWindowSize: 8,
+    emotionalRange: {
+      min: 0.2,
+      max: 0.7,
     },
   },
   {
@@ -117,6 +133,14 @@ export const cityManagementAgents: Agent[] = [
       communication: 0.9,
       adaptability: 0.85,
       creativity: 0.8,
+      analyticalThinking: 0.75,
+      curiosity: 0.85,
+      enthusiasm: 0.9,
+    },
+    memoryWindowSize: 12,
+    emotionalRange: {
+      min: 0.4,
+      max: 0.9,
     },
   },
 ];

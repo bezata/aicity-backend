@@ -6,6 +6,7 @@ import { VectorStoreService } from "./vector-store.service";
 import { getAgent } from "../config/city-agents";
 import { CityService } from "./city.service";
 import type { WeatherState, CityMood } from "../types/city.types";
+import { Message } from "../types/conversation.types";
 
 interface CollaborationSession {
   eventId: string;
@@ -22,6 +23,14 @@ interface CollaborationSession {
     supportedBy: string[];
     timestamp: number;
   }>;
+}
+
+interface CollaborationMessage {
+  id: string;
+  agentId: string;
+  content: string;
+  timestamp: number;
+  role: "assistant";
 }
 
 export class AgentCollaborationService extends EventEmitter {
@@ -54,9 +63,17 @@ export class AgentCollaborationService extends EventEmitter {
 
   private async facilitateDiscussion(sessionId: string, event: CityEvent) {
     const session = this.activeSessions.get(sessionId)!;
-    const leadAgent = getAgent(session.agents[0])!;
 
-    // Get current city context
+    // Validate that all required agents exist
+    const agents = session.agents
+      .map((id) => getAgent(id))
+      .filter((agent): agent is Agent => agent !== undefined);
+
+    if (agents.length === 0) {
+      throw new Error("No valid agents found for collaboration");
+    }
+
+    const leadAgent = agents[0];
     const cityContext = {
       weather: await this.cityService.getCurrentWeather(),
       mood: await this.cityService.getCityMood(),
@@ -153,36 +170,36 @@ Respond in a professional but conversational tone, addressing other agents by na
 
   private async synthesizeDecisions(sessionId: string) {
     const session = this.activeSessions.get(sessionId)!;
-    const leadAgent = getAgent(session.agents[0])!;
+    const messages: Message[] = session.messages.map((msg) => ({
+      id: crypto.randomUUID(),
+      agentId: msg.agentId,
+      content: msg.content,
+      timestamp: msg.timestamp,
+      role: "assistant",
+    }));
 
-    const synthesisPrompt = `Based on the discussion:
-${session.messages
-  .map((msg) => `${getAgent(msg.agentId)!.name}: ${msg.content}`)
-  .join("\n")}
+    // Get valid agents
+    const agents = session.agents
+      .map((id) => getAgent(id))
+      .filter((agent): agent is Agent => agent !== undefined);
 
-Synthesize the key decisions and action items discussed.`;
+    if (agents.length === 0) {
+      throw new Error("No valid agents found for synthesis");
+    }
 
+    // Generate synthesis from lead agent
+    const leadAgent = agents[0];
     const synthesis = await this.togetherService.generateResponse(
       leadAgent,
-      [],
-      synthesisPrompt
+      messages,
+      this.buildSynthesisPrompt(session)
     );
 
-    // Parse and store decisions
-    const decisions = synthesis
-      .split("\n")
-      .filter((line) => line.trim().startsWith("-"))
-      .map((decision) => ({
-        description: decision.substring(1).trim(),
-        proposedBy: leadAgent.id,
-        supportedBy: session.agents,
-        timestamp: Date.now(),
-      }));
+    // Store decisions
+    const decisions = this.extractDecisions(synthesis, session);
+    session.decisions = decisions;
 
-    session.decisions.push(...decisions);
-    session.status = "implementing";
-
-    // Store the collaboration context
+    // Store in vector store
     await this.vectorStore.upsert({
       id: `collab-${sessionId}`,
       values: await this.togetherService.createEmbedding(synthesis),
@@ -194,12 +211,35 @@ Synthesize the key decisions and action items discussed.`;
         status: session.status,
       },
     });
+  }
 
-    this.emit("decisionsReached", {
-      sessionId,
-      decisions,
-      agents: session.agents,
-    });
+  private buildSynthesisPrompt(session: CollaborationSession): string {
+    return `Based on the discussion:
+${session.messages
+  .map((msg) => `${getAgent(msg.agentId)!.name}: ${msg.content}`)
+  .join("\n")}
+
+Synthesize the key decisions and action items discussed.`;
+  }
+
+  private extractDecisions(
+    synthesis: string,
+    session: CollaborationSession
+  ): Array<{
+    description: string;
+    proposedBy: string;
+    supportedBy: string[];
+    timestamp: number;
+  }> {
+    return synthesis
+      .split("\n")
+      .filter((line) => line.trim().startsWith("-"))
+      .map((decision) => ({
+        description: decision.substring(1).trim(),
+        proposedBy: getAgent(session.agents[0])!.id,
+        supportedBy: session.agents,
+        timestamp: Date.now(),
+      }));
   }
 
   async addMessage(sessionId: string, agentId: string, content: string) {

@@ -4,9 +4,6 @@ import { CityEvent, CityEventCategory } from "../types/city-events";
 
 export const CollaborationController = new Elysia({
   prefix: "/collaborate",
-  websocket: {
-    idleTimeout: 30000,
-  },
 })
   .post(
     "/initiate",
@@ -25,6 +22,7 @@ export const CollaborationController = new Elysia({
           await appStore.services.collaborationService.initiateCollaboration(
             event
           );
+
         return {
           success: true,
           sessionId,

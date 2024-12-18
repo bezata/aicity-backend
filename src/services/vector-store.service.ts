@@ -72,7 +72,7 @@ export class VectorStoreService {
   }: {
     id: string;
     values: number[];
-    metadata: Partial<ChatMetadata>;
+    metadata: Partial<ChatMetadata & RecordMetadata & { type: string }>;
   }) {
     try {
       await this.index.upsert([

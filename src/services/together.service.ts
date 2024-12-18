@@ -36,37 +36,37 @@ export class TogetherService {
   ): Promise<string> {
     try {
       console.log("🤖 Generating response for agent:", agent.name);
-      console.log("📜 System prompt:", systemPrompt);
       console.log("💬 Messages count:", messages.length);
-
-      const formattedMessages = [
-        {
-          role: "system",
-          content: systemPrompt || agent.systemPrompt,
-        },
-        ...messages.map((msg) => ({
-          role: msg.role === "user" ? "user" : "assistant",
-          content: msg.content,
-        })),
-      ];
-
       console.log("🎯 Calling Together API...");
+
       const response = await this.client.chat.completions.create({
         model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        messages: formattedMessages as any,
-        temperature: 0.7,
-        top_p: 0.7,
-        top_k: 50,
-        repetition_penalty: 1,
-        stop: ["<|eot_id|>", "<|eom_id|>"],
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt || agent.systemPrompt,
+          } as const,
+          ...messages.map(
+            (msg) =>
+              ({
+                role: msg.role === "user" ? "user" : "assistant",
+                content: msg.content,
+              } as const)
+          ),
+        ],
+        temperature: agent.temperature || 0.7,
+        max_tokens: 2000,
+        top_p: 0.9,
+        frequency_penalty: 0.3,
       });
 
       if (!response?.choices?.[0]?.message?.content) {
-        throw new Error("Invalid response from language model");
+        console.error("❌ Invalid API response:", response);
+        throw new Error("Invalid or empty response from language model");
       }
 
       const result = response.choices[0].message.content.trim();
-      console.log("✅ Response generated:", result.substring(0, 50) + "...");
+      console.log("✅ Response generated:", result);
       return result;
     } catch (error) {
       console.error("❌ Response generation failed:", error);

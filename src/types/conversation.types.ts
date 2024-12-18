@@ -45,11 +45,7 @@ export interface ChatMetadata {
   sentiment?: string;
   type?: "conversation" | "collaboration" | "district" | "transport";
   eventId?: string;
-  decisions?: Array<{
-    description: string;
-    proposedBy: string;
-    supportedBy: string[];
-    timestamp: number;
-  }>;
+  agents?: string[];
+  decisions?: string;
   status?: string;
 }

@@ -7,6 +7,8 @@ import { swagger } from "@elysiajs/swagger";
 import { createStore, AppStore } from "./services/app.services";
 import { CityController } from "./controllers/city.controller";
 import { cors } from "@elysiajs/cors";
+import { DistrictController } from "./controllers/district.controller";
+import { CollaborationController } from "./controllers/collaboration.controller";
 
 const app = new Elysia()
   .use(
@@ -52,6 +54,8 @@ const app = new Elysia()
   .use(AgentController)
   .use(ConversationController)
   .use(ChatController)
+  .use(DistrictController)
+  .use(CollaborationController)
   .onError(({ code, error, set }) => {
     console.error(`Error [${code}]:`, error);
     if (error.message.includes("timeout")) {

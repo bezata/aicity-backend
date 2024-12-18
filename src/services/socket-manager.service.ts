@@ -39,7 +39,7 @@ export class SocketManagerService extends EventEmitter {
     });
   }
 
-  handleConnection(ws: WebSocketConnection, sessionId: string) {
+  handleConnection(ws: any, sessionId: string) {
     ws.sessionId = sessionId;
 
     if (!this.connections.has(sessionId)) {

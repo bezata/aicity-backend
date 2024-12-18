@@ -118,4 +118,8 @@ export class VectorStoreService {
       return false;
     }
   }
+
+  async close(): Promise<void> {
+    console.log("🔑 Closing Pinecone client...");
+  }
 }

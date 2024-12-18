@@ -1,10 +1,13 @@
 import { Elysia, t } from "elysia";
-import { websocket } from "@elysiajs/websocket";
 import type { AppStore } from "../services/app.services";
 import { CityEvent, CityEventCategory } from "../types/city-events";
 
-export const CollaborationController = new Elysia({ prefix: "/collaborate" })
-  .use(websocket())
+export const CollaborationController = new Elysia({
+  prefix: "/collaborate",
+  websocket: {
+    idleTimeout: 30000,
+  },
+})
   .post(
     "/initiate",
     async ({ body, store }) => {
@@ -22,7 +25,6 @@ export const CollaborationController = new Elysia({ prefix: "/collaborate" })
           await appStore.services.collaborationService.initiateCollaboration(
             event
           );
-
         return {
           success: true,
           sessionId,
@@ -53,12 +55,14 @@ export const CollaborationController = new Elysia({ prefix: "/collaborate" })
     }
   )
   .ws("/session/:sessionId", {
-    open(ws) {
-      const sessionId = ws.data.params.sessionId;
-      const store = ws.data.store as AppStore;
-      store.services.socketManager.handleConnection(ws as any, sessionId);
-    },
+    body: t.Object({
+      type: t.String(),
+      content: t.String(),
+    }),
     message(ws, message) {
+      const store = ws.data.store as AppStore;
+      const sessionId = ws.data.params.sessionId;
+      store.services.socketManager.handleConnection(ws, sessionId);
       console.log("Received message:", message);
     },
   });

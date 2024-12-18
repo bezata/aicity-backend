@@ -6,4 +6,7 @@ export type ConversationStyle =
   | "analytical"
   | "visionary"
   | "nurturing"
-  | "precise";
+  | "precise"
+  | "philosophical"
+  | "playful"
+  | "serious";

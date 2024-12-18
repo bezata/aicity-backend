@@ -2,8 +2,6 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import { RecordMetadata } from "@pinecone-database/pinecone";
 import { TogetherService } from "./together.service";
-import { QueryRequest } from "@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data/models/QueryRequest";
-
 
 interface ChatMetadata {
   conversationId: string;
@@ -14,32 +12,88 @@ interface ChatMetadata {
   topics?: string[];
   style?: string;
   sentiment?: string;
+  type?: "conversation" | "collaboration" | "district" | "transport";
 }
 
 export class VectorStoreService {
   private client: Pinecone;
   private index: any;
-  private store: Map<
-    string,
-    {
-      id: string;
-      values: number[];
-      metadata: Partial<ChatMetadata>;
-    }
-  > = new Map();
 
   constructor(private togetherService: TogetherService) {
     console.log("🔑 Initializing Pinecone client...");
     this.client = new Pinecone({
       apiKey: process.env.PINECONE_API_KEY!,
     });
-
-    // Get index reference
     this.index = this.client.index<ChatMetadata & RecordMetadata>("aicity");
   }
-  async query(query: QueryRequest): Promise<QueryResult> {
-    return this.index.query(query);
+
+  async query({
+    vector,
+    filter,
+    topK = 5,
+    includeMetadata = true,
+    namespace = "",
+  }: {
+    vector: number[];
+    filter?: {
+      [key: string]: {
+        $eq?: string | number | boolean;
+        $ne?: string | number | boolean;
+        $gt?: number;
+        $gte?: number;
+        $lt?: number;
+        $lte?: number;
+        $in?: (string | number)[];
+        $nin?: (string | number)[];
+        $exists?: boolean;
+      };
+    };
+    topK?: number;
+    includeMetadata?: boolean;
+    namespace?: string;
+  }) {
+    try {
+      return await this.index.query({
+        vector,
+        filter,
+        topK,
+        includeMetadata,
+        namespace,
+      });
+    } catch (error) {
+      console.error("Pinecone query failed:", error);
+      throw error;
+    }
   }
+
+  async upsert(data: {
+    id: string;
+    values: number[];
+    metadata: Partial<ChatMetadata & RecordMetadata & { type: string }>;
+    namespace?: string;
+  }) {
+    try {
+      await this.index.upsert({
+        vectors: [
+          {
+            id: data.id,
+            values: data.values,
+            metadata: data.metadata,
+          },
+        ],
+        namespace: data.namespace,
+      });
+      return data;
+    } catch (error) {
+      console.error("Pinecone upsert failed:", error);
+      throw error;
+    }
+  }
+
+  async createEmbedding(text: string): Promise<number[]> {
+    return this.togetherService.createEmbedding(text);
+  }
+
   async ping(): Promise<boolean> {
     try {
       await this.client.describeIndex("aicity");
@@ -48,32 +102,5 @@ export class VectorStoreService {
       console.error("Pinecone ping failed:", error);
       return false;
     }
-  }
-
-  async createEmbedding(text: string): Promise<number[]> {
-    return this.togetherService.createEmbedding(text);
-  }
-
-  async upsert(data: {
-    id: string;
-    values: number[];
-    metadata: Partial<ChatMetadata>;
-  }) {
-    this.store.set(data.id, data);
-    return data;
-  }
-
-  async search(values: number[], limit = 5) {
-    // Implementation of vector similarity search
-    return Array.from(this.store.values())
-      .slice(0, limit)
-      .map((item) => ({
-        ...item,
-        score: 1.0, // Placeholder for actual similarity score
-      }));
-  }
-
-  async close() {
-    // Pinecone client doesn't need explicit cleanup
   }
 }

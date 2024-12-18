@@ -4,6 +4,8 @@ import { CityEvent } from "../types/city-events";
 import { TogetherService } from "./together.service";
 import { VectorStoreService } from "./vector-store.service";
 import { getAgent } from "../config/city-agents";
+import { CityService } from "./city.service";
+import type { WeatherState, CityMood } from "../types/city.types";
 
 interface CollaborationSession {
   eventId: string;
@@ -27,7 +29,8 @@ export class AgentCollaborationService extends EventEmitter {
 
   constructor(
     private togetherService: TogetherService,
-    private vectorStore: VectorStoreService
+    private vectorStore: VectorStoreService,
+    private cityService: CityService
   ) {
     super();
   }
@@ -53,8 +56,19 @@ export class AgentCollaborationService extends EventEmitter {
     const session = this.activeSessions.get(sessionId)!;
     const leadAgent = getAgent(session.agents[0])!;
 
+    // Get current city context
+    const cityContext = {
+      weather: await this.cityService.getCurrentWeather(),
+      mood: await this.cityService.getCityMood(),
+    };
+
     // Generate initial assessment from lead agent
-    const initialPrompt = this.buildCollaborationPrompt(leadAgent, event, []);
+    const initialPrompt = this.buildCollaborationPrompt(
+      leadAgent,
+      event,
+      [],
+      cityContext
+    );
     const initialResponse = await this.togetherService.generateResponse(
       leadAgent,
       [],
@@ -69,7 +83,8 @@ export class AgentCollaborationService extends EventEmitter {
       const agentPrompt = this.buildCollaborationPrompt(
         agent,
         event,
-        session.messages
+        session.messages,
+        cityContext
       );
       const response = await this.togetherService.generateResponse(
         agent,
@@ -86,7 +101,11 @@ export class AgentCollaborationService extends EventEmitter {
   private buildCollaborationPrompt(
     agent: Agent,
     event: CityEvent,
-    previousMessages: Array<{ agentId: string; content: string }>
+    previousMessages: Array<{ agentId: string; content: string }>,
+    cityContext?: {
+      weather: WeatherState;
+      mood: CityMood;
+    }
   ): string {
     const messageHistory = previousMessages
       .map((msg) => {
@@ -94,6 +113,19 @@ export class AgentCollaborationService extends EventEmitter {
         return `${speaker.name}: ${msg.content}`;
       })
       .join("\n");
+
+    const contextInfo = cityContext
+      ? `
+Current City Context:
+- Weather: ${cityContext.weather.condition}, ${
+          cityContext.weather.temperature
+        }°C
+- City Mood: ${
+          cityContext.mood.dominantEmotion
+        } (${cityContext.mood.overall.toFixed(2)})
+- Community Status: ${cityContext.mood.factors.community.toFixed(2)}
+- Stress Level: ${cityContext.mood.factors.stress.toFixed(2)}`
+      : "";
 
     return `You are ${agent.name}, ${agent.personality}.
     
@@ -103,6 +135,7 @@ Description: ${event.description}
 Category: ${event.category}
 Urgency: ${event.urgency}
 Impact: Environmental (${event.impact.environmental}), Social (${event.impact.social}), Economic (${event.impact.economic})
+${contextInfo}
 
 Previous Discussion:
 ${messageHistory}
@@ -113,6 +146,7 @@ Consider:
 2. Potential collaboration points with other involved agents
 3. Specific actions you recommend
 4. Any concerns or considerations from your perspective
+5. How current city conditions might affect your approach
 
 Respond in a professional but conversational tone, addressing other agents by name when relevant.`;
   }
@@ -153,10 +187,10 @@ Synthesize the key decisions and action items discussed.`;
       id: `collab-${sessionId}`,
       values: await this.togetherService.createEmbedding(synthesis),
       metadata: {
-        type:  "collaboration",
+        type: "collaboration",
         eventId: session.eventId,
         agents: session.agents,
-        decisions: decisions,
+        decisions: JSON.stringify(decisions),
         status: session.status,
       },
     });

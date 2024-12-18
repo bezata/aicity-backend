@@ -11,6 +11,7 @@ import { ConversationDynamics } from "../utils/conversation-dynamics";
 import { TopicDetector } from "../utils/topic-detector";
 import { StyleManager } from "../utils/style-manager";
 import { ConversationStyle } from "../types/common.types";
+import { WeatherState, CityMood } from "../types/city.types";
 
 // Define the match type
 interface QueryMatch {
@@ -59,14 +60,13 @@ export class ConversationService extends EventEmitter {
         );
 
         // Query vector store for relevant context
-        const queryResult = await this.vectorStore.query(
-          {
-            vector: embedding,
-            topK: 5,
-            filter: {
-            agentId: agent.id,
-            conversationId: conversationId,
+        const queryResult = await this.vectorStore.query({
+          vector: embedding,
+          filter: {
+            agentId: { $eq: agent.id },
+            conversationId: { $eq: conversationId },
           },
+          topK: 5,
         });
 
         relevantMemories = queryResult.matches as QueryMatch[];
@@ -122,7 +122,11 @@ export class ConversationService extends EventEmitter {
   private buildSystemPrompt(
     agent: Agent,
     state: ConversationState,
-    memories: QueryMatch[]
+    memories: QueryMatch[],
+    cityContext?: {
+      weather: WeatherState;
+      mood: CityMood;
+    }
   ): string {
     const memoryContext =
       memories.length > 0
@@ -130,10 +134,30 @@ export class ConversationService extends EventEmitter {
 ${memories.map((m) => `- ${m.metadata.content}`).join("\n")}`
         : "No relevant conversation history.";
 
+    const contextInfo = cityContext
+      ? `
+Current City Status:
+- Weather: ${cityContext.weather.condition}, ${
+          cityContext.weather.temperature
+        }°C
+- City Mood: ${cityContext.mood.dominantEmotion}
+- Community Energy: ${cityContext.mood.factors.energy}
+- Overall Atmosphere: ${
+          cityContext.mood.overall > 0.7
+            ? "Very Positive"
+            : cityContext.mood.overall > 0.5
+            ? "Positive"
+            : cityContext.mood.overall > 0.3
+            ? "Neutral"
+            : "Concerning"
+        }`
+      : "";
+
     return `${agent.systemPrompt}
 
 Current conversation context:
 ${memoryContext}
+${contextInfo}
 
 Conversation state:
 - Style: ${state.currentStyle}
@@ -148,7 +172,7 @@ Instructions:
 2. Maintain the current conversation style
 3. Reference relevant past context naturally
 4. Keep responses concise (under 100 words)
-5. React appropriately to the emotional state
+5. React appropriately to the emotional state and city conditions
 `;
   }
 
@@ -166,7 +190,9 @@ Instructions:
       const context = await this.vectorStore.query({
         vector: embedding,
         topK: 5,
-        filter: { conversationId },
+        filter: {
+          conversationId: { $eq: conversationId },
+        },
       });
 
       return (context.matches as QueryMatch[]).map((match) => ({

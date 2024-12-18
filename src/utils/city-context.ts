@@ -121,3 +121,11 @@ export class CityContextManager {
     return this.context;
   }
 }
+
+export const getCityContext = async (weather: any, mood: any) => {
+  return `Current City Status:
+Weather: ${weather.condition}, ${weather.temperature}°C
+City Mood: ${mood.dominantEmotion} (${mood.overall.toFixed(2)})
+Community Status: ${mood.factors.community.toFixed(2)}
+Stress Level: ${mood.factors.stress.toFixed(2)}`;
+};

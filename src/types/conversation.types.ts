@@ -35,10 +35,21 @@ export interface Event {
 }
 
 export interface ChatMetadata {
-  // ... existing properties ...
+  conversationId: string;
+  agentId: string;
+  content: string;
+  timestamp: number;
+  role: "assistant" | "user";
+  topics?: string[];
+  style?: string;
+  sentiment?: string;
   type?: "conversation" | "collaboration" | "district" | "transport";
   eventId?: string;
-  districtId?: string;
-  agentId?: string;
-  context?: string;
+  decisions?: Array<{
+    description: string;
+    proposedBy: string;
+    supportedBy: string[];
+    timestamp: number;
+  }>;
+  status?: string;
 }

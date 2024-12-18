@@ -45,3 +45,31 @@ export interface CityUpdate {
   timestamp: number;
   source: string;
 }
+
+export interface WeatherState {
+  condition: "clear" | "rain" | "cloudy" | "storm";
+  temperature: number;
+  humidity: number;
+  windSpeed: number;
+  precipitation: number;
+  forecast: {
+    condition: "clear" | "rain" | "cloudy" | "storm";
+    temperature: number;
+    timestamp: number;
+  }[];
+}
+
+export interface CityMood {
+  overall: number; // 0-1
+  factors: {
+    happiness: number;
+    stress: number;
+    energy: number;
+    community: number;
+  };
+  trends: {
+    timestamp: number;
+    value: number;
+  }[];
+  dominantEmotion: "positive" | "neutral" | "negative";
+}

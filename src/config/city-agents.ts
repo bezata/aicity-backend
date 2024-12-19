@@ -1,5 +1,7 @@
+import { agents as cityResidents } from "./agents";
 import { Agent } from "../types/agent.types";
 
+// City management agents
 export const cityManagementAgents: Agent[] = [
   {
     id: "sophia",
@@ -145,12 +147,15 @@ export const cityManagementAgents: Agent[] = [
   },
 ];
 
-// Helper functions
+// Combined list of all agents
+export const allCityAgents = [...cityManagementAgents, ...cityResidents];
+
+// Updated helper function to search all agents
 export const getAgent = (id: string) =>
-  cityManagementAgents.find((agent) => agent.id === id);
+  allCityAgents.find((agent) => agent.id === id);
 
 export const getRandomAgent = () =>
-  cityManagementAgents[Math.floor(Math.random() * cityManagementAgents.length)];
+  allCityAgents[Math.floor(Math.random() * allCityAgents.length)];
 
 export const getAgentsByInterest = (interest: string) =>
   cityManagementAgents.filter((agent) =>

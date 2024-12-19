@@ -1,3 +1,5 @@
+import { Agent } from "./agent.types";
+
 export type CityEventCategory =
   | "urban_development"
   | "transportation"
@@ -10,42 +12,27 @@ export type CityEventCategory =
   | "education"
   | "technology";
 
-export interface CityEvent {
-  id: string;
-  type: CityEventCategory;
-  title: string;
-  description: string;
+export interface CityEventTemplate {
   category: CityEventCategory;
-  severity: number;
-  timestamp: number;
-  duration: number;
-  urgency: number; // 0-1
-  impact: {
-    environmental: number;
-    social: number;
-    economic: number;
-  };
-  affectedDistricts: string[];
-  requiredAgents: string[]; // IDs of agents needed to handle this
-  status: "pending" | "in_progress" | "resolved";
-  resolution?: {
-    actions: string[];
-    outcome: string;
-    responsibleAgent: string;
-  };
+  templates: Array<{
+    title: string;
+    description: string;
+    severity: number;
+    duration: number;
+    requiredAgents: string[];
+  }>;
 }
 
-export const cityEventTemplates = [
-  // Sophia's Urban Development Events
+export const cityEventTemplates: CityEventTemplate[] = [
   {
-    type: "urban_development",
+    category: "urban_development",
     templates: [
       {
         title: "Cultural District Revitalization",
         description:
           "Historic {location} district revitalization project proposed",
         severity: 0.7,
-        duration: 60 * 24 * 60 * 60 * 1000, // 60 days
+        duration: 60 * 24 * 60 * 60 * 1000,
         requiredAgents: ["sophia", "elena"],
       },
       {
@@ -60,7 +47,7 @@ export const cityEventTemplates = [
 
   // Marcus's Transportation Events
   {
-    type: "transportation",
+    category: "transportation",
     templates: [
       {
         title: "Smart Transit Integration",
@@ -82,7 +69,7 @@ export const cityEventTemplates = [
 
   // Olivia's Environmental Events
   {
-    type: "environmental",
+    category: "environmental",
     templates: [
       {
         title: "Urban Forest Initiative",
@@ -103,7 +90,7 @@ export const cityEventTemplates = [
 
   // Raj's Infrastructure Events
   {
-    type: "infrastructure",
+    category: "infrastructure",
     templates: [
       {
         title: "Smart Grid Implementation",
@@ -124,7 +111,7 @@ export const cityEventTemplates = [
 
   // Elena's Community Events
   {
-    type: "community",
+    category: "community",
     templates: [
       {
         title: "Health & Wellness Center",
@@ -145,7 +132,7 @@ export const cityEventTemplates = [
 
   // Emergency Events (requiring multiple agents)
   {
-    type: "emergency",
+    category: "emergency",
     templates: [
       {
         title: "Infrastructure Emergency",
@@ -193,3 +180,22 @@ export const agentResponseTemplates = {
     "This could improve community health outcomes significantly.",
   ],
 };
+
+export interface CityEvent {
+  id: string;
+  title: string;
+  description: string;
+  category: CityEventCategory;
+  severity: number;
+  duration: number;
+  urgency: number;
+  impact: {
+    environmental: number;
+    social: number;
+    economic: number;
+  };
+  requiredAgents: string[];
+  affectedDistricts: string[];
+  timestamp?: number;
+  status?: "pending" | "in_progress" | "resolved";
+}

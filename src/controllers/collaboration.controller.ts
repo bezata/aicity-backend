@@ -12,7 +12,6 @@ export const CollaborationController = new Elysia({
       try {
         const event: CityEvent = {
           ...body,
-          type: body.category as CityEventCategory,
           category: body.category as CityEventCategory,
           timestamp: Date.now(),
           status: "pending",

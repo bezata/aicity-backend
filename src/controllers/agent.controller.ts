@@ -164,6 +164,32 @@ export const AgentController = new Elysia({ prefix: "/agents" })
         await appStore.services.conversationService.getActiveInteractions(),
     };
   })
+  .get("/:id/location", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+    try {
+      // Create embedding for query
+      const embedding = await appStore.services.vectorStore.createEmbedding(
+        `agent ${id} location`
+      );
+
+      const location = await appStore.services.vectorStore.query({
+        vector: embedding,
+        filter: {
+          type: { $in: ["agent_residence", "agent_visit"] },
+          agentId: { $eq: id },
+        },
+        topK: 1,
+      });
+
+      return {
+        success: true,
+        data: location.matches[0]?.metadata,
+      };
+    } catch (error) {
+      console.error("Failed to get agent location:", error);
+      throw error;
+    }
+  })
   .onError(({ code, error }) => {
     if (code === "NOT_FOUND") {
       return { error: "Agent not found", code };

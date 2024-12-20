@@ -2,7 +2,60 @@
 
 A sophisticated backend system for managing an AI-powered smart city, featuring intelligent agents, real-time event handling, and district management.
 
-## 🌟 Features
+## 🌟 Feature
+
+# Recent Additions to AI City Backend
+
+## Development System
+
+- **DevelopmentService**: AI-driven city development planning
+  - Growth pattern analysis
+  - Smart project generation
+  - Sustainability metrics
+  - Zoning management
+  - Project optimization
+
+## Environment System
+
+- **EnvironmentService**: Environmental monitoring and metrics
+  - Air quality tracking
+  - Environmental alerts
+  - Sustainability metrics
+  - Resource monitoring
+
+## New Types & Models
+
+- **Development Types**
+
+  - `DevelopmentProject` interface
+  - `GrowthAnalysis` interface
+  - Project sustainability metrics
+  - Zoning plan structures
+
+- **Environment Models**
+  - Environmental alerts
+  - Metrics schemas
+  - Location-based monitoring
+
+## New API Routes
+
+- `/development`
+
+  - GET `/projects`: List all development projects
+  - POST `/projects`: Submit new development project
+  - GET `/analysis`: Get city growth analysis
+
+- `/environment`
+  - GET `/metrics`: Get environmental metrics
+  - GET `/alerts`: Get active environmental alerts
+
+## Integration
+
+- Added to AppStore
+- Connected with existing services:
+  - District Service
+  - Vector Store
+  - Smart Infrastructures
 
 ### 🤖 Intelligent Agents
 

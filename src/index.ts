@@ -9,6 +9,7 @@ import { CityController } from "./controllers/city.controller";
 import { cors } from "@elysiajs/cors";
 import { DistrictController } from "./controllers/district.controller";
 import { CollaborationController } from "./controllers/collaboration.controller";
+import { CCTVController } from "./controllers/cctv.controller";
 
 const app = new Elysia()
   .use(
@@ -56,6 +57,7 @@ const app = new Elysia()
   .use(ChatController)
   .use(DistrictController)
   .use(CollaborationController)
+  .use(CCTVController)
   .onError(({ code, error, set }) => {
     console.error(`Error [${code}]:`, error);
     if (error.message.includes("timeout")) {

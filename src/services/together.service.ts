@@ -73,4 +73,24 @@ export class TogetherService {
       throw error;
     }
   }
+
+  async generateText(prompt: string): Promise<string> {
+    try {
+      const response = await this.client.chat.completions.create({
+        model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        max_tokens: 512,
+      });
+
+      if (!response?.choices?.[0]?.message?.content) {
+        throw new Error("Invalid or empty response from language model");
+      }
+
+      return response.choices[0].message.content.trim();
+    } catch (error) {
+      console.error("Failed to generate text:", error);
+      throw error;
+    }
+  }
 }

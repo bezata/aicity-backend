@@ -14,14 +14,19 @@ export interface District {
   name: string;
   type: DistrictType;
   population: number;
-  ambiance: number;
+  density: number;
+  economicActivity: number;
+  coordinates: [number, number];
   currentEvents: LocalEvent[];
   transportHubs: TransportHub[];
-  contextualFactors: {
-    noise: number;
-    crowding: number;
+  residentAgents: string[];
+  visitorAgents: string[];
+  metrics: {
     safety: number;
     cleanliness: number;
+    noise: number;
+    crowding: number;
+    ambiance: number;
   };
   schedules: string[];
 }

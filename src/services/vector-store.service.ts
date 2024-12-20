@@ -2,8 +2,9 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import { RecordMetadata } from "@pinecone-database/pinecone";
 import { TogetherService } from "./together.service";
+import { VectorStoreType } from "../types/vector-store.types";
 
-interface ChatMetadata {
+export interface ChatMetadata {
   conversationId: string;
   agentId: string;
   content: string;
@@ -12,7 +13,7 @@ interface ChatMetadata {
   topics?: string[];
   style?: string;
   sentiment?: string;
-  type?: "conversation" | "collaboration" | "district" | "transport";
+  type?: VectorStoreType;
 }
 
 export class VectorStoreService {

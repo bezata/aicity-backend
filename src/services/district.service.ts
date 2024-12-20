@@ -4,6 +4,8 @@ import { CityService } from "./city.service";
 import { VectorStoreService } from "./vector-store.service";
 import { CityEvent } from "../types/city-events";
 import { TransportHub } from "../types/transport.types";
+import { TogetherService } from "./together.service";
+import { VectorStoreType } from "../types/vector-store.types";
 
 interface DistrictAnalytics {
   totalEvents: number;
@@ -25,7 +27,8 @@ export class DistrictService extends EventEmitter {
 
   constructor(
     private cityService: CityService,
-    private vectorStore: VectorStoreService
+    private vectorStore: VectorStoreService,
+    private togetherService: TogetherService
   ) {
     super();
   }
@@ -81,14 +84,14 @@ export class DistrictService extends EventEmitter {
       eventsByCategory,
       eventResolutionRate: this.calculateResolutionRate(district),
       populationTrends: this.getPopulationTrends(district),
-      currentAmbiance: district.ambiance,
+      currentAmbiance: district.metrics.ambiance,
       ambianceTrend: this.calculateAmbianceTrend(district),
       transportUtilization: this.calculateTransportUtilization(district),
       transportEfficiency: this.calculateTransportEfficiency(district),
-      noiseLevel: district.contextualFactors.noise,
-      crowdingLevel: district.contextualFactors.crowding,
-      safetyScore: district.contextualFactors.safety,
-      cleanlinessScore: district.contextualFactors.cleanliness,
+      noiseLevel: district.metrics.noise,
+      crowdingLevel: district.metrics.crowding,
+      safetyScore: district.metrics.safety,
+      cleanlinessScore: district.metrics.cleanliness,
     };
   }
 
@@ -156,5 +159,65 @@ export class DistrictService extends EventEmitter {
     this.districts.set(district.id, district);
     this.emit("districtAdded", district);
     return district;
+  }
+
+  async addResidentAgent(districtId: string, agentId: string) {
+    const district = await this.getDistrict(districtId);
+    if (!district) throw new Error("District not found");
+
+    district.residentAgents.push(agentId);
+
+    // Store in vector DB
+    await this.vectorStore.upsert({
+      id: `agent-residence-${agentId}`,
+      values: await this.togetherService.createEmbedding(
+        `Agent ${agentId} resides in district ${districtId}`
+      ),
+      metadata: {
+        type: "agent_residence" as VectorStoreType,
+        agentId,
+        districtId,
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  async recordAgentVisit(districtId: string, agentId: string) {
+    const district = await this.getDistrict(districtId);
+    if (!district) throw new Error("District not found");
+
+    district.visitorAgents.push(agentId);
+
+    // Store visit in vector DB
+    await this.vectorStore.upsert({
+      id: `agent-visit-${agentId}-${Date.now()}`,
+      values: await this.togetherService.createEmbedding(
+        `Agent ${agentId} visited district ${districtId}`
+      ),
+      metadata: {
+        type: "agent_visit" as VectorStoreType,
+        agentId,
+        districtId,
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  async getAllMetrics(): Promise<
+    Array<{
+      id: string;
+      population: number;
+      density: number;
+      economicActivity: number;
+    }>
+  > {
+    const districts = await this.getAllDistricts();
+    return districts.map((district) => ({
+      id: district.id,
+      population: district.population,
+      density: district.density,
+      economicActivity: district.economicActivity,
+      // ... other metrics
+    }));
   }
 }

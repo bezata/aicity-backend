@@ -33,7 +33,12 @@ export type ConversationStyle =
   | "engaging"
   | "assertive"
   | "contemplative"
-  | "dynamic";
+  | "dynamic"
+  | "wise"
+  | "compassionate"
+  | "mindful"
+  | "traditional"
+  | "organized";
 
 export interface StyleCharacteristics {
   formality: number; // 0 to 1, where 0 is very informal and 1 is very formal

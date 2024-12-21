@@ -389,7 +389,7 @@ export const cityManagementAgents: Agent[] = [
       "community education",
       "religious counseling",
     ],
-    preferredStyle: "wise",
+    preferredStyle: "philosophical",
     traits: {
       analyticalThinking: 0.85,
       empathy: 0.95,
@@ -445,7 +445,7 @@ export const cityManagementAgents: Agent[] = [
       "pastoral care",
       "community service",
     ],
-    preferredStyle: "compassionate",
+    preferredStyle: "empathetic",
     traits: {
       analyticalThinking: 0.8,
       empathy: 0.95,
@@ -473,7 +473,7 @@ export const cityManagementAgents: Agent[] = [
       "spiritual guidance",
       "mindfulness practice",
     ],
-    preferredStyle: "mindful",
+    preferredStyle: "contemplative",
     traits: {
       analyticalThinking: 0.85,
       empathy: 0.95,
@@ -501,7 +501,7 @@ export const cityManagementAgents: Agent[] = [
       "cultural preservation",
       "spiritual guidance",
     ],
-    preferredStyle: "traditional",
+    preferredStyle: "formal",
     traits: {
       analyticalThinking: 0.85,
       empathy: 0.9,
@@ -529,7 +529,7 @@ export const cityManagementAgents: Agent[] = [
       "project coordination",
       "community development",
     ],
-    preferredStyle: "organized",
+    preferredStyle: "methodical",
     traits: {
       analyticalThinking: 0.95,
       empathy: 0.9,

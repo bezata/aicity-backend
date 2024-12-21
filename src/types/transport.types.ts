@@ -1,18 +1,18 @@
 export type TransportType = "bus" | "train" | "subway";
 
 export interface TransportSchedule {
-  frequency: number; // minutes
-  startTime: string; // HH:mm
-  endTime: string; // HH:mm
+  weekday: string[];
+  weekend: string[];
+  holidays: string[];
 }
 
 export interface TransportHub {
   id: string;
-  type: TransportType;
+  type: string;
   capacity: number;
   schedule: TransportSchedule;
   currentUtilization: number;
-  status: "active" | "maintenance" | "inactive";
+  status: "active" | "inactive" | "maintenance";
   lastMaintenance: number;
 }
 

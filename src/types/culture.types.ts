@@ -109,11 +109,18 @@ export interface HeritageSpot {
 }
 
 export interface CulturalAtmosphere {
-  mood: string;
-  dominantCultures: string[];
-  activeEvents: string[];
-  culturalTension: number;
   harmonyIndex: number;
+  culturalTension: number;
+  mood: string;
+  intensity: number;
+  weatherInfluence: number;
+}
+
+export interface SocialMood {
+  positivity: number;
+  engagement: number;
+  mood: string;
+  intensity: number;
 }
 
 export interface CultureService {
@@ -123,9 +130,12 @@ export interface CultureService {
     event: Partial<CulturalEvent>
   ): Promise<CulturalEvent>;
   deleteEvent(id: string): Promise<void>;
-  getEvent(id: string): Promise<CulturalEvent>;
+  getEvent(id: string): Promise<CulturalEvent | null>;
   listEvents(): Promise<CulturalEvent[]>;
-  getAtmosphere(districtId: string): Promise<CulturalAtmosphere>;
+  getAtmosphere(location: {
+    districtId: string;
+    coordinates: [number, number];
+  }): Promise<CulturalAtmosphere>;
   updateMetrics(
     eventId: string,
     metrics: Partial<CulturalMetrics>

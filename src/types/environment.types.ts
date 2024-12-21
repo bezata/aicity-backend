@@ -40,6 +40,16 @@ export interface EnvironmentalMetrics {
   resourceEfficiency: number;
   wasteManagement: number;
   energyUsage: number;
+  water: {
+    quality: number;
+    usage: number;
+    conservation: number;
+  };
+  greenSpace: {
+    coverage: number;
+    quality: number;
+    accessibility: number;
+  };
 }
 
 export interface EmissionSource {

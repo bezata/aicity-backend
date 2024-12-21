@@ -2,7 +2,11 @@ import { Elysia, t } from "elysia";
 import type { AppStore } from "../services/app.services";
 import { Department, DepartmentType } from "../types/department.types";
 import { AgentHealth, AgentMood } from "../types/department-agent.types";
-import { VectorRecord, TextVectorQuery } from "../types/vector-store.types";
+import {
+  VectorRecord,
+  TextVectorQuery,
+  VectorQuery,
+} from "../types/vector-store.types";
 
 interface PerformanceMetrics {
   efficiency: number;
@@ -233,8 +237,9 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
 
     // Calculate averages
     if (agents.length > 0) {
-      for (const key in stats.averages) {
-        stats.averages[key] = stats.averages[key] / agents.length;
+      const averages = stats.averages as { [key: string]: number };
+      for (const key in averages) {
+        averages[key] = averages[key] / agents.length;
       }
     }
 
@@ -265,9 +270,13 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
     );
     if (!department) throw new Error("Department not found");
 
-    // Get performance records from vector store
-    const vectorQuery: TextVectorQuery<PerformanceMetadata> = {
-      textQuery: `Department ${department.name} performance update`,
+    const textQuery = `Department ${department.name} performance update`;
+    const vector = await appStore.services.vectorStore.createEmbedding(
+      textQuery
+    );
+
+    const vectorQuery: VectorQuery<PerformanceMetadata> = {
+      vector,
       filter: {
         type: { $eq: "district" },
         departmentId: { $eq: id },

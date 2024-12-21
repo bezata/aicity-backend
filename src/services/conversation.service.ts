@@ -1,6 +1,11 @@
 import { EventEmitter } from "events";
 import { Agent } from "../types/agent.types";
-import { Message } from "../types/conversation.types";
+import {
+  Message,
+  ConversationState,
+  ChatMetadata,
+} from "../types/conversation.types";
+import { ConversationStyle } from "../types/common.types";
 import { TogetherService } from "./together.service";
 import { VectorStoreService } from "./vector-store.service";
 import { CityService } from "./city.service";
@@ -316,15 +321,20 @@ ${memories.memories
     };
   }
 
-  private messageFromMetadata(match: any): Message {
+  private messageFromMetadata(match: {
+    id: string;
+    metadata: ChatMetadata;
+  }): Message {
     return {
       id: match.id,
       agentId: match.metadata.agentId,
       content: match.metadata.content,
       timestamp: match.metadata.timestamp,
-      role: "assistant",
-      sentiment: parseFloat(match.metadata.sentiment),
-      topics: match.metadata.topics?.split(","),
+      role: match.metadata.role,
+      sentiment: match.metadata.sentiment
+        ? parseFloat(match.metadata.sentiment)
+        : undefined,
+      topics: match.metadata.topics,
     };
   }
 
@@ -356,5 +366,163 @@ ${memories.memories
     });
 
     return Array.from(topics);
+  }
+
+  async generateGroupResponse(
+    agents: Agent[],
+    context: {
+      location?: { districtId: string; coordinates: [number, number] };
+      urgency?: number;
+      topic?: string;
+      collaborationId?: string;
+    } = {}
+  ): Promise<string> {
+    const responses = await Promise.all(
+      agents.map((agent) => this.generateMessage(agent, context))
+    );
+
+    // Combine responses and generate a cohesive group response
+    const combinedContext = responses.join("\n\n");
+    const groupPrompt = `Based on the following agent responses, generate a cohesive group response that incorporates the key points and maintains consensus:\n\n${combinedContext}`;
+
+    const sentimentAnalyzer: Agent = {
+      id: "group-response",
+      name: "Group Response Generator",
+      personality: "analytical",
+      systemPrompt:
+        "Generate a cohesive group response that maintains consensus.",
+      interests: ["group dynamics"],
+      preferredStyle: "formal" as ConversationStyle,
+      traits: {
+        curiosity: 0.5,
+        enthusiasm: 0.5,
+        formality: 0.8,
+        empathy: 0.8,
+        analyticalThinking: 1,
+        creativity: 0.7,
+      },
+      memoryWindowSize: 5,
+      emotionalRange: {
+        min: 0,
+        max: 1,
+      },
+    };
+
+    return await this.togetherService.generateResponse(sentimentAnalyzer, [
+      {
+        id: crypto.randomUUID(),
+        agentId: "system",
+        content: groupPrompt,
+        timestamp: Date.now(),
+        role: "user",
+      },
+    ]);
+  }
+
+  async getConversation(conversationId: string): Promise<Message[]> {
+    const messages = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding(
+        `conversation ${conversationId}`
+      ),
+      filter: {
+        type: { $eq: "conversation" },
+        conversationId: { $eq: conversationId },
+      },
+      topK: 100,
+    });
+
+    return messages.matches
+      .map((match: { id: string; metadata: ChatMetadata }) =>
+        this.messageFromMetadata(match)
+      )
+      .sort((a: Message, b: Message) => a.timestamp - b.timestamp);
+  }
+
+  async getState(conversationId: string): Promise<ConversationState> {
+    const messages = await this.getConversation(conversationId);
+    const lastMessage = messages[messages.length - 1];
+    const now = Date.now();
+
+    return {
+      conversationId,
+      lastMessageTimestamp: lastMessage?.timestamp || now,
+      lastInteractionTime: lastMessage?.timestamp || now,
+      messageCount: messages.length,
+      participants: Array.from(new Set(messages.map((m) => m.agentId))),
+      topics: this.aggregateTopics(messages),
+      currentTopics: new Set(this.aggregateTopics(messages)),
+      sentiment: this.calculateAverageSentiment(messages),
+      status: this.determineConversationStatus(messages),
+      momentum: messages.length > 0 ? Math.min(1, messages.length / 10) : 0,
+      silenceDuration: lastMessage ? now - lastMessage.timestamp : 0,
+      silenceProbability: lastMessage
+        ? Math.min(1, (now - lastMessage.timestamp) / (30 * 60 * 1000))
+        : 1,
+      interactionCount: messages.length,
+      timeOfDay: new Date().toLocaleTimeString(),
+      topicExhaustion: new Map(
+        this.aggregateTopics(messages).map((topic) => [topic, 0])
+      ),
+      currentStyle: "casual",
+      emotionalState: 0,
+      turnsInCurrentTopic: 0,
+    };
+  }
+
+  private aggregateTopics(messages: Message[]): string[] {
+    const topics = new Set<string>();
+    messages.forEach((message) => {
+      message.topics?.forEach((topic) => topics.add(topic));
+    });
+    return Array.from(topics);
+  }
+
+  private calculateAverageSentiment(messages: Message[]): number {
+    const sentiments = messages
+      .map((m) => m.sentiment)
+      .filter((s): s is number => s !== undefined);
+    return sentiments.length
+      ? sentiments.reduce((a, b) => a + b, 0) / sentiments.length
+      : 0.5;
+  }
+
+  private determineConversationStatus(
+    messages: Message[]
+  ): ConversationState["status"] {
+    if (messages.length === 0) return "inactive";
+    const lastMessageTime = messages[messages.length - 1].timestamp;
+    const timeSinceLastMessage = Date.now() - lastMessageTime;
+
+    if (timeSinceLastMessage > 30 * 60 * 1000) return "inactive"; // 30 minutes
+    if (timeSinceLastMessage > 5 * 60 * 1000) return "idle"; // 5 minutes
+    return "active";
+  }
+
+  async getConversations(): Promise<Message[][]> {
+    const messages = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding("all conversations"),
+      filter: {
+        type: { $eq: "conversation" },
+      },
+      topK: 1000,
+    });
+
+    const conversationMap = new Map<string, Message[]>();
+
+    messages.matches.forEach(
+      (match: { id: string; metadata: ChatMetadata }) => {
+        const conversationId = match.metadata.conversationId;
+        if (!conversationMap.has(conversationId)) {
+          conversationMap.set(conversationId, []);
+        }
+        conversationMap
+          .get(conversationId)
+          ?.push(this.messageFromMetadata(match));
+      }
+    );
+
+    return Array.from(conversationMap.values()).map((messages) =>
+      messages.sort((a, b) => a.timestamp - b.timestamp)
+    );
   }
 }

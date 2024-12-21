@@ -5,6 +5,7 @@ import {
   Artist,
   CulturalMetrics,
   CulturalAtmosphere,
+  SocialMood,
 } from "../types/culture.types";
 import { WeatherCondition } from "../types/weather.types";
 import { VectorStoreService } from "./vector-store.service";
@@ -158,7 +159,7 @@ export class CultureService extends EventEmitter {
   private async initializeCulturalSystem() {
     // Start cultural cycles
     setInterval(() => this.generateEvents(), 1000 * 60 * 60 * 24); // Daily
-    setInterval(() => this.updateMetrics(), 1000 * 60 * 60); // Hourly
+    setInterval(() => this.updateMetricsPeriodically(), 1000 * 60 * 60); // Hourly
     setInterval(() => this.curateCulturalExperiences(), 1000 * 60 * 30); // Every 30 minutes
 
     // Listen to city events
@@ -167,6 +168,11 @@ export class CultureService extends EventEmitter {
       "rhythmUpdated",
       this.synchronizeEvents.bind(this)
     );
+  }
+
+  private async updateMetricsPeriodically(): Promise<void> {
+    const metrics = await this.calculateCulturalMetrics();
+    await this.updateMetrics("system", metrics);
   }
 
   async generateEvents() {
@@ -373,7 +379,7 @@ export class CultureService extends EventEmitter {
 
     // Adjust for weather conditions
     const weatherImpact = this.calculateWeatherImpact(
-      weather || "clear",
+      (weather || "clear") as unknown as WeatherCondition,
       event.location.venue.includes("indoor")
     );
 
@@ -545,11 +551,6 @@ export class CultureService extends EventEmitter {
       culturalRepresentation: this.analyzeCulturalRepresentation(events),
       participationDemographics: await this.analyzeParticipation(events),
     };
-  }
-
-  private async updateMetrics() {
-    this.culturalMetrics = await this.calculateCulturalMetrics();
-    this.emit("metricsUpdated", this.culturalMetrics);
   }
 
   private async adaptToWeather(weather: any) {
@@ -1593,5 +1594,115 @@ export class CultureService extends EventEmitter {
       religionId,
       followers: religion.followers,
     });
+  }
+
+  async createEvent(event: CulturalEvent): Promise<CulturalEvent> {
+    const newEvent = {
+      ...event,
+      id: event.id || crypto.randomUUID(),
+      status: event.status || "upcoming",
+      startTime: event.startTime || new Date().toISOString(),
+      endTime:
+        event.endTime ||
+        new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      participants: event.participants || [],
+      impact: event.impact || {
+        social: 0,
+        cultural: 0,
+        economic: 0,
+      },
+    };
+
+    this.events.set(newEvent.id, newEvent);
+    this.emit("eventCreated", newEvent);
+    return newEvent;
+  }
+
+  async updateEvent(
+    id: string,
+    eventData: Partial<CulturalEvent>
+  ): Promise<CulturalEvent> {
+    const existingEvent = this.events.get(id);
+    if (!existingEvent) {
+      throw new Error("Event not found");
+    }
+
+    const updatedEvent = {
+      ...existingEvent,
+      ...eventData,
+      id, // Preserve original ID
+    };
+
+    this.events.set(id, updatedEvent);
+    this.emit("eventUpdated", updatedEvent);
+    return updatedEvent;
+  }
+
+  async deleteEvent(id: string): Promise<void> {
+    const event = this.events.get(id);
+    if (!event) {
+      throw new Error("Event not found");
+    }
+
+    this.events.delete(id);
+    this.emit("eventDeleted", id);
+  }
+
+  async getEvent(id: string): Promise<CulturalEvent> {
+    const event = this.events.get(id);
+    if (!event) {
+      throw new Error("Event not found");
+    }
+    return event;
+  }
+
+  async listEvents(): Promise<CulturalEvent[]> {
+    return Array.from(this.events.values());
+  }
+
+  async getAtmosphere(location: {
+    districtId: string;
+    coordinates: [number, number];
+  }): Promise<CulturalAtmosphere> {
+    const weather = await this.weatherService.getCurrentWeather();
+    const socialMood = (await this.socialDynamicsService.getCommunityMood(
+      location.districtId
+    )) as SocialMood;
+
+    return {
+      harmonyIndex: this.calculateHarmonyIndex(socialMood),
+      culturalTension: this.calculateCulturalTension(location),
+      mood: socialMood.mood || "neutral",
+      intensity: socialMood.intensity || 0.5,
+      weatherInfluence: weather
+        ? this.calculateWeatherImpact(
+            weather as unknown as WeatherCondition,
+            false
+          )
+        : 0,
+    };
+  }
+
+  private calculateHarmonyIndex(socialMood: SocialMood): number {
+    return (socialMood.positivity || 0.5) * (socialMood.engagement || 0.5);
+  }
+
+  private calculateCulturalTension(location: { districtId: string }): number {
+    const events = Array.from(this.events.values()).filter(
+      (e) => e.location.districtId === location.districtId
+    );
+    return Math.max(0, 1 - events.length / 10); // Lower tension with more events
+  }
+
+  async updateMetrics(
+    eventId: string,
+    metrics: Partial<CulturalMetrics>
+  ): Promise<void> {
+    const event = await this.getEvent(eventId);
+    this.culturalMetrics = {
+      ...this.culturalMetrics,
+      ...metrics,
+    };
+    this.emit("metricsUpdated", this.culturalMetrics);
   }
 }

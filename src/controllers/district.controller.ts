@@ -41,11 +41,23 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
           residentAgents: [],
           visitorAgents: [],
           metrics: {
-            noise: 0.3,
-            crowding: 0.4,
             safety: 0.8,
             cleanliness: 0.7,
+            noise: 0.3,
+            crowding: 0.4,
             ambiance: 0.5,
+            economicGrowth: 0.6,
+            propertyValues: 0.7,
+            businessActivity: 0.6,
+            infrastructureQuality: 0.7,
+            publicServiceAccess: 0.6,
+            transportEfficiency: 0.7,
+            culturalVibrancy: 0.8,
+            communityWellbeing: 0.7,
+            socialCohesion: 0.8,
+            energyEfficiency: 0.7,
+            greenSpaceCoverage: 0.6,
+            environmentalHealth: 0.7,
           },
           schedules: [],
         };
@@ -137,10 +149,29 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
     async ({ params: { id }, body, store }) => {
       const appStore = store as AppStore;
       try {
+        const scheduleData = {
+          weekday: generateSchedule(
+            body.schedule.startTime,
+            body.schedule.endTime,
+            body.schedule.frequency
+          ),
+          weekend: generateSchedule(
+            body.schedule.startTime,
+            body.schedule.endTime,
+            body.schedule.frequency * 1.5
+          ),
+          holidays: [],
+        };
+
         const hub = await appStore.services.districtService.addTransportHub(
           id,
-          body
+          {
+            type: body.type,
+            capacity: body.capacity,
+            schedule: scheduleData,
+          }
         );
+
         return { success: true, data: hub };
       } catch (error) {
         console.error(`Failed to add transport hub to district ${id}:`, error);
@@ -289,7 +320,12 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
       const memories = await appStore.services.cityMemory.getDistrictMemories(
         id,
         {
-          type: query.type,
+          type: query.type as
+            | "environmental"
+            | "cultural"
+            | "social"
+            | "historical"
+            | undefined,
           fromTimestamp: query.fromTimestamp
             ? parseInt(query.fromTimestamp)
             : undefined,
@@ -320,3 +356,20 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
       code,
     };
   });
+
+function generateSchedule(
+  startTime: string,
+  endTime: string,
+  frequency: number
+): string[] {
+  const schedule: string[] = [];
+  let current = new Date(`1970-01-01T${startTime}`);
+  const end = new Date(`1970-01-01T${endTime}`);
+
+  while (current < end) {
+    schedule.push(current.toTimeString().slice(0, 5));
+    current.setMinutes(current.getMinutes() + frequency);
+  }
+
+  return schedule;
+}

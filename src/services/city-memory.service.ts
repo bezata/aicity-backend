@@ -2,6 +2,10 @@ import { EventEmitter } from "events";
 import { VectorStoreService } from "./vector-store.service";
 import { CultureService } from "../types/culture.types";
 import _ from "lodash";
+import { LandmarkService } from "../services/landmark.service";
+import { DistrictService } from "./district.service";
+import { SmartInfrastructureService } from "./smart-infrastructure.service";
+import { CityEvent } from "../types/city-events";
 
 interface CityMemory {
   type: "historical" | "cultural" | "social" | "environmental";
@@ -49,7 +53,8 @@ export class CityMemoryService extends EventEmitter {
 
   constructor(
     private vectorStore: VectorStoreService,
-    private culturalService: CultureService
+    private culturalService: CultureService,
+    private landmarkService: LandmarkService
   ) {
     super();
     this.initializeMemoryService();
@@ -417,7 +422,7 @@ export class CityMemoryService extends EventEmitter {
     if (locationMentions.length > 0) {
       return {
         coordinates: locationMentions[0].coordinates,
-        landmark: locationMentions[0].landmark,
+        landmark: locationMentions[0].name,
       };
     }
 
@@ -429,12 +434,41 @@ export class CityMemoryService extends EventEmitter {
 
   private async extractLocationMentions(text: string): Promise<
     Array<{
-      landmark: string;
+      name: string;
       coordinates: [number, number];
     }>
   > {
-    // Implementation of location extraction
-    return [];
+    const mentions: Array<{
+      name: string;
+      coordinates: [number, number];
+    }> = [];
+
+    // Get all landmarks
+    const landmarks = await this.landmarkService.getAllLandmarks();
+    const lowerText = text.toLowerCase();
+
+    // Direct matching
+    for (const landmark of landmarks) {
+      if (lowerText.includes(landmark.name.toLowerCase())) {
+        mentions.push({
+          name: landmark.name,
+          coordinates: landmark.coordinates,
+        });
+      }
+    }
+
+    // Store the extracted locations for future reference
+    await this.vectorStore.upsert({
+      id: `location-mentions-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(text),
+      metadata: {
+        type: "district",
+        mentions: mentions.map((m) => m.name).join(","),
+        timestamp: Date.now(),
+      },
+    });
+
+    return mentions;
   }
 
   private async processMemoryResults(matches: any[]): Promise<CityMemory[]> {

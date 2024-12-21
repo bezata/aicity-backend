@@ -21,34 +21,70 @@ export interface SmartDevice {
   // ... rest of the interface
 }
 
+export type SystemType =
+  | "traffic"
+  | "power"
+  | "water"
+  | "waste"
+  | "transportation"
+  | "digital"
+  | "pedestrian"
+  | "recycling";
+
 export interface SmartSystem {
   id: string;
-  type:
-    | "traffic"
-    | "power"
-    | "water"
-    | "waste"
-    | "transportation"
-    | "digital"
-    | "pedestrian";
-  status: "active" | "maintenance" | "offline";
+  type: SystemType;
+  status: "active" | "inactive" | "maintenance";
   location: {
     districtId: string;
     coordinates: [number, number];
   };
   metrics: {
-    efficiency: number;
-    reliability: number;
     utilization: number;
-    connectivity: number;
-    accessibility: number;
+    efficiency: number;
+    connectivity?: number;
+    accessibility?: number;
   };
-  lastUpdate: number;
-  nextMaintenance?: number;
-  alerts: Array<{
-    type: string;
-    severity: number;
-    message: string;
-    timestamp: number;
-  }>;
+  consumption?: number;
+  generation?: number;
+  efficiency?: number;
+}
+
+export interface WaterQualityMetrics {
+  ph: number;
+  turbidity: number;
+  dissolvedOxygen: number;
+  conductivity: number;
+  temperature: number;
+}
+
+export interface DistrictInfrastructure {
+  id?: string;
+  districtId?: string;
+  systems: SmartSystem[];
+  status?: "operational" | "degraded" | "offline";
+  lastUpdate?: number;
+  resources: {
+    water: {
+      consumption: number;
+      capacity: number;
+    };
+    power: {
+      consumption: number;
+      capacity: number;
+    };
+    data: {
+      usage: number;
+      capacity: number;
+    };
+  };
+}
+
+export interface Connection {
+  sourceId: string;
+  destinationCoordinates: [number, number];
+  capacity: number;
+  load: number;
+  status: "active" | "inactive" | "maintenance";
+  priority: number;
 }

@@ -7,11 +7,14 @@ export class CityContextManager {
   private context: CityContext;
   private updateCallbacks: ((update: CityUpdate) => void)[] = [];
 
-  constructor() {
-    this.context = this.initializeContext();
+  constructor(initialContext?: Partial<CityContext>) {
+    this.context = {
+      ...this.getDefaultContext(),
+      ...initialContext,
+    };
   }
 
-  private initializeContext(): CityContext {
+  private getDefaultContext(): CityContext {
     return {
       districts: new Map(),
       agents: new Map(),
@@ -41,72 +44,25 @@ export class CityContextManager {
     };
   }
 
-  updateMetric(metric: CityMetric, value: number) {
-    this.context.metrics[metric] = Math.max(0, Math.min(1, value));
+  updateContext(update: Partial<CityContext>) {
+    this.context = {
+      ...this.context,
+      ...update,
+      state: {
+        ...this.context.state,
+        ...update.state,
+      },
+      metrics: {
+        ...this.context.metrics,
+        ...update.metrics,
+      },
+    };
     this.notifyUpdate({
-      type: "metric",
-      data: { metric, value },
+      type: "state",
+      data: this.context,
       timestamp: Date.now(),
       source: "cityContext",
     });
-  }
-
-  addDistrict(district: District) {
-    this.context.districts.set(district.id, district);
-    this.recalculateMetrics();
-  }
-
-  addAgent(agent: Agent) {
-    this.context.agents.set(agent.id, agent);
-  }
-
-  addEvent(event: CityEvent) {
-    this.context.state.activeEvents.push(event);
-    this.notifyUpdate({
-      type: "event",
-      data: event,
-      timestamp: Date.now(),
-      source: "cityContext",
-    });
-    this.recalculateMetrics();
-  }
-
-  private recalculateMetrics() {
-    // Calculate sustainability
-    const sustainability = this.calculateSustainability();
-    this.updateMetric("sustainability", sustainability);
-
-    // Calculate livability
-    const livability = this.calculateLivability();
-    this.updateMetric("livability", livability);
-
-    // Calculate efficiency
-    const efficiency = this.calculateEfficiency();
-    this.updateMetric("efficiency", efficiency);
-
-    // Calculate safety
-    const safety = this.calculateSafety();
-    this.updateMetric("safety", safety);
-  }
-
-  private calculateSustainability(): number {
-    // Implementation based on green spaces, energy usage, etc.
-    return 0.7; // Placeholder
-  }
-
-  private calculateLivability(): number {
-    // Implementation based on amenities, air quality, etc.
-    return 0.8; // Placeholder
-  }
-
-  private calculateEfficiency(): number {
-    // Implementation based on resource utilization, transport flow, etc.
-    return 0.6; // Placeholder
-  }
-
-  private calculateSafety(): number {
-    // Implementation based on emergency events, crime rates, etc.
-    return 0.9; // Placeholder
   }
 
   onUpdate(callback: (update: CityUpdate) => void) {
@@ -121,11 +77,3 @@ export class CityContextManager {
     return this.context;
   }
 }
-
-export const getCityContext = async (weather: any, mood: any) => {
-  return `Current City Status:
-Weather: ${weather.condition}, ${weather.temperature}°C
-City Mood: ${mood.dominantEmotion} (${mood.overall.toFixed(2)})
-Community Status: ${mood.factors.community.toFixed(2)}
-Stress Level: ${mood.factors.stress.toFixed(2)}`;
-};

@@ -7,7 +7,7 @@ import { CityRhythmService } from "./city-rhythm.service";
 import { EmergencyType } from "../types/emergency.types";
 import { EmergencyService } from "./emergency.service";
 
-interface WeatherCondition {
+interface WeatherState {
   type: WeatherImpact["type"];
   severity: number; // 0-1
   duration: number; // hours
@@ -16,8 +16,8 @@ interface WeatherCondition {
 }
 
 export class WeatherService extends EventEmitter {
-  private currentWeather: WeatherCondition | null = null;
-  private weatherHistory: WeatherCondition[] = [];
+  private currentWeather: WeatherState | null = null;
+  private weatherHistory: WeatherState[] = [];
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -43,7 +43,7 @@ export class WeatherService extends EventEmitter {
     }
   }
 
-  private generateWeatherCondition(): WeatherCondition {
+  private generateWeatherCondition(): WeatherState {
     const types: WeatherImpact["type"][] = ["rain", "snow", "heat", "storm"];
     const type = types[Math.floor(Math.random() * types.length)];
 
@@ -56,7 +56,7 @@ export class WeatherService extends EventEmitter {
     };
   }
 
-  async setWeatherCondition(weather: WeatherCondition) {
+  async setWeatherCondition(weather: WeatherState) {
     this.currentWeather = weather;
     this.weatherHistory.push(weather);
 
@@ -78,7 +78,7 @@ export class WeatherService extends EventEmitter {
     this.emit("weatherChanged", weather);
   }
 
-  private async applyWeatherImpacts(weather: WeatherCondition) {
+  private async applyWeatherImpacts(weather: WeatherState) {
     const impacts = this.calculateWeatherImpacts(weather);
 
     if (this.transportService) {
@@ -91,11 +91,11 @@ export class WeatherService extends EventEmitter {
     }
 
     // Adjust city rhythm
-    await this.cityRhythmService.adjustForWeather(impacts);
+    await this.cityRhythmService.adjustForWeather(weather);
   }
 
   private calculateWeatherImpacts(
-    weather: WeatherCondition
+    weather: WeatherState
   ): WeatherImpact["affects"] {
     const baseImpacts: Record<WeatherImpact["type"], WeatherImpact["affects"]> =
       {
@@ -134,7 +134,7 @@ export class WeatherService extends EventEmitter {
     };
   }
 
-  private async handleSevereWeather(weather: WeatherCondition) {
+  private async handleSevereWeather(weather: WeatherState) {
     const emergencyType = this.determineEmergencyType(weather);
     if (emergencyType) {
       await this.emergencyService.handleEmergency({
@@ -157,9 +157,7 @@ export class WeatherService extends EventEmitter {
     }
   }
 
-  private determineEmergencyType(
-    weather: WeatherCondition
-  ): EmergencyType | null {
+  private determineEmergencyType(weather: WeatherState): EmergencyType | null {
     if (weather.severity < 0.7) return null;
 
     switch (weather.type) {
@@ -174,11 +172,11 @@ export class WeatherService extends EventEmitter {
     }
   }
 
-  getCurrentWeather(): WeatherCondition | null {
+  getCurrentWeather(): WeatherState | null {
     return this.currentWeather;
   }
 
-  getWeatherHistory(hours: number = 24): WeatherCondition[] {
+  getWeatherHistory(hours: number = 24): WeatherState[] {
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
     return this.weatherHistory.filter((w) => w.startTime >= cutoff);
   }

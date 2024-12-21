@@ -3,8 +3,12 @@ import { VectorStoreService } from "./vector-store.service";
 import { DistrictService } from "./district.service";
 import { SmartInfrastructureService } from "./smart-infrastructure.service";
 import { EnvironmentService } from "./environment.service";
-import { SmartSystem } from "../types/smart-infrastructure.types";
+import {
+  SmartSystem,
+  DistrictInfrastructure,
+} from "../types/smart-infrastructure.types";
 import { DevelopmentProject, GrowthAnalysis } from "../types/development.types";
+import { District } from "../types/district.types";
 
 interface CulturalZoning {
   type: "heritage" | "religious" | "mixed_use" | "modern";
@@ -195,6 +199,24 @@ interface CityChronicle {
   metrics: Record<string, number>;
 }
 
+// Add interface for DevelopmentProjectImpact
+interface DevelopmentProjectImpact {
+  accessibility?: number;
+  socialCohesion?: number;
+  localBenefit?: number;
+}
+
+// Update District type to include missing properties
+interface ExtendedDistrict extends District {
+  agents?: Array<{
+    id: string;
+    status: string;
+  }>;
+  location: {
+    coordinates: [number, number];
+  };
+}
+
 export class DevelopmentService extends EventEmitter {
   private projects: Map<string, DevelopmentProject> = new Map();
   private zoningPlans: Map<string, EnhancedZoningPlan> = new Map();
@@ -330,9 +352,8 @@ export class DevelopmentService extends EventEmitter {
   }
 
   private async assessNetworkUtilization(district: any): Promise<number> {
-    const infrastructure =
-      await this.smartInfrastructure.getDistrictInfrastructure(district.id);
-    return infrastructure.digitalConnectivity;
+    const metrics = await this.calculateInfrastructureMetrics(district.id);
+    return metrics.digitalScore;
   }
 
   private async trackEventFrequency(district: any): Promise<number> {
@@ -632,24 +653,23 @@ export class DevelopmentService extends EventEmitter {
   private calculateCommunityImpact(developments: DevelopmentProject[]): number {
     return (
       developments.reduce((sum, dev) => {
-        const impact = dev.communityImpact || {};
+        const impact = (dev.communityImpact || {}) as DevelopmentProjectImpact;
         return (
           sum +
-          ((impact.accessibility || 0) * 0.3 +
-            (impact.socialCohesion || 0) * 0.4 +
-            (impact.localBenefit || 0) * 0.3)
+          ((impact?.accessibility || 0) * 0.3 +
+            (impact?.socialCohesion || 0) * 0.4 +
+            (impact?.localBenefit || 0) * 0.3)
         );
       }, 0) / developments.length
     );
   }
 
   private async calculateConnectivity(district: any): Promise<number> {
-    const infrastructure =
-      await this.smartInfrastructure.getDistrictInfrastructure(district.id);
+    const metrics = await this.calculateInfrastructureMetrics(district.id);
     return (
-      infrastructure.transportationScore * 0.4 +
-      infrastructure.digitalConnectivity * 0.3 +
-      infrastructure.pedestrianAccess * 0.3
+      metrics.transportScore * 0.4 +
+      metrics.digitalScore * 0.3 +
+      metrics.pedestrianScore * 0.3
     );
   }
 
@@ -786,11 +806,12 @@ export class DevelopmentService extends EventEmitter {
   }
 
   private calculateCommunityBenefit(project: any): number {
-    const localJobs = project.communityBenefits?.jobs || 0;
-    const amenities = project.communityBenefits?.amenities || 0;
-    const services = project.communityBenefits?.services || 0;
-
-    return localJobs * 0.4 + amenities * 0.3 + services * 0.3;
+    const communityFeatures = project.communityFeatures || {};
+    return (
+      (communityFeatures.accessibility || 0.5) * 0.4 +
+      (communityFeatures.socialCohesion || 0.5) * 0.3 +
+      (communityFeatures.localBenefit || 0.5) * 0.3
+    );
   }
 
   private meetsCulturalCriteria(evaluation: any): boolean {
@@ -1091,7 +1112,7 @@ export class DevelopmentService extends EventEmitter {
   async submitProject(
     projectData: Partial<DevelopmentProject>
   ): Promise<DevelopmentProject> {
-    const project: DevelopmentProject = {
+    const project = {
       id: crypto.randomUUID(),
       ...projectData,
       status: "proposed",
@@ -1103,7 +1124,20 @@ export class DevelopmentService extends EventEmitter {
         projectData.location!
       ),
       sustainability: this.generateSustainabilityMetrics({}),
-      culturalImpact: await this.calculateInitialCulturalImpact(projectData),
+      culturalImpact: {
+        culturalPreservation: 0.7,
+        communityEngagement: 0.6,
+        touristAttraction: 0.7,
+        heritagePreservation: (
+          await this.calculateInitialCulturalImpact(projectData)
+        ).heritagePreservation,
+        culturalContinuity: (
+          await this.calculateInitialCulturalImpact(projectData)
+        ).culturalContinuity,
+        religiousConsideration: (
+          await this.calculateInitialCulturalImpact(projectData)
+        ).religiousConsideration,
+      },
       communityFeatures: this.generateCommunityFeatures(projectData),
     } as DevelopmentProject;
 
@@ -1516,7 +1550,7 @@ export class DevelopmentService extends EventEmitter {
         timestamp: Date.now(),
         type: this.determineEventType(event),
         importance: this.calculateEventImportance(event),
-        scope: this.determineEventScope(event),
+        scope: await this.determineEventScope(event),
         title: this.generateEventTitle(event),
         description: this.generateEventDescription(event),
         location: {
@@ -1530,9 +1564,9 @@ export class DevelopmentService extends EventEmitter {
           technological: this.calculateTechnologicalImpact(event),
         },
         participants: {
-          agents: this.identifyInvolvedAgents(event),
-          districts: this.identifyAffectedDistricts(event),
-          systems: this.identifyInvolvedSystems(event),
+          agents: await this.identifyInvolvedAgents(event),
+          districts: await this.identifyAffectedDistricts(event),
+          systems: await this.identifyInvolvedSystems(event),
         },
         relatedEvents: this.findRelatedEvents(event),
         outcomes: {
@@ -1552,7 +1586,7 @@ export class DevelopmentService extends EventEmitter {
           `${chronicle.title} ${chronicle.description} ${chronicle.type} impact on ${chronicle.scope} level`
         ),
         metadata: {
-          type: "chronicle",
+          type: "district",
           chronicleId: chronicle.id,
           eventType: chronicle.type,
           importance: chronicle.importance,
@@ -1593,12 +1627,12 @@ export class DevelopmentService extends EventEmitter {
     );
   }
 
-  private determineEventScope(event: any): CityChronicle["scope"] {
-    const affectedDistricts = this.identifyAffectedDistricts(event);
-    if (
-      affectedDistricts.length >
-      this.districtService.getAllDistricts().length * 0.7
-    ) {
+  private async determineEventScope(
+    event: any
+  ): Promise<CityChronicle["scope"]> {
+    const affectedDistricts = await this.identifyAffectedDistricts(event);
+    const allDistricts = await this.districtService.getAllDistricts();
+    if (affectedDistricts.length > allDistricts.length * 0.7) {
       return "global";
     }
     if (affectedDistricts.length > 1) {
@@ -1641,27 +1675,37 @@ export class DevelopmentService extends EventEmitter {
     return (vitals?.computationalLoad || 0.5) * event.impact;
   }
 
-  private identifyInvolvedAgents(event: any): string[] {
-    const district = this.districtService.getDistrict(event.data.districtId);
-    return (
-      district?.agents
-        ?.filter((a: any) => a.status === "active")
-        .map((a: any) => a.id) || []
-    );
-  }
-
-  private identifyAffectedDistricts(event: any): string[] {
-    const districts = this.districtService.getAllDistricts();
-    return districts
-      .filter((d) => this.isDistrictAffected(d, event))
-      .map((d) => d.id);
-  }
-
-  private identifyInvolvedSystems(event: any): string[] {
-    const infrastructure = this.smartInfrastructure.getDistrictInfrastructure(
+  private async identifyInvolvedAgents(event: any): Promise<string[]> {
+    const district = (await this.districtService.getDistrict(
       event.data.districtId
+    )) as ExtendedDistrict;
+    return (
+      district?.agents?.filter((a) => a.status === "active").map((a) => a.id) ||
+      []
     );
-    return infrastructure.systems.map((s) => s.id);
+  }
+
+  private async identifyAffectedDistricts(event: any): Promise<string[]> {
+    const districts = await this.districtService.getAllDistricts();
+    const affectedDistricts: ExtendedDistrict[] = [];
+
+    // Process each district sequentially
+    for (const district of districts) {
+      const extendedDistrict = district as ExtendedDistrict;
+      if (await this.isDistrictAffected(extendedDistrict, event)) {
+        affectedDistricts.push(extendedDistrict);
+      }
+    }
+
+    return affectedDistricts.map((d) => d.id);
+  }
+
+  private async identifyInvolvedSystems(event: any): Promise<string[]> {
+    const infrastructure =
+      await this.smartInfrastructure.getDistrictInfrastructure(
+        event.data.districtId
+      );
+    return infrastructure.systems.map((s: SmartSystem) => s.id);
   }
 
   private findRelatedEvents(event: any): string[] {
@@ -1714,23 +1758,157 @@ export class DevelopmentService extends EventEmitter {
     return recentEvents.length / 24; // Events per hour
   }
 
-  private isDistrictAffected(district: any, event: any): boolean {
-    const distance = this.calculateDistrictDistance(
+  private async isDistrictAffected(
+    district: ExtendedDistrict,
+    event: any
+  ): Promise<boolean> {
+    const distance = await this.calculateDistrictDistance(
       district,
       event.data.districtId
     );
     return distance < event.impact * 100; // Arbitrary radius based on impact
   }
 
-  private calculateDistrictDistance(
-    district1: any,
+  private async calculateDistrictDistance(
+    district1: ExtendedDistrict,
     district2Id: string
-  ): number {
-    const district2 = this.districtService.getDistrict(district2Id);
+  ): Promise<number> {
+    const district2 = (await this.districtService.getDistrict(
+      district2Id
+    )) as ExtendedDistrict;
     if (!district2) return Infinity;
 
     const [x1, y1] = district1.location.coordinates;
     const [x2, y2] = district2.location.coordinates;
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+  }
+
+  private calculateInfrastructureScore(
+    infrastructure: DistrictInfrastructure
+  ): number {
+    const transportSystems = infrastructure.systems.filter(
+      (s) => s.type === "transportation" || s.type === "traffic"
+    );
+    const digitalSystems = infrastructure.systems.filter(
+      (s) => s.type === "digital"
+    );
+    const pedestrianSystems = infrastructure.systems.filter(
+      (s) => s.type === "pedestrian"
+    );
+
+    const transportScore =
+      transportSystems.length > 0
+        ? transportSystems.reduce((sum, s) => sum + s.metrics.efficiency, 0) /
+          transportSystems.length
+        : 0.5;
+
+    const digitalScore =
+      digitalSystems.length > 0
+        ? digitalSystems.reduce(
+            (sum, s) => sum + (s.metrics.connectivity || 0),
+            0
+          ) / digitalSystems.length
+        : 0.5;
+
+    const pedestrianScore =
+      pedestrianSystems.length > 0
+        ? pedestrianSystems.reduce(
+            (sum, s) => sum + (s.metrics.accessibility || 0),
+            0
+          ) / pedestrianSystems.length
+        : 0.5;
+
+    return (transportScore + digitalScore + pedestrianScore) / 3;
+  }
+
+  private async calculateInfrastructureMetrics(districtId: string) {
+    const infrastructure =
+      await this.smartInfrastructure.getDistrictInfrastructure(districtId);
+    const score = this.calculateInfrastructureScore(infrastructure);
+
+    return {
+      transportScore: this.calculateTransportScore(infrastructure.systems),
+      digitalScore: this.calculateDigitalScore(infrastructure.systems),
+      pedestrianScore: this.calculatePedestrianScore(infrastructure.systems),
+      overallScore: score,
+    };
+  }
+
+  private calculateTransportScore(systems: SmartSystem[]): number {
+    const transportSystems = systems.filter(
+      (s) => s.type === "transportation" || s.type === "traffic"
+    );
+    return transportSystems.length > 0
+      ? transportSystems.reduce((sum, s) => sum + s.metrics.efficiency, 0) /
+          transportSystems.length
+      : 0.5;
+  }
+
+  private calculateDigitalScore(systems: SmartSystem[]): number {
+    const digitalSystems = systems.filter((s) => s.type === "digital");
+    return digitalSystems.length > 0
+      ? digitalSystems.reduce(
+          (sum, s) => sum + (s.metrics.connectivity || 0),
+          0
+        ) / digitalSystems.length
+      : 0.5;
+  }
+
+  private calculatePedestrianScore(systems: SmartSystem[]): number {
+    const pedestrianSystems = systems.filter((s) => s.type === "pedestrian");
+    return pedestrianSystems.length > 0
+      ? pedestrianSystems.reduce(
+          (sum, s) => sum + (s.metrics.accessibility || 0),
+          0
+        ) / pedestrianSystems.length
+      : 0.5;
+  }
+
+  async evaluateInfrastructure(districtId: string) {
+    const infrastructure =
+      await this.smartInfrastructure.getDistrictInfrastructure(districtId);
+    const metrics = await this.calculateInfrastructureMetrics(districtId);
+
+    return {
+      transportationScore: metrics.transportScore,
+      digitalConnectivity: metrics.digitalScore,
+      pedestrianAccess: metrics.pedestrianScore,
+      resourceUtilization: this.calculateResourceUtilization(infrastructure),
+      overallScore: metrics.overallScore,
+    };
+  }
+
+  private calculateResourceUtilization(
+    infrastructure: DistrictInfrastructure
+  ): number {
+    const waterUtil =
+      infrastructure.resources.water.consumption /
+      infrastructure.resources.water.capacity;
+    const powerUtil =
+      infrastructure.resources.power.consumption /
+      infrastructure.resources.power.capacity;
+    const dataUtil =
+      infrastructure.resources.data.usage /
+      infrastructure.resources.data.capacity;
+
+    return (waterUtil + powerUtil + dataUtil) / 3;
+  }
+
+  private async calculateConnectivityScore(
+    infrastructure: DistrictInfrastructure
+  ): Promise<number> {
+    const metrics = await this.calculateInfrastructureMetrics(
+      infrastructure.districtId!
+    );
+    return metrics.digitalScore;
+  }
+
+  private calculateInfrastructureEfficiency(
+    infrastructure: DistrictInfrastructure
+  ): number {
+    const metrics = this.calculateInfrastructureScore(infrastructure);
+    return (
+      metrics * 0.4 + this.calculateResourceUtilization(infrastructure) * 0.6
+    );
   }
 }

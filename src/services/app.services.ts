@@ -26,6 +26,7 @@ import { SocialDynamicsService } from "./social-dynamics.service";
 import { CityRhythmService } from "./city-rhythm.service";
 import { TransportService } from "./transport.service";
 import { EconomyService } from "./economy.service";
+import { LandmarkService } from "./landmark.service";
 
 // Define store type
 export type AppStore = {
@@ -144,10 +145,14 @@ const cultureService = new CultureService(
   socialDynamicsService,
   cityRhythmService
 );
-
+const landmarkService = new LandmarkService();
 // Initialize remaining services
 const agentCulture = new AgentCultureService(cultureService, vectorStore);
-const cityMemory = new CityMemoryService(vectorStore, cultureService);
+const cityMemory = new CityMemoryService(
+  vectorStore,
+  cultureService,
+  landmarkService
+);
 const analyticsService = new AnalyticsService();
 const districtService = new DistrictService(
   cityService,
@@ -166,8 +171,13 @@ const cityEventsService = new CityEventsService(
   vectorStore,
   districtService
 );
-const environmentService = new EnvironmentService();
 const smartInfrastructureService = new SmartInfrastructureService();
+const environmentService = new EnvironmentService(
+  vectorStore,
+  districtService,
+  smartInfrastructureService
+);
+
 const departmentAgentService = new DepartmentAgentService(togetherService);
 const developmentService = new DevelopmentService(
   vectorStore,
@@ -214,7 +224,11 @@ export const createStore = (): AppStore => ({
     developmentService,
     environmentService,
     spatialCoordination,
-    cityMemory: new CityMemoryService(vectorStore, cultureService),
+    cityMemory: new CityMemoryService(
+      vectorStore,
+      cultureService,
+      landmarkService
+    ),
     culture: cultureService,
     economyService,
   },

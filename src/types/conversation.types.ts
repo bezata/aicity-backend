@@ -6,24 +6,29 @@ export interface Message {
   content: string;
   timestamp: number;
   role: "assistant" | "user";
-  context?: string;
-  style?: ConversationStyle;
-  topics?: string[];
   sentiment?: number;
+  topics?: string[];
 }
 
 export interface ConversationState {
-  momentum: number; // 0 to 1
+  conversationId: string;
+  lastMessageTimestamp: number;
   lastInteractionTime: number;
+  messageCount: number;
+  participants: string[];
+  topics: string[];
   currentTopics: Set<string>;
-  topicExhaustion: Map<string, number>;
+  sentiment: number;
+  status: "active" | "idle" | "inactive";
+  momentum: number;
+  silenceDuration: number;
   silenceProbability: number;
-  currentStyle: ConversationStyle;
+  interactionCount: number;
+  timeOfDay: string;
+  topicExhaustion: Map<string, number>;
+  currentStyle: string;
   emotionalState: number;
   turnsInCurrentTopic: number;
-  silenceDuration: number;
-  timeOfDay: string;
-  interactionCount: number;
 }
 
 export interface Event {
@@ -43,9 +48,5 @@ export interface ChatMetadata {
   topics?: string[];
   style?: string;
   sentiment?: string;
-  type?: "conversation" | "collaboration" | "district" | "transport";
-  eventId?: string;
-  agents?: string[];
-  decisions?: string;
-  status?: string;
+  type?: string;
 }

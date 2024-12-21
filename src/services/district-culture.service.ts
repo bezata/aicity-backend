@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { CultureService } from "./culture.service";
 import { DistrictService } from "./district.service";
 import { VectorStoreService } from "./vector-store.service";
+import { District, DistrictMetrics } from "../types/district.types";
 
 interface ReligiousZone {
   id: string;
@@ -45,12 +46,6 @@ interface CulturalDistrict {
     engagement: number;
     harmony: number;
   };
-}
-
-interface DistrictMetrics {
-  culturalActivity: number;
-  communityEngagement: number;
-  religiousHarmony: number;
 }
 
 export class DistrictCultureService extends EventEmitter {
@@ -141,7 +136,7 @@ export class DistrictCultureService extends EventEmitter {
         event
       ),
       religiousHarmony: await this.calculateReligiousHarmony(district, event),
-    });
+    } as Partial<DistrictMetrics>);
 
     // Store cultural event context
     await this.vectorStore.upsert({

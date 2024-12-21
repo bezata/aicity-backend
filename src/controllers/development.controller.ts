@@ -21,9 +21,13 @@ export const DevelopmentController = new Elysia({ prefix: "/development" })
       const appStore = store as AppStore;
       try {
         const project =
-          await appStore.services.developmentService.submitProject(
-            body as Partial<DevelopmentProject>
-          );
+          await appStore.services.developmentService.submitProject({
+            ...body,
+            location: {
+              ...body.location,
+              coordinates: body.location.coordinates as [number, number],
+            },
+          });
         return { success: true, data: project };
       } catch (error) {
         console.error("Failed to create project:", error);
@@ -41,7 +45,7 @@ export const DevelopmentController = new Elysia({ prefix: "/development" })
         ]),
         location: t.Object({
           districtId: t.String(),
-          coordinates: t.Array(t.Number()),
+          coordinates: t.Array(t.Number(), { minItems: 2, maxItems: 2 }),
         }),
         scale: t.Number(),
         priority: t.Number(),

@@ -1,10 +1,7 @@
 import { Elysia, t } from "elysia";
-import { Stream } from "@elysiajs/stream";
 import { agents } from "../config/agents";
-import type { Agent } from "../types/agent.types";
 import type { Message } from "../types/conversation.types";
 import type { AppStore } from "../services/app.services";
-import { getCityContext } from "../utils/city-context";
 
 export const AIController = new Elysia({ prefix: "/ai" })
   .post(
@@ -40,25 +37,22 @@ export const AIController = new Elysia({ prefix: "/ai" })
           content: body.message,
           timestamp: Date.now(),
           role: "user",
-          context: await getCityContext(
-            await appStore.services.cityService.getCurrentWeather(),
-            await appStore.services.cityService.getCityMood()
-          ),
+          topics: ["city-context"],
         };
 
         console.log("📨 Adding user message:", userMessage);
         await appStore.services.conversationService.addMessage(
           conversationId,
-          userMessage
+          "user",
+          body.message
         );
 
         // Then generate agent response
         console.log("🤖 Generating agent response...");
         const response =
-          await appStore.services.conversationService.generateMessage(
-            conversationId,
-            agent
-          );
+          await appStore.services.conversationService.generateMessage(agent, {
+            topic: body.message,
+          });
         console.log("✅ Generated response:", response);
 
         return new Response(JSON.stringify({ content: response }), {
@@ -104,10 +98,15 @@ export const AIController = new Elysia({ prefix: "/ai" })
         content: message,
       };
 
+      const defaultAgent = agents[0];
+      if (!defaultAgent) {
+        throw new Error("No agents configured");
+      }
+
       const response = await appStore.services.togetherService.generateResponse(
-        agents[0],
+        defaultAgent,
         [testMessage as Message],
-        "You are a helpful assistant."
+        defaultAgent.systemPrompt
       );
 
       return new Response(response);
@@ -126,8 +125,8 @@ export const AIController = new Elysia({ prefix: "/ai" })
     "/chat/:conversationId/:agentId",
     async ({ params: { conversationId, agentId }, store }) => {
       const appStore = store as AppStore;
-      const agent = agents.find((a) => a.id === agentId);
-      if (!agent) {
+      const foundAgent = agents.find((a) => a.id === agentId);
+      if (!foundAgent) {
         return new Response(JSON.stringify({ error: "Agent not found" }), {
           status: 404,
           headers: {
@@ -141,8 +140,8 @@ export const AIController = new Elysia({ prefix: "/ai" })
       try {
         const response =
           await appStore.services.conversationService.generateMessage(
-            conversationId,
-            agent
+            foundAgent,
+            { topic: "chat" }
           );
 
         return new Response(JSON.stringify({ content: response }), {

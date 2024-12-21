@@ -268,17 +268,33 @@ export class CulturalDonationService extends EventEmitter {
 
   private async initiateProjectImplementation(project: CulturalProject) {
     await this.developmentService.submitProject({
-      type: "infrastructure",
-      subtype: project.type,
-      title: project.title,
-      description: project.description,
+      type: project.type,
+      status: "proposed",
       location: {
         districtId: project.districtId,
         coordinates: project.location,
       },
+      timeline: {
+        proposed: Date.now(),
+      },
+      metrics: {
+        costEfficiency: 0.8,
+        communityBenefit: 0.9,
+        economicGrowth: 0.7,
+        qualityOfLife: 0.85,
+      },
+      sustainability: {
+        energyEfficiency: 0.8,
+        greenScore: 0.7,
+        environmentalImpact: 0.75,
+      },
+      culturalImpact: {
+        culturalPreservation: project.expectedImpact.culturalPreservation,
+        communityEngagement: project.expectedImpact.communityEngagement,
+        touristAttraction: project.expectedImpact.touristAttraction,
+        religiousConsideration: project.religiousAffiliation ? 0.9 : undefined,
+      },
       budget: project.donationsReceived,
-      culturalImpact: project.expectedImpact,
-      religiousAspects: project.religiousAffiliation,
     });
 
     project.status = "in_progress";

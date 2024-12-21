@@ -108,7 +108,6 @@ export const AgentController = new Elysia({ prefix: "/agents" })
           content: body.content,
           timestamp: Date.now(),
           role: "user",
-          style: undefined,
           topics: [],
           sentiment: undefined,
         };

@@ -22,11 +22,32 @@ export interface District {
   residentAgents: string[];
   visitorAgents: string[];
   metrics: {
+    // Safety & Environment
     safety: number;
     cleanliness: number;
     noise: number;
     crowding: number;
     ambiance: number;
+
+    // Economic & Development
+    economicGrowth: number;
+    propertyValues: number;
+    businessActivity: number;
+
+    // Infrastructure & Services
+    infrastructureQuality: number;
+    publicServiceAccess: number;
+    transportEfficiency: number;
+
+    // Social & Cultural
+    culturalVibrancy: number;
+    communityWellbeing: number;
+    socialCohesion: number;
+
+    // Sustainability
+    energyEfficiency: number;
+    greenSpaceCoverage: number;
+    environmentalHealth: number;
   };
   schedules: string[];
 }
@@ -55,4 +76,33 @@ export interface LocalEvent {
     outcome: string;
     responsibleAgent: string;
   };
+}
+
+export interface DistrictMetrics {
+  // Safety & Environment
+  safety: number;
+  cleanliness: number;
+  noise: number;
+  crowding: number;
+  ambiance: number;
+
+  // Economic & Development
+  economicGrowth: number;
+  propertyValues: number;
+  businessActivity: number;
+
+  // Infrastructure & Services
+  infrastructureQuality: number;
+  publicServiceAccess: number;
+  transportEfficiency: number;
+
+  // Social & Cultural
+  culturalVibrancy: number;
+  communityWellbeing: number;
+  socialCohesion: number;
+
+  // Sustainability
+  energyEfficiency: number;
+  greenSpaceCoverage: number;
+  environmentalHealth: number;
 }

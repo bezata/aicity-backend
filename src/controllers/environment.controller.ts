@@ -146,7 +146,9 @@ export const EnvironmentController = new Elysia({ prefix: "/environment" })
           id: crypto.randomUUID(),
           type: body.type,
           districtId: body.districtId,
-          boundaries: body.boundaries,
+          boundaries: body.boundaries.map(
+            (coords: number[]): [number, number] => [coords[0], coords[1]]
+          ),
           restrictions: {
             maxEmissions: body.restrictions.maxEmissions,
             noiseLimit: body.restrictions.noiseLimit,
@@ -189,7 +191,10 @@ export const EnvironmentController = new Elysia({ prefix: "/environment" })
           type: body.type,
           location: {
             districtId: body.districtId,
-            coordinates: body.coordinates,
+            coordinates: [body.coordinates[0], body.coordinates[1]] as [
+              number,
+              number
+            ],
           },
           value: 0,
           lastUpdate: Date.now(),

@@ -86,58 +86,118 @@ import type { ConversationStyle } from "../types/common.types";
 import type { ConversationState } from "../types/conversation.types";
 
 export class StyleManager {
-  private styleTransitions = new Map<ConversationStyle, ConversationStyle[]>([
-    ["casual", ["playful", "philosophical"]],
-    ["formal", ["serious", "philosophical"]],
-    ["philosophical", ["formal", "casual"]],
-    ["playful", ["casual", "philosophical"]],
-    ["serious", ["formal", "philosophical"]],
+  private readonly styleTransitions = new Map<
+    ConversationStyle,
+    ConversationStyle[]
+  >([
+    ["casual", ["playful", "empathetic", "adaptable"]],
+    ["formal", ["technical", "precise", "methodical"]],
+    ["technical", ["analytical", "precise", "educational"]],
+    ["empathetic", ["supportive", "nurturing", "adaptable"]],
+    ["analytical", ["technical", "precise", "investigative"]],
+    ["visionary", ["innovative", "creative", "strategic"]],
+    ["nurturing", ["supportive", "empathetic", "mentoring"]],
+    ["precise", ["technical", "methodical", "analytical"]],
+    ["playful", ["creative", "engaging", "adaptable"]],
+    ["supportive", ["empathetic", "nurturing", "mentoring"]],
   ]);
 
-  private stylePrompts = new Map<ConversationStyle, string>([
+  private readonly stylePrompts = new Map<ConversationStyle, string>([
     [
       "casual",
-      `Keep the tone relaxed and friendly. Use:
-- Informal language
-- Occasional emojis
-- Short, simple sentences
-- Personal anecdotes when relevant`,
+      `Keep the conversation friendly and approachable. Use:
+- Conversational language
+- Simple explanations
+- Relatable examples
+- Occasional emojis where appropriate`,
     ],
-
     [
       "formal",
-      `Maintain a professional and structured tone. Use:
-- Proper language and grammar
-- Complete sentences
-- Clear logical structure
-- Professional terminology`,
+      `Maintain a professional and structured approach. Use:
+- Clear, precise language
+- Technical terms when necessary
+- Well-structured explanations
+- Official terminology`,
     ],
-
     [
-      "philosophical",
-      `Engage in deep, thoughtful discussion. Use:
-- Abstract concepts
-- Reflective questions
-- References to philosophical ideas
-- Analytical thinking`,
+      "technical",
+      `Focus on technical accuracy and detail. Use:
+- Technical terminology
+- Precise explanations
+- Data-driven insights
+- Structured information`,
     ],
-
+    [
+      "analytical",
+      `Provide detailed analysis and insights. Use:
+- Logical reasoning
+- Data analysis
+- Systematic approach
+- Clear conclusions`,
+    ],
+    [
+      "precise",
+      `Maintain accuracy and clarity. Use:
+- Exact terminology
+- Clear definitions
+- Specific examples
+- Detailed explanations`,
+    ],
+    [
+      "supportive",
+      `Provide encouragement and guidance. Use:
+- Positive reinforcement
+- Helpful suggestions
+- Patient explanations
+- Constructive feedback`,
+    ],
+    [
+      "empathetic",
+      `Show understanding and support. Use:
+- Acknowledging language
+- Supportive phrases
+- Understanding tone
+- Active listening indicators`,
+    ],
     [
       "playful",
-      `Keep things light and entertaining. Use:
-- Humor and wordplay
-- Playful expressions
-- Light-hearted examples
-- Fun analogies`,
+      `Keep the tone light while being informative. Use:
+- Friendly language
+- Engaging examples
+- Light humor when appropriate
+- Creative explanations`,
     ],
-
     [
-      "serious",
-      `Focus on important matters clearly. Use:
-- Direct language
-- Clear points
-- Relevant examples
-- Factual information`,
+      "adaptable",
+      `Adjust to the conversation flow naturally. Use:
+- Flexible language
+- Context-aware responses
+- Appropriate formality
+- Dynamic engagement`,
+    ],
+    [
+      "strategic",
+      `Focus on planning and outcomes. Use:
+- Goal-oriented language
+- Strategic thinking
+- Clear objectives
+- Action planning`,
+    ],
+    [
+      "innovative",
+      `Encourage creative solutions. Use:
+- Novel approaches
+- Creative thinking
+- Fresh perspectives
+- Innovative ideas`,
+    ],
+    [
+      "methodical",
+      `Follow a structured approach. Use:
+- Step-by-step explanations
+- Clear methodology
+- Systematic process
+- Organized thinking`,
     ],
   ]);
 
@@ -151,12 +211,34 @@ export class StyleManager {
   ): ConversationStyle | null {
     const possibleStyles = this.styleTransitions.get(currentStyle) || [];
 
-    // Higher chance of transition when momentum is low
+    // Adapt style based on conversation state
+    if (
+      state.sentiment < 0.4 &&
+      !["empathetic", "supportive", "nurturing"].includes(currentStyle)
+    ) {
+      return "empathetic";
+    }
+
+    if (state.topics.includes("emergency") || state.topics.includes("alert")) {
+      return "precise";
+    }
+
+    if (
+      state.topics.includes("technical") ||
+      state.topics.includes("infrastructure")
+    ) {
+      return "technical";
+    }
+
+    // Style transition based on momentum and interaction count
     if (state.momentum < 0.3 && Math.random() < 0.4) {
+      if (state.interactionCount > 10) {
+        return "adaptable"; // Transition to adaptable after longer conversations
+      }
       return possibleStyles[Math.floor(Math.random() * possibleStyles.length)];
     }
 
-    // Random transition with low probability
+    // Random transition with low probability for variety
     if (Math.random() < 0.1) {
       return possibleStyles[Math.floor(Math.random() * possibleStyles.length)];
     }
@@ -166,18 +248,26 @@ export class StyleManager {
 
   detectStyle(content: string): ConversationStyle {
     const stylePatterns = new Map<ConversationStyle, RegExp[]>([
-      ["casual", [/\b(hey|hi|hello|lol|haha)\b/i, /😊|😄|🙂/]],
-      ["formal", [/\b(furthermore|additionally|consequently|therefore)\b/i]],
+      ["casual", [/\b(hey|hi|hello|thanks|great)\b/i, /😊|👋|🙂/]],
+      ["formal", [/\b(regarding|accordingly|furthermore|therefore)\b/i]],
+      ["technical", [/\b(specifically|according|data|analysis|system)\b/i]],
+      ["analytical", [/\b(analyze|evaluate|assess|measure|compare)\b/i]],
       [
-        "philosophical",
-        [/\b(existence|consciousness|reality|truth|meaning)\b/i],
+        "empathetic",
+        [/\b(understand|feel|concern|worry|support)\b/i, /❤️|🤝|💪/],
       ],
-      ["playful", [/\b(fun|funny|joke|play|haha|wow)\b/i, /😆|😂|🤣/]],
-      ["serious", [/\b(important|critical|significant|concern|issue)\b/i]],
+      ["supportive", [/\b(help|assist|guide|encourage|improve)\b/i]],
+      ["precise", [/\b(exactly|specifically|precisely|accurately|define)\b/i]],
+      ["playful", [/\b(fun|awesome|cool|wow|amazing)\b/i, /😄|✨|🎉/]],
+      ["adaptable", [/\b(adjust|flexible|adapt|change|flow)\b/i]],
+      ["strategic", [/\b(plan|strategy|goal|objective|outcome)\b/i]],
+      ["innovative", [/\b(new|creative|novel|unique|innovative)\b/i]],
+      ["methodical", [/\b(step|process|method|systematic|organize)\b/i]],
     ]);
 
     const scores = new Map<ConversationStyle, number>();
 
+    // Calculate style scores
     for (const [style, patterns] of stylePatterns) {
       const score = patterns.reduce(
         (acc, pattern) => acc + (pattern.test(content) ? 1 : 0),
@@ -186,6 +276,18 @@ export class StyleManager {
       scores.set(style, score);
     }
 
+    // Weight certain styles based on content characteristics
+    if (content.includes("!")) {
+      scores.set("playful", (scores.get("playful") || 0) + 0.5);
+    }
+    if (content.length > 200) {
+      scores.set("analytical", (scores.get("analytical") || 0) + 1);
+    }
+    if (content.includes("?")) {
+      scores.set("supportive", (scores.get("supportive") || 0) + 0.5);
+    }
+
+    // Find the style with highest score
     let maxScore = 0;
     let detectedStyle: ConversationStyle = "casual";
 

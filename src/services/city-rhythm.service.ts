@@ -3,12 +3,21 @@ import { VectorStoreService } from "./vector-store.service";
 import { CitizenService } from "./citizen.service";
 import { TransportService } from "./transport.service";
 import { DepartmentService } from "./department.service";
+import { WeatherImpact } from "../types/weather-impact.types";
 
 interface ActivityPattern {
   hour: number;
   type: "transport" | "business" | "leisure" | "social";
   intensity: number; // 0-1
   locations: string[]; // district IDs
+}
+
+interface WeatherState {
+  type: WeatherImpact["type"];
+  severity: number;
+  duration: number;
+  affectedDistricts: string[];
+  startTime: number;
 }
 
 export class CityRhythmService extends EventEmitter {
@@ -101,6 +110,10 @@ export class CityRhythmService extends EventEmitter {
   }
 
   private async schedulePublicEvents(intensity: number) {
+    // Implementation
+  }
+
+  async adjustForWeather(weather: WeatherState): Promise<void> {
     // Implementation
   }
 }

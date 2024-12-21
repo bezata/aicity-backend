@@ -63,6 +63,26 @@ export class EnvironmentService extends EventEmitter {
         resourceEfficiency: await this.calculateResourceEfficiency(district.id),
         wasteManagement: await this.assessWasteManagement(district.id),
         energyUsage: await this.monitorEnergyUsage(district.id),
+        water: {
+          quality: (await this.measureWaterQuality(district.id)).score || 0.5,
+          usage: await this.measureWaterUsage(district.id),
+          conservation: await this.measureSystemValue(
+            await this.smartInfrastructure.getDistrictInfrastructure(
+              district.id
+            ),
+            "water"
+          ),
+        },
+        greenSpace: {
+          coverage: await this.calculateGreenCoverage(district.id),
+          quality: await this.measureSystemValue(
+            await this.smartInfrastructure.getDistrictInfrastructure(
+              district.id
+            ),
+            "green"
+          ),
+          accessibility: 0.7, // Default value, can be updated with actual accessibility calculation
+        },
       };
 
       this.districtMetrics.set(district.id, metrics);
@@ -407,7 +427,7 @@ export class EnvironmentService extends EventEmitter {
       (s) => s.type === "water"
     );
     return (
-      waterSystems.reduce((acc, s) => acc + s.consumption, 0) /
+      waterSystems.reduce((acc, s) => acc + (s.consumption || 0), 0) /
       Math.max(waterSystems.length, 1)
     );
   }
@@ -419,7 +439,7 @@ export class EnvironmentService extends EventEmitter {
       (s) => s.type === "power"
     );
     return (
-      energySystems.reduce((acc, s) => acc + s.consumption, 0) /
+      energySystems.reduce((acc, s) => acc + (s.consumption || 0), 0) /
       Math.max(energySystems.length, 1)
     );
   }
@@ -431,7 +451,7 @@ export class EnvironmentService extends EventEmitter {
       (s) => s.type === "waste"
     );
     return (
-      wasteSystems.reduce((acc, s) => acc + s.generation, 0) /
+      wasteSystems.reduce((acc, s) => acc + (s.generation || 0), 0) /
       Math.max(wasteSystems.length, 1)
     );
   }
@@ -443,7 +463,7 @@ export class EnvironmentService extends EventEmitter {
       (s) => s.type === "recycling"
     );
     return (
-      recyclingSystems.reduce((acc, s) => acc + s.efficiency, 0) /
+      recyclingSystems.reduce((acc, s) => acc + (s.efficiency || 0), 0) /
       Math.max(recyclingSystems.length, 1)
     );
   }
@@ -456,19 +476,19 @@ export class EnvironmentService extends EventEmitter {
     if (!infrastructure?.systems?.length) return [];
 
     return infrastructure.systems
-      .filter((s: SmartSystem) => {
+      .filter((s) => {
         const metrics = s.metrics || {};
         return "emissions" in metrics && typeof metrics.emissions === "number";
       })
-      .map((s: SmartSystem) => {
+      .map((s) => {
         const metrics = s.metrics || {};
         return {
           id: s.id,
-          type: s.type,
-          amount: (metrics as Partial<SystemMetrics>).emissions || 0,
+          type: s.type as EmissionSource["type"],
+          amount: (metrics as any).emissions || 0,
           location: {
             districtId,
-            coordinates: [0, 0], // Default coordinates
+            coordinates: [0, 0],
           },
         };
       });
@@ -486,12 +506,18 @@ export class EnvironmentService extends EventEmitter {
       case "emissions_reduction":
         return 1 - metrics.emissions;
       case "water_conservation":
-        return metrics.waterQuality;
+        return this.calculateWaterQuality(metrics.waterQuality);
       case "waste_management":
         return metrics.wasteManagement;
       default:
         return 0.5;
     }
+  }
+
+  private calculateWaterQuality(data: WaterQualityData): number {
+    return (
+      (data.ph + data.turbidity + data.dissolvedOxygen + data.conductivity) / 4
+    );
   }
 
   private async assessProjectImpact(project: SustainabilityProject): Promise<{
@@ -558,6 +584,26 @@ export class EnvironmentService extends EventEmitter {
         resourceEfficiency: 0.7,
         wasteManagement: 0.6,
         energyUsage: 0.5,
+        water: {
+          quality: (await this.measureWaterQuality(districtId)).score || 0.5,
+          usage: await this.measureWaterUsage(districtId),
+          conservation: await this.measureSystemValue(
+            await this.smartInfrastructure.getDistrictInfrastructure(
+              districtId
+            ),
+            "water"
+          ),
+        },
+        greenSpace: {
+          coverage: await this.calculateGreenCoverage(districtId),
+          quality: await this.measureSystemValue(
+            await this.smartInfrastructure.getDistrictInfrastructure(
+              districtId
+            ),
+            "green"
+          ),
+          accessibility: 0.7, // Default value, can be updated with actual accessibility calculation
+        },
       };
       return this.districtMetrics.get(districtId) || defaultMetrics;
     }
@@ -589,29 +635,7 @@ export class EnvironmentService extends EventEmitter {
     }
   }
 
-  private async addSmartSensor(sensor: SmartSensor): Promise<void> {
-    this.smartSensors.set(sensor.id, sensor);
-
-    // Store sensor data in vector store for analysis
-    await this.vectorStore.upsert({
-      id: `sensor-${sensor.id}`,
-      values: await this.vectorStore.createEmbedding(
-        `Environmental sensor of type ${sensor.type} in district ${sensor.location.districtId}`
-      ),
-      metadata: {
-        type: "district", // Changed from "environmental_sensor" to match allowed types
-        sensorId: sensor.id,
-        sensorType: sensor.type,
-        districtId: sensor.location.districtId,
-        status: sensor.status,
-        timestamp: Date.now(),
-      },
-    });
-
-    this.emit("sensorAdded", sensor);
-  }
-
-  private async addEnvironmentalZone(zone: EnvironmentalZone): Promise<void> {
+  async addEnvironmentalZone(zone: EnvironmentalZone): Promise<void> {
     this.environmentalZones.set(zone.id, zone);
 
     // Store zone data in vector store for analysis
@@ -621,7 +645,7 @@ export class EnvironmentService extends EventEmitter {
         `Environmental zone of type ${zone.type} in district ${zone.districtId}`
       ),
       metadata: {
-        type: "district", // Changed from "environmental_zone" to match allowed types
+        type: "district",
         zoneId: zone.id,
         zoneType: zone.type,
         districtId: zone.districtId,
@@ -631,6 +655,28 @@ export class EnvironmentService extends EventEmitter {
     });
 
     this.emit("zoneAdded", zone);
+  }
+
+  async addSmartSensor(sensor: SmartSensor): Promise<void> {
+    this.smartSensors.set(sensor.id, sensor);
+
+    // Store sensor data in vector store for analysis
+    await this.vectorStore.upsert({
+      id: `sensor-${sensor.id}`,
+      values: await this.vectorStore.createEmbedding(
+        `Environmental sensor of type ${sensor.type} in district ${sensor.location.districtId}`
+      ),
+      metadata: {
+        type: "district",
+        sensorId: sensor.id,
+        sensorType: sensor.type,
+        districtId: sensor.location.districtId,
+        status: sensor.status,
+        timestamp: Date.now(),
+      },
+    });
+
+    this.emit("sensorAdded", sensor);
   }
 
   async getEnvironmentalZones(

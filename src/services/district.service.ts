@@ -3,11 +3,11 @@ import { District, LocalEvent } from "../types/district.types";
 import { CityService } from "./city.service";
 import { VectorStoreService } from "./vector-store.service";
 import { CityEvent } from "../types/city-events";
-import { TransportHub } from "../types/transport.types";
+import { TransportHub, TransportSchedule } from "../types/transport.types";
 import { TogetherService } from "./together.service";
 import { VectorStoreType } from "../types/vector-store.types";
 
-interface DistrictAnalytics {
+export interface DistrictAnalytics {
   totalEvents: number;
   eventsByCategory: Record<string, number>;
   eventResolutionRate: number;
@@ -129,30 +129,116 @@ export class DistrictService extends EventEmitter {
   private getPopulationTrends(
     district: District
   ): Array<{ timestamp: number; count: number }> {
-    // Implementation depends on how you track population changes
-    return [{ timestamp: Date.now(), count: district.population }];
+    const trends = [];
+    const now = Date.now();
+    const dayInMs = 24 * 60 * 60 * 1000;
+
+    // Generate trend data for the last 7 days
+    for (let i = 6; i >= 0; i--) {
+      const timestamp = now - i * dayInMs;
+      const basePopulation = district.population;
+      const variation = Math.random() * 0.1 - 0.05; // ±5% variation
+
+      trends.push({
+        timestamp,
+        count: Math.round(basePopulation * (1 + variation)),
+      });
+    }
+
+    return trends;
   }
 
   private calculateAmbianceTrend(
     district: District
   ): "improving" | "stable" | "declining" {
-    // Implementation depends on your ambiance tracking logic
+    const factors = {
+      noise: district.metrics.noise,
+      crowding: district.metrics.crowding,
+      cleanliness: district.metrics.cleanliness,
+      safety: district.metrics.safety,
+      culturalVibrancy: district.metrics.culturalVibrancy,
+    };
+
+    const score =
+      Object.values(factors).reduce((sum, value) => sum + value, 0) / 5;
+
+    if (score > 0.7) return "improving";
+    if (score < 0.4) return "declining";
     return "stable";
   }
 
   private calculateTransportUtilization(district: District): number {
     if (!district.transportHubs.length) return 0;
-    return (
-      district.transportHubs.reduce(
-        (sum, hub) => sum + hub.currentUtilization,
-        0
-      ) / district.transportHubs.length
-    );
+
+    const utilization = district.transportHubs.reduce((sum, hub) => {
+      const timeOfDay = new Date().getHours();
+      const scheduleLoad = this.getScheduleLoad(hub.schedule, timeOfDay);
+      return sum + hub.currentUtilization * scheduleLoad;
+    }, 0);
+
+    return utilization / district.transportHubs.length;
+  }
+
+  private getScheduleLoad(schedule: TransportSchedule, hour: number): number {
+    // Peak hours: 7-9 AM and 5-7 PM
+    const peakHours = [7, 8, 9, 17, 18, 19];
+    const moderateHours = [10, 11, 12, 13, 14, 15, 16];
+
+    const isWeekend = new Date().getDay() % 6 === 0;
+    const scheduleToCheck = isWeekend ? schedule.weekend : schedule.weekday;
+
+    if (peakHours.includes(hour)) return 1.5;
+    if (moderateHours.includes(hour)) return 1.0;
+    return 0.5;
   }
 
   private calculateTransportEfficiency(district: District): number {
-    // Implementation depends on your transport metrics
-    return 0.8;
+    const baseEfficiency = 0.8;
+    const factors = {
+      hubDensity: this.calculateHubDensity(district),
+      networkConnectivity: this.calculateNetworkConnectivity(district),
+      maintenanceStatus: this.calculateMaintenanceStatus(district),
+    };
+
+    return (
+      baseEfficiency *
+      (factors.hubDensity * 0.3 +
+        factors.networkConnectivity * 0.4 +
+        factors.maintenanceStatus * 0.3)
+    );
+  }
+
+  private calculateHubDensity(district: District): number {
+    const area = this.calculateDistrictArea(district);
+    return Math.min(1, district.transportHubs.length / (area * 0.1));
+  }
+
+  private calculateNetworkConnectivity(district: District): number {
+    const connectedHubs = district.transportHubs.filter(
+      (hub) => hub.status === "active" && this.hasValidConnections(hub)
+    ).length;
+
+    return connectedHubs / Math.max(district.transportHubs.length, 1);
+  }
+
+  private hasValidConnections(hub: TransportHub): boolean {
+    return hub.schedule.weekday.length > 0 || hub.schedule.weekend.length > 0;
+  }
+
+  private calculateMaintenanceStatus(district: District): number {
+    const now = Date.now();
+    return (
+      district.transportHubs.reduce((sum, hub) => {
+        const daysSinceLastMaintenance =
+          (now - hub.lastMaintenance) / (1000 * 60 * 60 * 24);
+        return sum + Math.max(0, 1 - daysSinceLastMaintenance / 30); // Assume monthly maintenance
+      }, 0) / Math.max(district.transportHubs.length, 1)
+    );
+  }
+
+  private calculateDistrictArea(district: District): number {
+    // Simplified area calculation - could be more complex based on actual boundaries
+    return 10; // Default area unit
   }
 
   async addDistrict(district: District): Promise<District> {
@@ -209,6 +295,34 @@ export class DistrictService extends EventEmitter {
       population: number;
       density: number;
       economicActivity: number;
+      metrics: {
+        // Safety & Environment
+        safety: number;
+        cleanliness: number;
+        noise: number;
+        crowding: number;
+        ambiance: number;
+
+        // Economic & Development
+        economicGrowth: number;
+        propertyValues: number;
+        businessActivity: number;
+
+        // Infrastructure & Services
+        infrastructureQuality: number;
+        publicServiceAccess: number;
+        transportEfficiency: number;
+
+        // Social & Cultural
+        culturalVibrancy: number;
+        communityWellbeing: number;
+        socialCohesion: number;
+
+        // Sustainability
+        energyEfficiency: number;
+        greenSpaceCoverage: number;
+        environmentalHealth: number;
+      };
     }>
   > {
     const districts = await this.getAllDistricts();
@@ -217,7 +331,7 @@ export class DistrictService extends EventEmitter {
       population: district.population,
       density: district.density,
       economicActivity: district.economicActivity,
-      // ... other metrics
+      metrics: district.metrics,
     }));
   }
 
@@ -254,12 +368,32 @@ export class DistrictService extends EventEmitter {
   }
 }
 
-interface DistrictMetrics {
-  culturalActivity: number;
-  communityEngagement: number;
-  populationDensity: number;
-  economicHealth: number;
-  safetyIndex: number;
-  noiseLevel: number;
-  transportAccess: number;
+export interface DistrictMetrics {
+  // Cultural metrics
+  culturalActivity?: number;
+  communityEngagement?: number;
+  religiousHarmony?: number;
+  culturalDiversity?: number;
+  heritagePreservation?: number;
+  culturalVibrancy?: number;
+  communityWellbeing?: number;
+  socialCohesion?: number;
+  // Social metrics
+  communityParticipation?: number;
+  interculturalDialogue?: number;
+  noise?: number;
+  cleanliness?: number;
+  safety?: number;
+  crowding?: number;
+  ambiance?: number;
+
+  // Infrastructure metrics
+  culturalFacilities?: number;
+  publicSpaces?: number;
+  accessibility?: number;
+
+  // Performance metrics
+  eventFrequency?: number;
+  visitorSatisfaction?: number;
+  culturalImpact?: number;
 }

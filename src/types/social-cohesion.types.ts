@@ -46,10 +46,10 @@ export interface DistributionNetwork {
 }
 
 export interface Connection {
-  id: string;
   sourceId: string;
-  targetId: string;
-  type: "primary" | "secondary" | "emergency";
+  destinationCoordinates: [number, number];
   capacity: number;
-  currentLoad: number;
+  load: number;
+  status: "active" | "inactive" | "maintenance";
+  priority: number;
 }

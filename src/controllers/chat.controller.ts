@@ -21,9 +21,8 @@ export const ChatController = new Elysia({ prefix: "/chat" })
 
         const response =
           await appStore.services.conversationService.generateGroupResponse(
-            conversationId,
             participants,
-            (body as { content: string }).content
+            { topic: (body as { content: string }).content }
           );
 
         return new Response(JSON.stringify({ content: response }));

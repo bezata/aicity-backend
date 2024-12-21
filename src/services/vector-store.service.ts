@@ -168,7 +168,6 @@ export class VectorStoreService {
         content: prompt,
         timestamp: Date.now(),
         role: "user",
-        style: undefined,
         topics: [],
         sentiment: undefined,
       };

@@ -1,7 +1,7 @@
 import type { Message } from "../types/conversation.types";
 
 export class TopicDetector {
-  private commonWords = new Set([
+  private readonly commonWords = new Set([
     "the",
     "be",
     "to",
@@ -24,26 +24,63 @@ export class TopicDetector {
     "at",
   ]);
 
-  private topicPatterns = new Map([
+  private readonly topicPatterns = new Map([
+    // City Infrastructure
+    [
+      "infrastructure",
+      /\b(infrastructure|building|road|bridge|utility|construction|maintenance)\b/i,
+    ],
+    [
+      "transport",
+      /\b(transport|traffic|bus|train|subway|mobility|commute|transit)\b/i,
+    ],
+    [
+      "utilities",
+      /\b(power|electricity|water|energy|grid|utility|resource|supply)\b/i,
+    ],
+
+    // Urban Life
+    [
+      "community",
+      /\b(community|neighborhood|resident|local|social|gathering|event)\b/i,
+    ],
+    [
+      "culture",
+      /\b(culture|art|music|festival|exhibition|performance|heritage)\b/i,
+    ],
+    [
+      "services",
+      /\b(service|healthcare|education|school|hospital|emergency|police|fire)\b/i,
+    ],
+
+    // Environment
+    [
+      "environment",
+      /\b(environment|green|park|pollution|sustainability|climate|ecology)\b/i,
+    ],
+    [
+      "weather",
+      /\b(weather|temperature|rain|sun|wind|storm|forecast|climate)\b/i,
+    ],
+
+    // Development
+    [
+      "development",
+      /\b(development|planning|project|initiative|improvement|innovation)\b/i,
+    ],
+    [
+      "economy",
+      /\b(economy|business|market|trade|finance|investment|growth)\b/i,
+    ],
+
+    // Smart City
     [
       "technology",
-      /\b(tech|computer|software|hardware|ai|digital|code|programming|internet)\b/i,
+      /\b(technology|smart|digital|ai|automation|sensor|data|system)\b/i,
     ],
     [
-      "science",
-      /\b(science|physics|chemistry|biology|research|experiment|theory|scientific)\b/i,
-    ],
-    [
-      "philosophy",
-      /\b(philosophy|existence|consciousness|reality|truth|meaning|ethics|moral)\b/i,
-    ],
-    [
-      "nature",
-      /\b(nature|environment|climate|weather|ecosystem|planet|earth|natural)\b/i,
-    ],
-    [
-      "arts",
-      /\b(art|music|literature|poetry|creative|artistic|culture|design)\b/i,
+      "safety",
+      /\b(safety|security|emergency|protection|risk|monitoring|alert)\b/i,
     ],
   ]);
 
@@ -62,10 +99,21 @@ export class TopicDetector {
       }
     }
 
-    // Keyword-based detection
+    // Context-based grouping
+    if (topics.has("transport") || topics.has("utilities")) {
+      topics.add("infrastructure");
+    }
+    if (topics.has("technology") && topics.has("environment")) {
+      topics.add("smart-sustainability");
+    }
+
+    // Add significant terms that might be specific locations or events
     words.forEach((word) => {
       if (this.isSignificantTerm(word)) {
-        topics.add(word);
+        // Only add if it might be a proper noun or specific term
+        if (word[0].toUpperCase() === word[0] || word.length > 6) {
+          topics.add(word);
+        }
       }
     });
 
@@ -73,9 +121,11 @@ export class TopicDetector {
   }
 
   private isSignificantTerm(word: string): boolean {
-    // Check if word is likely to be a meaningful topic
     return (
-      word.length > 4 && !this.commonWords.has(word) && !/^\d+$/.test(word)
-    );
+      word.length > 4 &&
+      !this.commonWords.has(word) &&
+      !/^\d+$/.test(word) &&
+      !/^(https?:\/\/|www\.)/.test(word)
+    ); // Exclude URLs
   }
 }

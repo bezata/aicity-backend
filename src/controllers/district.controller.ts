@@ -224,6 +224,95 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
       }),
     }
   )
+  .post(
+    "/:id/memories",
+    async ({ body, params: { id }, store }) => {
+      const appStore = store as AppStore;
+      try {
+        const memory = {
+          type: body.type as
+            | "environmental"
+            | "cultural"
+            | "social"
+            | "historical",
+          description: body.description,
+          districtId: id,
+          timestamp: Date.now(),
+          emotionalImpact: body.emotionalImpact,
+          participants: body.participants,
+          culturalSignificance: body.culturalSignificance,
+          tags: body.tags,
+          location: body.coordinates
+            ? {
+                coordinates: [body.coordinates[0], body.coordinates[1]] as [
+                  number,
+                  number
+                ],
+                landmark: body.landmark,
+              }
+            : undefined,
+        };
+
+        await appStore.services.cityMemory.storeCollectiveMemory(memory);
+
+        return {
+          success: true,
+          message: "Memory stored successfully",
+          data: memory,
+        };
+      } catch (error) {
+        console.error("Failed to store memory:", error);
+        throw error;
+      }
+    },
+    {
+      body: t.Object({
+        type: t.Union([
+          t.Literal("environmental"),
+          t.Literal("cultural"),
+          t.Literal("social"),
+          t.Literal("historical"),
+        ]),
+        description: t.String(),
+        emotionalImpact: t.Number(),
+        participants: t.Array(t.String()),
+        culturalSignificance: t.Number(),
+        tags: t.Optional(t.Array(t.String())),
+        coordinates: t.Optional(t.Array(t.Number())),
+        landmark: t.Optional(t.String()),
+      }),
+    }
+  )
+  .get("/:id/memories", async ({ params: { id }, query, store }) => {
+    const appStore = store as AppStore;
+    try {
+      const memories = await appStore.services.cityMemory.getDistrictMemories(
+        id,
+        {
+          type: query.type,
+          fromTimestamp: query.fromTimestamp
+            ? parseInt(query.fromTimestamp)
+            : undefined,
+          toTimestamp: query.toTimestamp
+            ? parseInt(query.toTimestamp)
+            : undefined,
+          minSignificance: query.minSignificance
+            ? parseFloat(query.minSignificance)
+            : undefined,
+          includedTags: query.includedTags
+            ? query.includedTags.split(",")
+            : undefined,
+          excludedTags: query.excludedTags
+            ? query.excludedTags.split(",")
+            : undefined,
+        }
+      );
+      return { success: true, data: memories };
+    } catch (error) {
+      console.error(`Failed to fetch memories for district ${id}:`, error);
+      throw error;
+    }
+  })
   .onError(({ code, error }) => {
     return {
       success: false,

@@ -1,27 +1,15 @@
 export interface DevelopmentProject {
   id: string;
-  type:
-    | "residential"
-    | "commercial"
-    | "industrial"
-    | "infrastructure"
-    | "greenspace";
-  status: "proposed" | "approved" | "in_progress" | "completed" | "on_hold";
+  type: string;
+  status: "proposed" | "approved" | "in_progress" | "completed";
   location: {
     districtId: string;
     coordinates: [number, number];
   };
-  scale: number;
-  priority: number;
-  sustainability: {
-    energyEfficiency: number;
-    greenScore: number;
-    environmentalImpact: number;
-  };
   timeline: {
     proposed: number;
-    start?: number;
-    estimatedCompletion?: number;
+    approved?: number;
+    started?: number;
     completed?: number;
   };
   metrics: {
@@ -30,6 +18,57 @@ export interface DevelopmentProject {
     economicGrowth: number;
     qualityOfLife: number;
   };
+  sustainability: {
+    energyEfficiency: number;
+    greenScore: number;
+    environmentalImpact: number;
+  };
+  culturalImpact: {
+    culturalPreservation: number;
+    communityEngagement: number;
+    touristAttraction: number;
+    heritagePreservation?: number;
+    culturalContinuity?: number;
+    religiousConsideration?: number;
+    preservation?: number;
+    communityValue?: number;
+    traditionalElements?: number;
+  };
+  communityImpact?: {
+    accessibility: number;
+    socialCohesion: number;
+    localBenefit: number;
+  };
+  culturalFeatures?: {
+    preservation: number;
+    communityValue: number;
+    traditionalElements: number;
+    spaces: number;
+    art: number;
+    heritage: number;
+  };
+  aiMetrics?: {
+    computationalDensity: number;
+    dataAccessibility: number;
+    processingEfficiency: number;
+    interactionQuality: number;
+    learningOpportunities: number;
+  };
+  environmentalMetrics?: {
+    carbonEmissions: number;
+    energyEfficiency: number;
+    wasteManagement: number;
+    resourceUtilization: number;
+    sustainabilityScore: number;
+  };
+  agentActivity?: {
+    interactionFrequency: number;
+    collaborationScore: number;
+    knowledgeSharing: number;
+    innovationRate: number;
+    adaptabilityScore: number;
+  };
+  budget?: number;
 }
 
 export interface GrowthAnalysis {
@@ -42,5 +81,34 @@ export interface GrowthAnalysis {
     utilization: number;
     bottlenecks: string[];
     expansionNeeds: string[];
+  };
+  environmentalConsiderations: {
+    airQuality: number;
+    greenCoverage: number;
+    sustainability: number;
+  };
+  economicIndicators: {
+    growth: number;
+    sectors: Record<string, number>;
+    investment: number;
+  };
+  aiGrowth?: {
+    computationalExpansion: number;
+    dataGrowth: number;
+    interactionDensity: number;
+    learningRate: number;
+    adaptationSpeed: number;
+  };
+  environmentalTrends?: {
+    emissionsTrend: number;
+    energyEfficiencyTrend: number;
+    resourceConsumptionTrend: number;
+    sustainabilityTrend: number;
+  };
+  agentDevelopment?: {
+    populationGrowth: number;
+    complexityIncrease: number;
+    collaborationTrend: number;
+    innovationTrend: number;
   };
 }

@@ -1,328 +1,242 @@
 import { EventEmitter } from "events";
-import type {
-  ConversationState,
-  Message,
-  Event,
-} from "../types/conversation.types";
-import type { Agent } from "../types/agent.types";
+import { Agent } from "../types/agent.types";
+import { Message } from "../types/conversation.types";
 import { TogetherService } from "./together.service";
 import { VectorStoreService } from "./vector-store.service";
-import { ConversationDynamics } from "../utils/conversation-dynamics";
-import { TopicDetector } from "../utils/topic-detector";
-import { StyleManager } from "../utils/style-manager";
-import { ConversationStyle } from "../types/common.types";
-import { WeatherState, CityMood } from "../types/city.types";
-
-// Define the match type
-interface QueryMatch {
-  id: string;
-  score: number;
-  metadata: {
-    content: string;
-    timestamp: number;
-    agentId: string;
-    role: "assistant" | "user";
-    topics?: string[];
-    style?: string;
-    sentiment?: string;
-  };
-}
+import { CityService } from "./city.service";
+import { AgentCollaborationService } from "./agent-collaboration.service";
+import { CityMemoryService } from "./city-memory.service";
+import { SpatialCoordinationService } from "./spatial-coordination.service";
+import { AgentCultureService } from "./agent-culture.service";
+import { EmergencyService } from "./emergency.service";
+import { CityEventsService } from "./city-events.service";
+import { EmergencyType } from "../types/emergency.types";
 
 export class ConversationService extends EventEmitter {
-  private conversations: Map<string, Message[]> = new Map();
-  private dynamics: ConversationDynamics;
-  private topicDetector: TopicDetector;
-  private styleManager: StyleManager;
-
   constructor(
     private togetherService: TogetherService,
-    private vectorStore: VectorStoreService
+    private vectorStore: VectorStoreService,
+    private cityService: CityService,
+    private agentCollaboration: AgentCollaborationService,
+    private cityMemory: CityMemoryService,
+    private spatialCoordination: SpatialCoordinationService,
+    private agentCulture: AgentCultureService,
+    private emergencyService: EmergencyService,
+    private cityEvents: CityEventsService
   ) {
     super();
-    this.dynamics = new ConversationDynamics();
-    this.topicDetector = new TopicDetector();
-    this.styleManager = new StyleManager();
   }
 
-  async generateMessage(conversationId: string, agent: Agent): Promise<string> {
-    try {
-      const state = this.dynamics.getState(conversationId);
-      const conversation = this.getConversation(conversationId);
-
-      // Get the last message to use as query context
-      const lastMessage = conversation[conversation.length - 1];
-
-      // Generate embedding for the last message if it exists
-      let relevantMemories: QueryMatch[] = [];
-      if (lastMessage?.content) {
-        const embedding = await this.togetherService.createEmbedding(
-          lastMessage.content
-        );
-
-        // Query vector store for relevant context
-        const queryResult = await this.vectorStore.query({
-          vector: embedding,
-          filter: {
-            agentId: { $eq: agent.id },
-            conversationId: { $eq: conversationId },
-          },
-          topK: 5,
-        });
-
-        relevantMemories = queryResult.matches as QueryMatch[];
-      }
-
-      if (this.shouldMaintainSilence(state)) {
-        return "[Comfortable silence...]";
-      }
-
-      const systemPrompt = this.buildSystemPrompt(
-        agent,
-        state,
-        relevantMemories
-      );
-
-      // Generate response using the full conversation history
-      const response = await this.togetherService.generateResponse(
-        agent,
-        conversation, // Pass the full conversation history
-        systemPrompt
-      );
-
-      // Create and store the agent's response message
-      const message: Message = {
-        id: crypto.randomUUID(),
-        agentId: agent.id,
-        content: response,
-        timestamp: Date.now(),
-        role: "assistant",
-        style: state.currentStyle,
-        topics: Array.from(await this.topicDetector.detectTopics(response)),
-      };
-
-      // Add to conversation history
-      conversation.push(message);
-      this.conversations.set(conversationId, conversation);
-
-      // Update conversation dynamics
-      this.dynamics.updateState(conversationId, message);
-      this.emit("messageCreated", { conversationId, message });
-
-      return response;
-    } catch (error) {
-      console.error("Generation error:", error);
-      throw error;
-    }
-  }
-
-  private shouldMaintainSilence(state: ConversationState): boolean {
-    return Math.random() < state.silenceProbability;
-  }
-
-  private buildSystemPrompt(
+  async generateMessage(
     agent: Agent,
-    state: ConversationState,
-    memories: QueryMatch[],
-    cityContext?: {
-      weather: WeatherState;
-      mood: CityMood;
-    }
-  ): string {
-    const memoryContext =
-      memories.length > 0
-        ? `Relevant conversation history:
-${memories.map((m) => `- ${m.metadata.content}`).join("\n")}`
-        : "No relevant conversation history.";
+    context: {
+      location?: { districtId: string; coordinates: [number, number] };
+      urgency?: number;
+      topic?: string;
+      collaborationId?: string;
+    } = {}
+  ): Promise<string> {
+    // Get city context
+    const cityContext = await this.cityService.getContext();
 
-    const contextInfo = cityContext
-      ? `
-Current City Status:
-- Weather: ${cityContext.weather.condition}, ${
-          cityContext.weather.temperature
-        }°C
-- City Mood: ${cityContext.mood.dominantEmotion}
-- Community Energy: ${cityContext.mood.factors.energy}
-- Overall Atmosphere: ${
-          cityContext.mood.overall > 0.7
-            ? "Very Positive"
-            : cityContext.mood.overall > 0.5
-            ? "Positive"
-            : cityContext.mood.overall > 0.3
-            ? "Neutral"
-            : "Concerning"
-        }`
-      : "";
+    // Get cultural context if available
+    const culturalContext = context.location
+      ? await this.agentCulture.enrichAgentContext(
+          agent,
+          context.location.districtId
+        )
+      : undefined;
 
-    return `${agent.systemPrompt}
+    // Check for ongoing collaborations
+    const activeCollaboration = context.collaborationId
+      ? await this.agentCollaboration.getSessionStatus(context.collaborationId)
+      : undefined;
 
-Current conversation context:
-${memoryContext}
-${contextInfo}
+    // Check for relevant memories
+    const relevantMemories = context.location
+      ? await this.cityMemory.getDistrictMemories(context.location.districtId)
+      : undefined;
 
-Conversation state:
-- Style: ${state.currentStyle}
-- Momentum: ${state.momentum}
-- Emotional state: ${state.emotionalState}
-- Time of day: ${state.timeOfDay}
+    // Check for emergency situations
+    const isEmergency = context.urgency && context.urgency > 0.8;
 
-${this.styleManager.getStylePrompt(state.currentStyle)}
+    // Build enhanced prompt
+    const prompt = this.buildEnhancedPrompt(agent, {
+      cityContext,
+      culturalContext,
+      activeCollaboration,
+      relevantMemories,
+      isEmergency,
+      ...context,
+    });
 
-Instructions:
-1. Stay in character as ${agent.name}
-2. Maintain the current conversation style
-3. Reference relevant past context naturally
-4. Keep responses concise (under 100 words)
-5. React appropriately to the emotional state and city conditions
-`;
-  }
+    // Generate response
+    const response = await this.togetherService.generateResponse(agent, [
+      {
+        id: crypto.randomUUID(),
+        agentId: "system",
+        content: prompt,
+        timestamp: Date.now(),
+        role: "user",
+      },
+    ]);
 
-  async getConversationWithContext(
-    conversationId: string,
-    messageId: string
-  ): Promise<Message[]> {
-    const conversation = this.getConversation(conversationId);
-    const message = conversation.find((m) => m.id === messageId);
+    // Store in vector database
+    await this.storeConversationContext(agent, response, context);
 
-    if (message) {
-      const embedding = await this.togetherService.createEmbedding(
-        message.content
-      );
-      const context = await this.vectorStore.query({
-        vector: embedding,
-        topK: 5,
-        filter: {
-          conversationId: { $eq: conversationId },
-        },
-      });
-
-      return (context.matches as QueryMatch[]).map((match) => ({
-        id: match.id,
-        content: match.metadata.content,
-        timestamp: match.metadata.timestamp,
-        agentId: match.metadata.agentId,
-        role: match.metadata.role,
-        style: match.metadata.style as ConversationStyle | undefined,
-        topics: match.metadata.topics,
-      }));
+    // Handle any emergency responses if needed
+    if (isEmergency) {
+      await this.handleEmergencyResponse(agent, response, context);
     }
 
-    return [];
+    return response;
   }
 
-  getConversation(conversationId: string): Message[] {
-    return this.conversations.get(conversationId) || [];
-  }
-
-  getState(conversationId: string): ConversationState {
-    return this.dynamics.getState(conversationId);
-  }
-
-  async addMessage(conversationId: string, message: Message) {
-    const conversation = this.getConversation(conversationId);
-    conversation.push(message);
-    this.conversations.set(conversationId, conversation);
-
-    // Add vector storage
-    const embedding = await this.togetherService.createEmbedding(
-      message.content
-    );
+  private async storeConversationContext(
+    agent: Agent,
+    response: string,
+    context: any
+  ) {
     await this.vectorStore.upsert({
-      id: message.id,
-      values: embedding,
+      id: `conv-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(response),
       metadata: {
+        type: "conversation",
+        agentId: agent.id,
+        districtId: context.location?.districtId,
+        coordinates: context.location?.coordinates,
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  private async handleEmergencyResponse(
+    agent: Agent,
+    response: string,
+    context: any
+  ) {
+    if (context.location) {
+      await this.emergencyService.handleEmergency({
+        id: `emergency-${Date.now()}`,
+        type: EmergencyType.MEDICAL,
+        description: response,
+        location: context.location,
+        priority: "high",
+        timestamp: Date.now(),
+        affectedArea: {
+          districtIds: [context.location.districtId],
+          radius: 100,
+        },
+        status: "reported",
+        responseUnits: [],
+      });
+    }
+  }
+
+  private buildEnhancedPrompt(agent: Agent, context: any): string {
+    return `You are ${agent.name}, ${agent.personality}.
+
+Current City Context:
+${this.formatCityContext(context.cityContext)}
+
+${
+  context.culturalContext
+    ? this.formatCulturalContext(context.culturalContext)
+    : ""
+}
+${
+  context.activeCollaboration
+    ? this.formatCollaborationContext(context.activeCollaboration)
+    : ""
+}
+${
+  context.relevantMemories
+    ? this.formatMemoryContext(context.relevantMemories)
+    : ""
+}
+
+${context.isEmergency ? "URGENT: Immediate response required." : ""}
+
+Location: ${
+      context.location
+        ? `${context.location.districtId} district`
+        : "Unspecified"
+    }
+Topic: ${context.topic || "General conversation"}
+
+Consider:
+1. Your role and expertise
+2. Current city conditions
+3. Cultural sensitivities
+4. Historical context
+5. Ongoing collaborations
+6. Emergency protocols if applicable
+
+Respond naturally while maintaining your character and considering all available context.`;
+  }
+
+  private formatCityContext(context: any): string {
+    return `- Weather: ${context.weather.condition}, ${
+      context.weather.temperature
+    }°C
+- City Mood: ${context.mood.dominantEmotion}
+- Community Status: ${context.mood.factors.community.toFixed(2)}
+- Stress Level: ${context.mood.factors.stress.toFixed(2)}`;
+  }
+
+  private formatCulturalContext(context: any): string {
+    return `Cultural Context:
+- Cultural Sensitivity: ${context.culturalSensitivity.toFixed(2)}
+- Community Engagement: ${context.communityEngagement.level.toFixed(2)}
+- Active Cultural Events: ${context.currentEvents.length}`;
+  }
+
+  private formatCollaborationContext(collaboration: any): string {
+    return `Active Collaboration:
+- Status: ${collaboration.status}
+- Progress: ${(collaboration.metrics.progressRate * 100).toFixed(1)}%
+- Consensus Level: ${(collaboration.metrics.consensusLevel * 100).toFixed(1)}%`;
+  }
+
+  private formatMemoryContext(memories: any): string {
+    return `Relevant District Memories:
+${memories.memories
+  .slice(0, 3)
+  .map((m: any) => `- ${m.description}`)
+  .join("\n")}`;
+  }
+
+  async addMessage(
+    conversationId: string,
+    agentId: string,
+    content: string
+  ): Promise<void> {
+    const sentiment = await this.analyzeSentiment(content);
+    const topics = await this.extractTopics(content);
+
+    const message: Message = {
+      id: crypto.randomUUID(),
+      agentId,
+      content,
+      timestamp: Date.now(),
+      role: "assistant",
+      sentiment,
+      topics,
+    };
+
+    await this.vectorStore.upsert({
+      id: `message-${message.id}`,
+      values: await this.vectorStore.createEmbedding(content),
+      metadata: {
+        type: "conversation",
         conversationId,
-        agentId: message.agentId,
-        content: message.content,
+        agentId,
+        sentiment: sentiment?.toString(),
         timestamp: message.timestamp,
-        role: message.role,
-        topics: message.topics,
-        style: message.style,
-        sentiment: message.sentiment?.toString(),
       },
     });
 
-    this.emit("messageCreated", { conversationId, message });
-    return message;
-  }
-
-  async getConversations(): Promise<Message[][]> {
-    const conversations: Message[][] = [];
-    for (const [, messages] of this.conversations) {
-      if (messages.length > 0) {
-        conversations.push(messages);
-      }
-    }
-    return conversations;
-  }
-
-  async generateGroupResponse(
-    conversationId: string,
-    participants: Agent[],
-    content: string
-  ): Promise<string> {
-    try {
-      const state = this.dynamics.getState(conversationId);
-      const conversation = this.getConversation(conversationId);
-
-      // Create a special system prompt for group chat
-      const systemPrompt = this.buildGroupChatPrompt(participants, state);
-
-      // Generate response using the main agent's perspective
-      const response = await this.togetherService.generateResponse(
-        participants[0], // Use first agent as primary responder
-        conversation,
-        systemPrompt
-      );
-
-      // Create and store the response message
-      const message: Message = {
-        id: crypto.randomUUID(),
-        agentId: participants[0].id,
-        content: response,
-        timestamp: Date.now(),
-        role: "assistant",
-        style: state.currentStyle,
-        topics: Array.from(await this.topicDetector.detectTopics(response)),
-      };
-
-      conversation.push(message);
-      this.conversations.set(conversationId, conversation);
-      this.dynamics.updateState(conversationId, message);
-
-      return response;
-    } catch (error) {
-      console.error("Group chat error:", error);
-      throw error;
-    }
-  }
-
-  private buildGroupChatPrompt(
-    participants: Agent[],
-    state: ConversationState
-  ): string {
-    const participantInfo = participants
-      .map(
-        (agent) =>
-          `${agent.name} (${
-            agent.personality
-          }, interests: ${agent.interests.join(", ")})`
-      )
-      .join("\n");
-
-    return `Group conversation between:
-${participantInfo}
-
-Conversation state:
-- Style: ${state.currentStyle}
-- Momentum: ${state.momentum}
-- Time of day: ${state.timeOfDay}
-
-Instructions:
-1. Maintain natural group dynamics
-2. Keep responses concise
-3. Stay in character for each participant
-4. React to others' personalities and interests
-`;
+    this.emit("messageAdded", { conversationId, message });
   }
 
   async generateAgentInteraction(
@@ -330,78 +244,117 @@ Instructions:
     agent2: Agent
   ): Promise<Message[]> {
     const conversationId = crypto.randomUUID();
-    const state = this.dynamics.getState(conversationId);
 
-    // Start with a greeting from agent1
-    const greeting = await this.togetherService.generateResponse(
-      agent1,
-      [],
-      this.buildAgentInteractionPrompt(agent1, agent2, state)
-    );
-
-    const firstMessage: Message = {
-      id: crypto.randomUUID(),
-      agentId: agent1.id,
-      content: greeting,
-      timestamp: Date.now(),
-      role: "assistant",
-      style: state.currentStyle,
-      topics: Array.from(await this.topicDetector.detectTopics(greeting)),
-    };
+    // Generate initial message from agent1
+    const context1 = await this.buildInteractionContext(agent1, agent2);
+    const message1 = await this.generateMessage(agent1, context1);
 
     // Get response from agent2
-    const response = await this.togetherService.generateResponse(
+    const context2 = await this.buildInteractionContext(
       agent2,
-      [firstMessage],
-      this.buildAgentInteractionPrompt(agent2, agent1, state)
+      agent1,
+      message1
     );
+    const message2 = await this.generateMessage(agent2, context2);
 
-    const secondMessage: Message = {
-      id: crypto.randomUUID(),
-      agentId: agent2.id,
-      content: response,
-      timestamp: Date.now(),
-      role: "assistant",
-      style: state.currentStyle,
-      topics: Array.from(await this.topicDetector.detectTopics(response)),
-    };
+    const messages = [
+      await this.createMessage(agent1.id, message1),
+      await this.createMessage(agent2.id, message2),
+    ];
 
-    const conversation = [firstMessage, secondMessage];
-    this.conversations.set(conversationId, conversation);
-    return conversation;
+    return messages;
   }
 
   async getActiveInteractions(): Promise<Message[][]> {
-    const activeInteractions = Array.from(this.conversations.values()).filter(
-      (messages) =>
-        messages.length >= 2 &&
-        Date.now() - messages[messages.length - 1].timestamp < 300000 // 5 minutes
-    );
-    return activeInteractions;
+    const recentMessages = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding(
+        "recent agent interactions"
+      ),
+      filter: {
+        type: { $eq: "conversation" },
+        timestamp: { $gt: Date.now() - 5 * 60 * 1000 }, // Last 5 minutes
+      },
+      topK: 100,
+    });
+
+    const conversations = new Map<string, Message[]>();
+
+    for (const match of recentMessages.matches) {
+      const conversationId = match.metadata.conversationId;
+      if (!conversations.has(conversationId)) {
+        conversations.set(conversationId, []);
+      }
+      conversations.get(conversationId)?.push(this.messageFromMetadata(match));
+    }
+
+    return Array.from(conversations.values());
   }
 
-  private buildAgentInteractionPrompt(
-    speaker: Agent,
-    listener: Agent,
-    state: ConversationState
-  ): string {
-    return `You are ${speaker.name}, talking to ${listener.name}.
+  private async buildInteractionContext(
+    agent: Agent,
+    otherAgent: Agent,
+    previousMessage?: string
+  ): Promise<any> {
+    return {
+      topic: `Interaction with ${otherAgent.name}`,
+      previousMessage,
+      otherAgentPersonality: otherAgent.personality,
+      otherAgentInterests: otherAgent.interests,
+    };
+  }
 
-Your personality: ${speaker.personality}
-Your interests: ${speaker.interests.join(", ")}
+  private async createMessage(
+    agentId: string,
+    content: string
+  ): Promise<Message> {
+    return {
+      id: crypto.randomUUID(),
+      agentId,
+      content,
+      timestamp: Date.now(),
+      role: "assistant",
+    };
+  }
 
-${listener.name}'s personality: ${listener.personality}
-${listener.name}'s interests: ${listener.interests.join(", ")}
+  private messageFromMetadata(match: any): Message {
+    return {
+      id: match.id,
+      agentId: match.metadata.agentId,
+      content: match.metadata.content,
+      timestamp: match.metadata.timestamp,
+      role: "assistant",
+      sentiment: parseFloat(match.metadata.sentiment),
+      topics: match.metadata.topics?.split(","),
+    };
+  }
 
-Conversation state:
-- Style: ${state.currentStyle}
-- Time of day: ${state.timeOfDay}
+  private async analyzeSentiment(content: string): Promise<number> {
+    // Simple sentiment analysis implementation
+    const positiveWords = /good|great|excellent|happy|positive/gi;
+    const negativeWords = /bad|poor|terrible|sad|negative/gi;
 
-Instructions:
-1. Stay in character as ${speaker.name}
-2. Engage with ${listener.name}'s interests and personality
-3. Keep responses natural and concise
-4. React to the conversation context
-`;
+    const positiveCount = (content.match(positiveWords) || []).length;
+    const negativeCount = (content.match(negativeWords) || []).length;
+
+    return (positiveCount - negativeCount + 1) / 2; // Normalize to 0-1
+  }
+
+  private async extractTopics(content: string): Promise<string[]> {
+    // Simple topic extraction
+    const topics = new Set<string>();
+    const commonTopics = {
+      technology: /tech|digital|software|computer/i,
+      environment: /nature|climate|green|eco/i,
+      social: /community|people|social|cultural/i,
+      economy: /business|economy|market|financial/i,
+    };
+
+    Object.entries(commonTopics).forEach(([topic, pattern]) => {
+      if (pattern.test(content)) {
+        topics.add(topic);
+      }
+    });
+
+    return Array.from(topics);
   }
 }

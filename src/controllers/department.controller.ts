@@ -1,6 +1,41 @@
 import { Elysia, t } from "elysia";
 import type { AppStore } from "../services/app.services";
 import { Department, DepartmentType } from "../types/department.types";
+import { AgentHealth, AgentMood } from "../types/department-agent.types";
+import { VectorRecord, TextVectorQuery } from "../types/vector-store.types";
+
+interface PerformanceMetrics {
+  efficiency: number;
+  responseTime: number;
+  successRate: number;
+  collaborationScore: number;
+}
+
+interface AgentHealthMetrics {
+  physical: number;
+  mental: number;
+  energy: number;
+  motivation: number;
+  happiness: number;
+  satisfaction: number;
+  stress: number;
+}
+
+interface PerformanceRecord {
+  timestamp: number;
+  metrics: PerformanceMetrics;
+  agentHealth: AgentHealthMetrics;
+  budgetHealth: number;
+}
+
+interface PerformanceMetadata {
+  type: "district";
+  departmentId: string;
+  timestamp: number;
+  metrics: string;
+  agentHealth: string;
+  budgetHealth: number;
+}
 
 export const DepartmentController = new Elysia({ prefix: "/departments" })
   .get("/", async ({ store }) => {
@@ -139,4 +174,127 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
         approvedBy: t.String(),
       }),
     }
-  );
+  )
+  .get("/:id/agents/health", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+    const agents =
+      await appStore.services.departmentService.getDepartmentAgents(id);
+    return agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      health: agent.health,
+      mood: agent.mood,
+      donationImpact: agent.donationImpact,
+    }));
+  })
+  .get("/:id/agents/stats", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+    const agents =
+      await appStore.services.departmentService.getDepartmentAgents(id);
+
+    const stats = {
+      totalAgents: agents.length,
+      healthStatus: {
+        healthy: 0,
+        tired: 0,
+        stressed: 0,
+        sick: 0,
+        recovering: 0,
+      },
+      averages: {
+        physical: 0,
+        mental: 0,
+        energy: 0,
+        motivation: 0,
+        happiness: 0,
+        satisfaction: 0,
+        enthusiasm: 0,
+        stress: 0,
+      },
+    };
+
+    for (const agent of agents) {
+      // Count health statuses
+      stats.healthStatus[agent.health.status]++;
+
+      // Sum up health metrics
+      stats.averages.physical += agent.health.physical;
+      stats.averages.mental += agent.health.mental;
+      stats.averages.energy += agent.health.energy;
+      stats.averages.motivation += agent.health.motivation;
+
+      // Sum up mood metrics
+      stats.averages.happiness += agent.mood.happiness;
+      stats.averages.satisfaction += agent.mood.satisfaction;
+      stats.averages.enthusiasm += agent.mood.enthusiasm;
+      stats.averages.stress += agent.mood.stress;
+    }
+
+    // Calculate averages
+    if (agents.length > 0) {
+      for (const key in stats.averages) {
+        stats.averages[key] = stats.averages[key] / agents.length;
+      }
+    }
+
+    return stats;
+  })
+  .post(
+    "/:id/agents/:agentId/heal",
+    async ({ params: { id, agentId }, body, store }) => {
+      const appStore = store as AppStore;
+      return await appStore.services.departmentService.healAgent(id, agentId, {
+        treatment: body.treatment,
+        duration: body.duration,
+        cost: body.cost,
+      });
+    },
+    {
+      body: t.Object({
+        treatment: t.String(),
+        duration: t.Number(),
+        cost: t.Number(),
+      }),
+    }
+  )
+  .get("/:id/performance/history", async ({ params: { id }, query, store }) => {
+    const appStore = store as AppStore;
+    const department = await appStore.services.departmentService.getDepartment(
+      id
+    );
+    if (!department) throw new Error("Department not found");
+
+    // Get performance records from vector store
+    const vectorQuery: TextVectorQuery<PerformanceMetadata> = {
+      textQuery: `Department ${department.name} performance update`,
+      filter: {
+        type: { $eq: "district" },
+        departmentId: { $eq: id },
+      },
+      limit: 100,
+    };
+
+    const records = await appStore.services.vectorStore.query(vectorQuery);
+
+    // Parse and format performance history
+    const history = records
+      .map((record: VectorRecord<PerformanceMetadata>) => ({
+        timestamp: record.metadata.timestamp,
+        metrics: JSON.parse(record.metadata.metrics) as PerformanceMetrics,
+        agentHealth: JSON.parse(
+          record.metadata.agentHealth
+        ) as AgentHealthMetrics,
+        budgetHealth: record.metadata.budgetHealth,
+      }))
+      .sort(
+        (a: PerformanceRecord, b: PerformanceRecord) =>
+          b.timestamp - a.timestamp
+      );
+
+    return {
+      departmentId: id,
+      departmentName: department.name,
+      performanceHistory: history,
+    };
+  });

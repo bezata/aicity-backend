@@ -1,13 +1,14 @@
 import { Elysia, t } from "elysia";
 import { AgentModel } from "../models/agent.model";
-import { agents } from "../config/agents";
+import { residentAgents } from "../config/agents";
 import type { Agent } from "../types/agent.types";
 import { Message } from "../types/conversation.types";
 import { ConversationService } from "../services/conversation.service";
 import type { AppStore } from "../services/app.services";
+import { getAgent } from "../config/city-agents";
 
 // In-memory store for custom agents
-let customAgents: Agent[] = [...agents];
+let customAgents: Agent[] = [...residentAgents];
 
 export const AgentController = new Elysia({ prefix: "/agents" })
   .use(AgentModel)
@@ -75,7 +76,7 @@ export const AgentController = new Elysia({ prefix: "/agents" })
     }
 
     // Don't allow deletion of default agents
-    if (agents.some((a) => a.id === id)) {
+    if (residentAgents.some((a) => a.id === id)) {
       throw new Error("Cannot delete default agent");
     }
 
@@ -94,7 +95,7 @@ export const AgentController = new Elysia({ prefix: "/agents" })
       store: { services: { conversationService: ConversationService } };
     }) => {
       try {
-        const agent = agents.find((a) => a.id === agentId);
+        const agent = getAgent(agentId);
         if (!agent) {
           return new Response(JSON.stringify({ error: "Agent not found" }), {
             status: 404,
@@ -114,20 +115,30 @@ export const AgentController = new Elysia({ prefix: "/agents" })
 
         await store.services.conversationService.addMessage(
           conversationId,
-          userMessage
+          userMessage.agentId,
+          userMessage.content
         );
 
         const response =
           await store.services.conversationService.generateMessage(
-            conversationId,
-            agent
+            getAgent(agentId)!,
+            {
+              topic: "User interaction",
+              ...(agent.districtId && {
+                location: {
+                  districtId: agent.districtId,
+                  coordinates: [0, 0], // Default coordinates or get from district service
+                },
+              }),
+              urgency: 0.5,
+            }
           );
 
         return new Response(JSON.stringify({ content: response }), {
           headers: { "Content-Type": "application/json" },
         });
       } catch (error) {
-        // ... error handling
+        console.error("Error sending message:", error);
       }
     }
   )

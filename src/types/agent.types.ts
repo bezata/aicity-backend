@@ -6,10 +6,12 @@ export interface AgentTraits {
   empathy: number;
   curiosity: number;
   enthusiasm: number;
+  decisiveness?: number;
   efficiency?: number;
   adaptability?: number;
   reliability?: number;
   innovation?: number;
+  leadership?: number;
   communication?: number;
   environmentalAwareness?: number;
   longTermThinking?: number;
@@ -40,4 +42,10 @@ export interface Agent {
   temperature?: number;
   maxTokens?: number;
   isActive?: boolean;
+  metadata?: {
+    departmentId?: string;
+    role?: string;
+    specialization?: string[];
+  };
+  districtId?: string;
 }

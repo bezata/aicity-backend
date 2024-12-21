@@ -16,6 +16,16 @@ import { DepartmentAgentService } from "./department-agent.service";
 import { DevelopmentService } from "./development.service";
 import { EnvironmentService } from "./environment.service";
 import { SmartInfrastructureService } from "./smart-infrastructure.service";
+import { SpatialCoordinationService } from "./spatial-coordination.service";
+import { EmergencyService } from "./emergency.service";
+import { CityMemoryService } from "./city-memory.service";
+import { AgentCultureService } from "./agent-culture.service";
+import { CultureService } from "./culture.service";
+import { WeatherService } from "./weather.service";
+import { SocialDynamicsService } from "./social-dynamics.service";
+import { CityRhythmService } from "./city-rhythm.service";
+import { TransportService } from "./transport.service";
+import { EconomyService } from "./economy.service";
 
 // Define store type
 export type AppStore = {
@@ -35,6 +45,10 @@ export type AppStore = {
     departmentAgentService: DepartmentAgentService;
     developmentService: DevelopmentService;
     environmentService: EnvironmentService;
+    spatialCoordination: SpatialCoordinationService;
+    cityMemory: CityMemoryService;
+    culture: CultureService;
+    economyService: EconomyService;
   };
   conversations: Map<string, any[]>;
 };
@@ -44,15 +58,96 @@ if (!process.env.TOGETHER_API_KEY) {
   throw new Error("TOGETHER_API_KEY environment variable is not set");
 }
 
-// Initialize services
+// Declare services that have circular dependencies
+let weatherService: WeatherService;
+let transportService: TransportService;
+let cityRhythmService: CityRhythmService;
+let socialDynamicsService: SocialDynamicsService;
+
+// Initialize base services
 const togetherService = new TogetherService(process.env.TOGETHER_API_KEY);
 const vectorStore = new VectorStoreService(togetherService);
 const metricsService = new MetricsService(vectorStore);
-const conversationService = new ConversationService(
-  togetherService,
-  vectorStore
-);
 const cityService = new CityService();
+const departmentService = new DepartmentService(vectorStore, togetherService);
+const citizenService = new CitizenService(
+  vectorStore,
+  togetherService,
+  departmentService
+);
+const emergencyService = new EmergencyService(
+  vectorStore,
+  departmentService,
+  citizenService
+);
+
+// Create initial instances with undefined instead of null
+const initialCityRhythm = new CityRhythmService(
+  vectorStore,
+  citizenService,
+  undefined as unknown as TransportService,
+  departmentService
+);
+const initialEmergency = new EmergencyService(
+  vectorStore,
+  departmentService,
+  citizenService
+);
+const initialWeather = new WeatherService(
+  vectorStore,
+  cityService,
+  undefined as unknown as TransportService,
+  initialCityRhythm,
+  initialEmergency
+);
+const initialTransport = new TransportService(
+  vectorStore,
+  initialWeather,
+  initialCityRhythm,
+  emergencyService
+);
+
+// Now create the final instances with proper dependencies
+weatherService = new WeatherService(
+  vectorStore,
+  cityService,
+  initialTransport,
+  initialCityRhythm,
+  initialEmergency
+);
+transportService = new TransportService(
+  vectorStore,
+  weatherService,
+  initialCityRhythm,
+  emergencyService
+);
+cityRhythmService = new CityRhythmService(
+  vectorStore,
+  citizenService,
+  transportService,
+  departmentService
+);
+
+// Update the references
+socialDynamicsService = new SocialDynamicsService(
+  vectorStore,
+  departmentService,
+  citizenService,
+  initialWeather,
+  cityRhythmService
+);
+
+// Initialize culture service with correct dependencies
+const cultureService = new CultureService(
+  vectorStore,
+  weatherService,
+  socialDynamicsService,
+  cityRhythmService
+);
+
+// Initialize remaining services
+const agentCulture = new AgentCultureService(cultureService, vectorStore);
+const cityMemory = new CityMemoryService(vectorStore, cultureService);
 const analyticsService = new AnalyticsService();
 const districtService = new DistrictService(
   cityService,
@@ -71,12 +166,6 @@ const cityEventsService = new CityEventsService(
   vectorStore,
   districtService
 );
-const departmentService = new DepartmentService(vectorStore, togetherService);
-const citizenService = new CitizenService(
-  vectorStore,
-  togetherService,
-  departmentService
-);
 const environmentService = new EnvironmentService();
 const smartInfrastructureService = new SmartInfrastructureService();
 const departmentAgentService = new DepartmentAgentService(togetherService);
@@ -86,6 +175,25 @@ const developmentService = new DevelopmentService(
   smartInfrastructureService,
   environmentService
 );
+const spatialCoordination = new SpatialCoordinationService(
+  vectorStore,
+  districtService,
+  emergencyService
+);
+const conversationService = new ConversationService(
+  togetherService,
+  vectorStore,
+  cityService,
+  collaborationService,
+  cityMemory,
+  spatialCoordination,
+  agentCulture,
+  emergencyService,
+  cityEventsService
+);
+
+// Initialize economy service
+const economyService = new EconomyService(vectorStore, districtService);
 
 // Create initial store
 export const createStore = (): AppStore => ({
@@ -105,6 +213,10 @@ export const createStore = (): AppStore => ({
     departmentAgentService,
     developmentService,
     environmentService,
+    spatialCoordination,
+    cityMemory: new CityMemoryService(vectorStore, cultureService),
+    culture: cultureService,
+    economyService,
   },
   conversations: new Map(),
 });

@@ -1,47 +1,183 @@
+export interface AirQualityData {
+  pm25: number;
+  pm10: number;
+  no2: number;
+  o3: number;
+  aqi: number;
+}
+
+export interface WaterQualityData {
+  ph: number;
+  turbidity: number;
+  dissolvedOxygen: number;
+  conductivity: number;
+  temperature: number;
+  score?: number;
+}
+
+export interface NoiseData {
+  decibels: number;
+  frequency: number;
+  duration: number;
+  peakTime: number;
+  source: string;
+}
+
+export interface BiodiversityMetrics {
+  speciesCount: number;
+  habitatQuality: number;
+  ecosystemHealth: number;
+}
+
 export interface EnvironmentalMetrics {
-  airQuality: {
-    pm25: number; // 0-500
-    pm10: number; // 0-500
-    no2: number; // 0-200
-    o3: number; // 0-300
-    aqi: number; // 0-500 (Air Quality Index)
+  airQuality: AirQualityData;
+  waterQuality: WaterQualityData;
+  noiseLevel: NoiseData;
+  greenCoverage: number;
+  biodiversity: BiodiversityMetrics;
+  emissions: number;
+  sustainability: number;
+  resourceEfficiency: number;
+  wasteManagement: number;
+  energyUsage: number;
+}
+
+export interface EmissionSource {
+  id: string;
+  type: string;
+  amount: number;
+  location: {
+    districtId: string;
+    coordinates: [number, number];
   };
-  noise: {
-    level: number; // decibels (0-120)
-    sources: string[];
-    peakHours: number[];
+}
+
+export interface ResourceUsage {
+  water: number;
+  energy: number;
+  waste: number;
+  recycling: number;
+}
+
+export interface SustainabilityProject {
+  id: string;
+  type:
+    | "green_space"
+    | "emissions_reduction"
+    | "water_conservation"
+    | "waste_management";
+  districtId: string;
+  status: "planned" | "in_progress" | "completed";
+  timeline: {
+    start: number;
+    end: number;
   };
-  greenSpace: {
-    coverage: number; // percentage (0-100)
-    health: number; // 0-1
-    usage: number; // 0-1
-    biodiversity: number; // 0-1
-  };
-  water: {
-    quality: number; // 0-1
-    consumption: number; // liters per capita
-    recycling: number; // percentage (0-100)
-  };
-  waste: {
-    recycling: number; // percentage (0-100)
-    collection: {
-      efficiency: number; // 0-1
-      schedule: string[];
+  metrics: {
+    progress: number;
+    impact: {
+      environmental: number;
+      social: number;
+      economic: number;
     };
-    hotspots: string[]; // district IDs
+  };
+}
+
+export interface GreenInitiative {
+  id: string;
+  name: string;
+  description: string;
+  districtId: string;
+  type: "tree_planting" | "urban_farming" | "renewable_energy" | "recycling";
+  status: "proposed" | "active" | "completed";
+  participants: string[];
+  metrics: {
+    participation: number;
+    environmentalImpact: number;
+    communityEngagement: number;
   };
 }
 
 export interface EnvironmentalAlert {
   id: string;
-  type: "air" | "noise" | "water" | "waste" | "green";
-  severity: "low" | "medium" | "high" | "critical";
+  type: "air" | "water" | "noise" | "waste" | "green";
+  severity: "low" | "medium" | "high";
   location: {
     districtId: string;
     coordinates: [number, number];
   };
-  metrics: Partial<EnvironmentalMetrics>;
   timestamp: number;
-  status: "active" | "resolved";
-  actions: string[];
+  description: string;
+  metrics: Partial<EnvironmentalMetrics>;
+}
+
+export interface SmartSensor {
+  id: string;
+  type: "air_quality" | "water_quality" | "noise" | "emissions";
+  location: {
+    districtId: string;
+    coordinates: [number, number];
+  };
+  value: number;
+  lastUpdate: number;
+  status: "active" | "maintenance" | "offline";
+}
+
+export interface EnvironmentalZone {
+  id: string;
+  type: "protection" | "conservation" | "development";
+  districtId: string;
+  boundaries: [number, number][];
+  restrictions: {
+    maxEmissions: number;
+    noiseLimit: number;
+    greenSpaceRatio: number;
+  };
+  status: "active" | "proposed" | "under_review";
+}
+
+export interface SmartSystem {
+  id: string;
+  type:
+    | "water"
+    | "waste"
+    | "power"
+    | "traffic"
+    | "transportation"
+    | "digital"
+    | "pedestrian"
+    | "air"
+    | "noise"
+    | "green"
+    | "recycling";
+  status: "active" | "maintenance" | "offline";
+  metrics?: Partial<SystemMetrics>;
+  location: {
+    districtId: string;
+    coordinates: [number, number];
+  };
+}
+
+export interface DistrictInfrastructure {
+  id: string;
+  districtId: string;
+  systems: SmartSystem[];
+  status: "operational" | "degraded" | "offline";
+  lastUpdate: number;
+}
+
+export interface SystemMetrics {
+  value: number;
+  efficiency: number;
+  consumption: number;
+  emissions: number;
+  generation: number;
+}
+
+export interface WaterQualityScore {
+  value: number;
+  phScore: number;
+  turbidityScore: number;
+  oxygenScore: number;
+  conductivityScore: number;
+  temperatureScore: number;
 }

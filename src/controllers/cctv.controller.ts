@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { AppStore } from "../services/app.services";
-
+// TODO: ACTIVITES LL BE GENERATED ON THE INFO OF ANOTHER AGENTS SITUATION AND TOGETHERSERVICE
 const activities = [
   "is sleeping peacefully",
   "is brushing their teeth",

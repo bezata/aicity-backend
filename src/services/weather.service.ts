@@ -1,10 +1,11 @@
 import { EventEmitter } from "events";
 import { WeatherImpact } from "../types/weather-impact.types";
 import { VectorStoreService } from "./vector-store.service";
-import { EmergencyService } from "./emergency.service";
+import { CityService } from "./city.service";
 import { TransportService } from "./transport.service";
 import { CityRhythmService } from "./city-rhythm.service";
 import { EmergencyType } from "../types/emergency.types";
+import { EmergencyService } from "./emergency.service";
 
 interface WeatherCondition {
   type: WeatherImpact["type"];
@@ -20,9 +21,10 @@ export class WeatherService extends EventEmitter {
 
   constructor(
     private vectorStore: VectorStoreService,
-    private emergencyService: EmergencyService,
-    private transportService: TransportService,
-    private cityRhythmService: CityRhythmService
+    private cityService: CityService,
+    private transportService: TransportService | null,
+    private cityRhythmService: CityRhythmService,
+    private emergencyService: EmergencyService
   ) {
     super();
     this.initializeWeatherSystem();
@@ -79,8 +81,9 @@ export class WeatherService extends EventEmitter {
   private async applyWeatherImpacts(weather: WeatherCondition) {
     const impacts = this.calculateWeatherImpacts(weather);
 
-    // Adjust transport efficiency
-    await this.transportService.adjustEfficiency(impacts.transport);
+    if (this.transportService) {
+      await this.transportService.adjustEfficiency(impacts.transport);
+    }
 
     // Check for weather-related emergencies
     if (weather.severity > 0.7) {

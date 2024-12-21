@@ -4,7 +4,9 @@ import {
   CulturalEventType,
   Artist,
   CulturalMetrics,
+  CulturalAtmosphere,
 } from "../types/culture.types";
+import { WeatherCondition } from "../types/weather.types";
 import { VectorStoreService } from "./vector-store.service";
 import { WeatherService } from "./weather.service";
 import { SocialDynamicsService } from "./social-dynamics.service";
@@ -83,11 +85,40 @@ interface CulturalRecommendation {
     optimal: number;
     recommended: number;
   };
+  location: {
+    districtId: string;
+    coordinates: [number, number];
+  };
+  timing: {
+    startTime: number;
+    endTime: number;
+  };
+  participants: string[];
+  culturalImpact: number;
+}
+
+interface Religion {
+  id: string;
+  name: string;
+  foundingDate: string;
+  founder: string;
+  mainBeliefs: string[];
+  practices: string[];
+  holyPlaces: Array<{
+    name: string;
+    type: string;
+    location: CulturalEvent["location"];
+    status: "existing" | "under_construction" | "planned";
+    donationProgress?: number;
+  }>;
+  followers: number;
+  events: string[]; // IDs of associated cultural events
 }
 
 export class CultureService extends EventEmitter {
   private events: Map<string, CulturalEvent> = new Map();
   private artists: Map<string, Artist> = new Map();
+  private religions: Map<string, Religion> = new Map();
   private culturalMetrics: CulturalMetrics;
 
   constructor(
@@ -159,9 +190,24 @@ export class CultureService extends EventEmitter {
         type: "art_exhibition",
         title: `${form.style} Art Experience`,
         description: this.generateCreativeDescription(form),
-        artists: await this.findMatchingArtists(form.requirements),
-        culturalOrigin: form.origins,
-        // ... other event details
+        artists: (
+          await this.findMatchingArtists(form.requirements)
+        ).map((artist) => artist.name),
+        culturalOrigin: form.origins.join(", "),
+        location: {
+          districtId: "downtown",
+          venue: "Art Gallery",
+          coordinates: [0, 0],
+        },
+        schedule: [],
+        culturalSignificance: 0,
+        impact: {
+          social: 0,
+          cultural: 0,
+          economic: 0,
+        },
+        status: "upcoming",
+        participants: [],
       });
       await this.promoteEvent(event);
     }
@@ -176,7 +222,15 @@ export class CultureService extends EventEmitter {
         title: `${performanceStyle.name} at ${venue.name}`,
         description: this.generatePerformanceDescription(performanceStyle),
         location: venue.location,
-        // ... other event details
+        schedule: [],
+        culturalSignificance: 0,
+        impact: {
+          social: 0,
+          cultural: 0,
+          economic: 0,
+        },
+        status: "upcoming",
+        participants: [],
       });
     }
   }
@@ -190,7 +244,35 @@ export class CultureService extends EventEmitter {
         type: "food_festival",
         title: `Fusion Food Festival: ${concept.theme}`,
         description: this.generateCulinaryDescription(concept),
-        // ... other event details
+        location: {
+          districtId: "culinary_district",
+          venue: "Food Plaza",
+          coordinates: [0, 0],
+        },
+        culturalOrigin: concept.cuisines.join(" & "),
+        schedule: [
+          { time: new Date().toISOString(), activity: "Opening Ceremony" },
+          {
+            time: new Date(Date.now() + 3600000).toISOString(),
+            activity: "Cooking Demonstrations",
+          },
+          {
+            time: new Date(Date.now() + 7200000).toISOString(),
+            activity: "Tasting Sessions",
+          },
+          {
+            time: new Date(Date.now() + 10800000).toISOString(),
+            activity: "Cultural Performances",
+          },
+        ],
+        culturalSignificance: 0.8,
+        impact: {
+          social: 0.7,
+          cultural: 0.9,
+          economic: 0.6,
+        },
+        status: "upcoming",
+        participants: [],
       });
     }
   }
@@ -198,7 +280,9 @@ export class CultureService extends EventEmitter {
   private async createHeritageEvents() {
     const heritageSpots = await this.identifyHeritageLocations();
     const culturalStories = await this.collectCulturalStories();
+    const religiousEvents = this.generateReligiousEvents();
 
+    // Create heritage tours
     for (const spot of heritageSpots) {
       const relevantStories = this.matchStoriesToLocation(
         culturalStories,
@@ -208,7 +292,54 @@ export class CultureService extends EventEmitter {
         type: "heritage_tour",
         title: `Heritage Journey: ${spot.name}`,
         description: this.weaveStoriesIntoNarrative(relevantStories),
-        // ... other event details
+        location: spot.location,
+        schedule: [
+          {
+            time: new Date().toISOString(),
+            activity: "Welcome & Introduction",
+          },
+          {
+            time: new Date(Date.now() + 1800000).toISOString(),
+            activity: "Historical Tour",
+          },
+          {
+            time: new Date(Date.now() + 3600000).toISOString(),
+            activity: "Cultural Demonstrations",
+          },
+          {
+            time: new Date(Date.now() + 5400000).toISOString(),
+            activity: "Community Gathering",
+          },
+        ],
+        culturalSignificance: 0.9,
+        impact: {
+          social: 0.8,
+          cultural: 0.9,
+          economic: 0.6,
+        },
+        status: "upcoming",
+        participants: [],
+        culturalOrigin: spot.historicalSignificance,
+      });
+    }
+
+    // Create religious and spiritual events
+    for (const event of religiousEvents) {
+      await this.createCulturalEvent({
+        type: "cultural_celebration",
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        schedule: event.schedule,
+        culturalSignificance: 0.95,
+        impact: {
+          social: 0.9,
+          cultural: 0.95,
+          economic: 0.7,
+        },
+        status: "upcoming",
+        participants: [],
+        culturalOrigin: event.origin,
       });
     }
   }
@@ -227,16 +358,141 @@ export class CultureService extends EventEmitter {
   }
 
   private async analyzeEventAtmosphere(event: CulturalEvent) {
-    const weather = this.weatherService.getCurrentWeather();
+    const weather = await this.weatherService.getCurrentWeather();
     const socialMood = await this.socialDynamicsService.getCommunityMood(
       event.location.districtId
     );
     const culturalContext = await this.assessCulturalContext(event);
+    const timeOfDay = new Date(event.startTime).getHours();
+
+    // Calculate base ambiance based on venue and time
+    const baseAmbiance = this.calculateBaseAmbiance(
+      event.location.venue,
+      timeOfDay
+    );
+
+    // Adjust for weather conditions
+    const weatherImpact = this.calculateWeatherImpact(
+      weather || "clear",
+      event.location.venue.includes("indoor")
+    );
+
+    // Consider social dynamics
+    const socialImpact = this.analyzeSocialDynamics(socialMood, event.type);
+
+    // Cultural resonance
+    const culturalResonance = this.calculateCulturalResonance(
+      culturalContext,
+      event
+    );
 
     return {
-      ambiance: this.calculateAmbiance(weather, event.type),
-      socialDynamics: this.analyzeSocialInteractions(socialMood),
-      culturalResonance: this.measureCulturalImpact(culturalContext),
+      ambiance: Math.min(1, Math.max(0, baseAmbiance + weatherImpact)),
+      socialDynamics: socialImpact,
+      culturalResonance,
+      recommendations: this.generateAtmosphereRecommendations(
+        baseAmbiance,
+        weatherImpact,
+        socialImpact,
+        culturalResonance
+      ),
+    };
+  }
+
+  private calculateBaseAmbiance(venue: string, hour: number): number {
+    // Base ambiance factors
+    const timeFactors = {
+      morning: hour >= 6 && hour < 12 ? 0.8 : 0,
+      afternoon: hour >= 12 && hour < 17 ? 0.7 : 0,
+      evening: hour >= 17 && hour < 22 ? 0.9 : 0,
+      night: hour >= 22 || hour < 6 ? 0.6 : 0,
+    };
+
+    const venueFactors = {
+      indoor: venue.toLowerCase().includes("indoor") ? 0.7 : 0,
+      outdoor: venue.toLowerCase().includes("outdoor") ? 0.8 : 0,
+      historic: venue.toLowerCase().includes("heritage") ? 0.85 : 0,
+      modern: venue.toLowerCase().includes("modern") ? 0.75 : 0,
+    };
+
+    const timeAmbiance = Object.values(timeFactors).reduce((a, b) => a + b, 0);
+    const venueAmbiance = Object.values(venueFactors).reduce(
+      (a, b) => a + b,
+      0
+    );
+
+    return (timeAmbiance + venueAmbiance) / 2;
+  }
+
+  private calculateWeatherImpact(
+    weather: WeatherCondition,
+    isIndoor: boolean
+  ): number {
+    if (isIndoor) return 0;
+
+    const impacts: Record<WeatherCondition, number> = {
+      clear: 0.2,
+      cloudy: -0.1,
+      rain: -0.3,
+      storm: -0.5,
+    };
+
+    return impacts[weather] || 0;
+  }
+
+  private analyzeSocialDynamics(mood: any, eventType: string): number {
+    const baseMood = (mood.happiness + mood.energy + mood.community) / 3;
+
+    const eventFactors: Record<string, number> = {
+      art_exhibition: 0.7,
+      street_performance: 0.9,
+      food_festival: 0.8,
+      heritage_tour: 0.6,
+      workshop: 0.7,
+    };
+
+    return baseMood * (eventFactors[eventType] || 0.7);
+  }
+
+  private calculateCulturalResonance(
+    context: any,
+    event: CulturalEvent
+  ): number {
+    const factors = [
+      context.historicalRelevance || 0,
+      context.communitySignificance || 0,
+      context.culturalAuthenticity || 0,
+      event.culturalSignificance || 0,
+    ];
+
+    return factors.reduce((sum, factor) => sum + factor, 0) / factors.length;
+  }
+
+  private generateAtmosphereRecommendations(
+    baseAmbiance: number,
+    weatherImpact: number,
+    socialImpact: number,
+    culturalResonance: number
+  ) {
+    return {
+      lighting: {
+        intensity: baseAmbiance * 100,
+        color: weatherImpact > 0 ? "warm" : "cool",
+        dynamic: socialImpact > 0.7,
+      },
+      sound: {
+        volume: Math.min(70, socialImpact * 100),
+        type: culturalResonance > 0.7 ? "cultural" : "ambient",
+      },
+      spacing: {
+        capacity: Math.floor(baseAmbiance * 200),
+        layout: socialImpact > 0.6 ? "interactive" : "traditional",
+      },
+      timing: {
+        suggested_duration: Math.floor(culturalResonance * 180), // minutes
+        peak_periods:
+          weatherImpact > 0 ? ["evening", "night"] : ["morning", "afternoon"],
+      },
     };
   }
 
@@ -344,17 +600,163 @@ export class CultureService extends EventEmitter {
   }
 
   private determineArtForms(cityMood: any): ArtForm[] {
-    // Implement art form determination logic
-    return [
-      {
-        style: "contemporary",
-        emotion: cityMood.dominant,
-        culturalContext: "urban",
-        innovation: "digital_fusion",
-        requirements: ["space", "lighting", "sound"],
-        origins: ["global", "local"],
-      },
+    const styles = [
+      "Contemporary",
+      "Abstract",
+      "Digital",
+      "Interactive",
+      "Immersive",
+      "Traditional",
+      "Fusion",
+      "Experimental",
+      "Urban",
+      "Sustainable",
     ];
+
+    const emotions = [
+      "Vibrant",
+      "Serene",
+      "Dynamic",
+      "Contemplative",
+      "Energetic",
+      "Harmonious",
+      "Mysterious",
+      "Playful",
+      "Dramatic",
+      "Peaceful",
+    ];
+
+    const contexts = [
+      "Urban Life",
+      "Cultural Heritage",
+      "Technology",
+      "Nature",
+      "Social Change",
+      "Community",
+      "Innovation",
+      "Tradition",
+    ];
+
+    const innovations = [
+      "AI Integration",
+      "Sustainable Materials",
+      "Interactive Technology",
+      "Virtual Reality",
+      "Augmented Reality",
+      "Biofeedback",
+      "Smart Materials",
+      "Eco-friendly Processes",
+    ];
+
+    // Generate 2-3 art forms based on city mood
+    const numArtForms = 2 + Math.floor(Math.random() * 2);
+    const artForms: ArtForm[] = [];
+
+    for (let i = 0; i < numArtForms; i++) {
+      artForms.push({
+        style: styles[Math.floor(Math.random() * styles.length)],
+        emotion:
+          cityMood.dominant ||
+          emotions[Math.floor(Math.random() * emotions.length)],
+        culturalContext: contexts[Math.floor(Math.random() * contexts.length)],
+        innovation: innovations[Math.floor(Math.random() * innovations.length)],
+        requirements: [
+          "space",
+          "lighting",
+          "sound",
+          "digital_equipment",
+          "climate_control",
+        ],
+        origins: ["Contemporary Global", "Urban Culture", "Digital Age"],
+      });
+    }
+
+    return artForms;
+  }
+
+  private generateArtRequirements(style: string, innovation: string): string[] {
+    const baseRequirements = ["space", "lighting"];
+    const styleRequirements: Record<string, string[]> = {
+      Digital: ["projection", "computers", "sensors"],
+      Interactive: ["sensors", "displays", "sound_system"],
+      Immersive: ["surround_sound", "environmental_controls", "projection"],
+      Traditional: ["natural_light", "climate_control"],
+      Experimental: ["power_supply", "ventilation", "safety_equipment"],
+    };
+
+    const innovationRequirements: Record<string, string[]> = {
+      "AI Integration": ["computing_power", "network", "displays"],
+      "Virtual Reality": ["vr_headsets", "motion_sensors", "computing_power"],
+      "Augmented Reality": ["ar_devices", "tracking_system", "network"],
+      Biofeedback: ["biosensors", "data_processing", "displays"],
+    };
+
+    const requirements = [...baseRequirements];
+
+    // Add style-specific requirements
+    Object.entries(styleRequirements).forEach(([key, reqs]) => {
+      if (style.includes(key)) {
+        requirements.push(...reqs);
+      }
+    });
+
+    // Add innovation-specific requirements
+    Object.entries(innovationRequirements).forEach(([key, reqs]) => {
+      if (innovation.includes(key)) {
+        requirements.push(...reqs);
+      }
+    });
+
+    return [...new Set(requirements)]; // Remove duplicates
+  }
+
+  private determineArtOrigins(style: string, context: string): string[] {
+    const globalTraditions = [
+      "Contemporary Global",
+      "Digital Age",
+      "Urban Culture",
+      "Nature-Inspired",
+      "Tech-Influenced",
+    ];
+
+    const culturalTraditions = [
+      "East Asian",
+      "European",
+      "African",
+      "Latin American",
+      "Middle Eastern",
+      "South Asian",
+      "Indigenous",
+    ];
+
+    const origins: string[] = [];
+
+    // Add contemporary/modern origin
+    if (
+      style.includes("Contemporary") ||
+      style.includes("Digital") ||
+      style.includes("Interactive")
+    ) {
+      origins.push(
+        globalTraditions[Math.floor(Math.random() * globalTraditions.length)]
+      );
+    }
+
+    // Add cultural origin based on context
+    if (context.includes("Heritage") || context.includes("Tradition")) {
+      origins.push(
+        culturalTraditions[
+          Math.floor(Math.random() * culturalTraditions.length)
+        ]
+      );
+    }
+
+    // Ensure at least one origin
+    if (origins.length === 0) {
+      origins.push(globalTraditions[0]);
+    }
+
+    return origins;
   }
 
   private async createCulturalEvent(
@@ -365,25 +767,20 @@ export class CultureService extends EventEmitter {
       type: eventData.type!,
       title: eventData.title!,
       description: eventData.description!,
-      artists: eventData.artists || [],
-      schedule: eventData.schedule || {
-        start: Date.now(),
-        end: Date.now() + 24 * 60 * 60 * 1000,
-      },
       location: eventData.location!,
-      culturalOrigin: eventData.culturalOrigin || [],
-      participation: {
-        capacity: 100,
-        registered: 0,
-        demographics: {},
-      },
+      startTime: new Date().toISOString(),
+      endTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      participants: [],
+      culturalSignificance: 0,
       impact: {
-        culturalEnrichment: 0,
-        communityEngagement: 0,
-        touristAttraction: 0,
-        economicBenefit: 0,
+        social: 0,
+        cultural: 0,
+        economic: 0,
       },
       status: "upcoming",
+      artists: eventData.artists || [],
+      schedule: eventData.schedule || [],
+      culturalOrigin: eventData.culturalOrigin || "",
     };
 
     this.events.set(event.id, event);
@@ -391,26 +788,196 @@ export class CultureService extends EventEmitter {
   }
 
   private async findMatchingArtists(requirements: string[]): Promise<Artist[]> {
-    // Implementation
-    return [];
+    const artistPool: Artist[] = [
+      {
+        id: "1",
+        name: "Sofia Chen",
+        specialties: ["digital art", "installations", "multimedia"],
+        culturalBackground: ["Chinese", "Contemporary"],
+        achievements: [
+          { title: "Digital Art Excellence", date: "2023", significance: 0.9 },
+          {
+            title: "Cultural Innovation Award",
+            date: "2022",
+            significance: 0.85,
+          },
+        ],
+        collaborations: ["Modern Art Museum", "Tech Innovation Center"],
+        rating: 4.8,
+      },
+      {
+        id: "2",
+        name: "Marcus Rivera",
+        specialties: ["performance art", "interactive installations", "sound"],
+        culturalBackground: ["Latin American", "European"],
+        achievements: [
+          {
+            title: "Performance Art Pioneer",
+            date: "2023",
+            significance: 0.88,
+          },
+          { title: "Sound Design Award", date: "2022", significance: 0.82 },
+        ],
+        collaborations: ["City Theater", "Music Festival"],
+        rating: 4.7,
+      },
+      {
+        id: "3",
+        name: "Aisha Patel",
+        specialties: ["mixed media", "traditional crafts", "modern fusion"],
+        culturalBackground: ["Indian", "Contemporary"],
+        achievements: [
+          {
+            title: "Cultural Heritage Award",
+            date: "2023",
+            significance: 0.92,
+          },
+          { title: "Innovation in Craft", date: "2022", significance: 0.87 },
+        ],
+        collaborations: ["Heritage Museum", "Contemporary Art Center"],
+        rating: 4.9,
+      },
+    ];
+
+    // Match artists based on requirements and their specialties
+    return artistPool
+      .filter((artist) =>
+        requirements.some((req) =>
+          artist.specialties.some((specialty) =>
+            specialty.toLowerCase().includes(req.toLowerCase())
+          )
+        )
+      )
+      .sort((a, b) => b.rating - a.rating);
   }
 
   private async promoteEvent(event: CulturalEvent): Promise<void> {
-    // Implementation
+    const promotionChannels = [
+      { type: "social_media", reach: 0.8, targetAudience: "young_adults" },
+      { type: "local_news", reach: 0.6, targetAudience: "general_public" },
+      {
+        type: "cultural_networks",
+        reach: 0.7,
+        targetAudience: "art_enthusiasts",
+      },
+      {
+        type: "community_boards",
+        reach: 0.5,
+        targetAudience: "local_residents",
+      },
+    ];
+
+    const eventTags = [
+      event.type,
+      ...(event.culturalOrigin
+        ? event.culturalOrigin.split(",").map((c) => c.trim())
+        : []),
+      "culture",
+      "city_events",
+      "community",
+    ];
+
+    promotionChannels.forEach((channel) => {
+      this.emit("eventPromoted", {
+        eventId: event.id,
+        channel: channel.type,
+        tags: eventTags,
+        estimatedReach: Math.floor(1000 * channel.reach * Math.random()),
+        targetAudience: channel.targetAudience,
+      });
+    });
   }
 
   private async findSuitableVenues(type: string): Promise<Venue[]> {
-    return [
+    const venues: Venue[] = [
       {
         name: "Central Plaza",
-        attributes: ["spacious", "outdoor", "accessible"],
+        attributes: ["spacious", "outdoor", "accessible", "central", "iconic"],
         location: {
           districtId: "downtown",
           venue: "Central Plaza",
           coordinates: [0, 0],
         },
       },
+      {
+        name: "Cultural Center",
+        attributes: [
+          "indoor",
+          "modern",
+          "equipped",
+          "accessible",
+          "prestigious",
+        ],
+        location: {
+          districtId: "cultural_district",
+          venue: "Cultural Center",
+          coordinates: [0.1, 0.1],
+        },
+      },
+      {
+        name: "Heritage Hall",
+        attributes: [
+          "historic",
+          "indoor",
+          "traditional",
+          "atmospheric",
+          "central",
+        ],
+        location: {
+          districtId: "old_town",
+          venue: "Heritage Hall",
+          coordinates: [-0.1, -0.1],
+        },
+      },
+      {
+        name: "Innovation Hub",
+        attributes: [
+          "modern",
+          "tech-enabled",
+          "flexible",
+          "indoor",
+          "accessible",
+        ],
+        location: {
+          districtId: "tech_district",
+          venue: "Innovation Hub",
+          coordinates: [0.2, 0.2],
+        },
+      },
+      {
+        name: "Community Garden",
+        attributes: [
+          "outdoor",
+          "natural",
+          "sustainable",
+          "community-focused",
+          "peaceful",
+        ],
+        location: {
+          districtId: "residential",
+          venue: "Community Garden",
+          coordinates: [-0.2, 0.2],
+        },
+      },
     ];
+
+    // Filter venues based on event type requirements
+    const requirements: Record<string, string[]> = {
+      performance: ["spacious", "accessible", "equipped"],
+      exhibition: ["indoor", "equipped", "accessible"],
+      workshop: ["flexible", "accessible", "equipped"],
+      ceremony: ["prestigious", "atmospheric", "accessible"],
+      festival: ["spacious", "accessible", "central"],
+    };
+
+    const typeReqs = requirements[type.toLowerCase()] || ["accessible"];
+    return venues.filter((venue) =>
+      typeReqs.every((req) =>
+        venue.attributes.some((attr) =>
+          attr.toLowerCase().includes(req.toLowerCase())
+        )
+      )
+    );
   }
 
   private matchThemeToStyle(
@@ -436,38 +1003,142 @@ export class CultureService extends EventEmitter {
   }
 
   private async getLocalCuisines(): Promise<string[]> {
-    // Query local restaurants and food traditions
-    return ["asian", "mediterranean", "latin", "african"] as string[];
+    const cuisinesByRegion = {
+      asian: ["Japanese", "Chinese", "Korean", "Thai", "Vietnamese", "Indian"],
+      mediterranean: ["Greek", "Italian", "Spanish", "Turkish", "Lebanese"],
+      american: ["Southern", "Tex-Mex", "Cajun", "New England", "California"],
+      african: [
+        "Ethiopian",
+        "Moroccan",
+        "Nigerian",
+        "Egyptian",
+        "South African",
+      ],
+    };
+
+    // Randomly select cuisines from different regions for diversity
+    const selectedCuisines: string[] = [];
+    Object.values(cuisinesByRegion).forEach((region) => {
+      const randomCuisines = region.sort(() => Math.random() - 0.5).slice(0, 2);
+      selectedCuisines.push(...randomCuisines);
+    });
+
+    return selectedCuisines;
   }
 
   private generateFusionConcepts(cuisines: string[]): CulinaryTheme[] {
-    return cuisines.map((cuisine) => ({
-      theme: `Modern ${cuisine} Fusion`,
-      cuisines: [cuisine, "contemporary"],
-      fusion: ["molecular", "street_food"],
-      description: `Innovative take on ${cuisine} cuisine`,
-    }));
+    const fusionStyles = [
+      "Modern",
+      "Street",
+      "Gourmet",
+      "Traditional",
+      "Experimental",
+    ];
+    const techniques = [
+      "Molecular",
+      "Farm-to-Table",
+      "Artisanal",
+      "Sustainable",
+    ];
+
+    return cuisines.map((cuisine, index) => {
+      const pairedCuisine = cuisines[(index + 1) % cuisines.length];
+      const style =
+        fusionStyles[Math.floor(Math.random() * fusionStyles.length)];
+      const technique =
+        techniques[Math.floor(Math.random() * techniques.length)];
+
+      return {
+        theme: `${style} ${cuisine}-${pairedCuisine} Fusion`,
+        cuisines: [cuisine, pairedCuisine],
+        fusion: [technique, style.toLowerCase()],
+        description: `An innovative culinary experience combining ${cuisine} and ${pairedCuisine} traditions with ${technique.toLowerCase()} techniques`,
+      };
+    });
   }
 
   private generateCulinaryDescription(theme: CulinaryTheme): string {
-    return `${theme.theme}: ${
-      theme.description
-    } featuring ${theme.cuisines.join(" meets ")} 
-      with ${theme.fusion.join(" and ")} elements`;
+    const culturalElements = [
+      "traditional cooking methods",
+      "ancestral recipes",
+      "local ingredients",
+      "cultural storytelling",
+      "family traditions",
+    ];
+
+    const innovativeElements = [
+      "modern techniques",
+      "sustainable practices",
+      "artistic presentation",
+      "interactive experiences",
+      "sensory exploration",
+    ];
+
+    const selectedCultural =
+      culturalElements[Math.floor(Math.random() * culturalElements.length)];
+    const selectedInnovative =
+      innovativeElements[Math.floor(Math.random() * innovativeElements.length)];
+
+    return `Experience the magic of ${
+      theme.theme
+    }: A culinary journey celebrating the fusion of ${theme.cuisines[0]} and ${
+      theme.cuisines[1]
+    } cuisines. This unique festival combines ${selectedCultural} with ${selectedInnovative}, featuring ${theme.fusion.join(
+      " and "
+    )} elements. ${theme.description}`;
   }
 
   private async identifyHeritageLocations(): Promise<HeritageSpot[]> {
-    // Query cultural landmarks and historical sites
     return [
       {
         name: "Ancient Market Square",
         location: {
-          districtId: "central_district",
+          districtId: "old_town",
           venue: "Market Square",
           coordinates: [0, 0],
         },
         historicalSignificance: "Trading hub since 15th century",
         culturalValue: "Community gathering place",
+      },
+      {
+        name: "Grand Mosque",
+        location: {
+          districtId: "religious_district",
+          venue: "Central Mosque",
+          coordinates: [0.1, 0.1],
+        },
+        historicalSignificance: "Islamic Heritage",
+        culturalValue: "Spiritual center and architectural marvel",
+      },
+      {
+        name: "Temple of Harmony",
+        location: {
+          districtId: "religious_district",
+          venue: "Buddhist Temple",
+          coordinates: [-0.1, 0.1],
+        },
+        historicalSignificance: "Buddhist Heritage",
+        culturalValue: "Meditation and cultural exchange",
+      },
+      {
+        name: "St. Mary's Cathedral",
+        location: {
+          districtId: "religious_district",
+          venue: "Cathedral Square",
+          coordinates: [0.1, -0.1],
+        },
+        historicalSignificance: "Christian Heritage",
+        culturalValue: "Religious ceremonies and gothic architecture",
+      },
+      {
+        name: "Synagogue of Light",
+        location: {
+          districtId: "religious_district",
+          venue: "Jewish Quarter",
+          coordinates: [-0.1, -0.1],
+        },
+        historicalSignificance: "Jewish Heritage",
+        culturalValue: "Religious studies and community events",
       },
     ];
   }
@@ -560,7 +1231,7 @@ export class CultureService extends EventEmitter {
   ): Promise<CulturalMetrics["engagement"]> {
     return {
       totalParticipants: events.reduce(
-        (sum, event) => sum + event.participation.registered,
+        (sum, event) => sum + event.participants.length,
         0
       ),
       averageRating: 4.2,
@@ -588,53 +1259,38 @@ export class CultureService extends EventEmitter {
   private categorizeEvents(
     events: CulturalEvent[]
   ): Record<CulturalEventType, number> {
-    const initialCounts: Record<CulturalEventType, number> = {
-      art_exhibition: 0,
-      street_performance: 0,
-      food_festival: 0,
-      cultural_celebration: 0,
-      music_concert: 0,
-      theater_show: 0,
-      film_screening: 0,
-      workshop: 0,
-      heritage_tour: 0,
-      cultural_exchange: 0,
-    };
-
     return events.reduce(
       (acc, event) => ({
         ...acc,
         [event.type]: (acc[event.type] || 0) + 1,
       }),
-      initialCounts
+      {} as Record<CulturalEventType, number>
     );
   }
 
   private analyzeCulturalRepresentation(
     events: CulturalEvent[]
   ): Record<string, number> {
-    const initialRepresentation: Record<string, number> = {};
-    const cultures = events.flatMap((event) => event.culturalOrigin);
-
-    return cultures.reduce(
-      (acc, culture) => ({
-        ...acc,
-        [culture]: (acc[culture] || 0) + 1,
-      }),
-      initialRepresentation
-    );
+    const representation: Record<string, number> = {};
+    events.forEach((event) => {
+      if (event.culturalOrigin) {
+        representation[event.culturalOrigin] =
+          (representation[event.culturalOrigin] || 0) + 1;
+      }
+    });
+    return representation;
   }
 
   private async analyzeParticipation(
     events: CulturalEvent[]
   ): Promise<Record<string, number>> {
-    return events.reduce(
-      (acc, event) => ({
-        ...acc,
-        ...event.participation.demographics,
-      }),
-      {}
-    );
+    const demographics: Record<string, number> = {};
+    events.forEach((event) => {
+      event.participants.forEach((participant) => {
+        demographics[participant] = (demographics[participant] || 0) + 1;
+      });
+    });
+    return demographics;
   }
 
   private async adjustEventForWeather(
@@ -656,12 +1312,22 @@ export class CultureService extends EventEmitter {
     event: CulturalEvent,
     patterns: any[],
     peakHours: number[]
-  ): CulturalEvent["schedule"] {
+  ): Array<{ time: string; activity: string }> {
     const optimalStart = peakHours[0];
-    return {
-      start: new Date().setHours(optimalStart, 0, 0, 0),
-      end: new Date().setHours(optimalStart + 3, 0, 0, 0),
-    };
+    return [
+      {
+        time: new Date(optimalStart).toISOString(),
+        activity: "Opening",
+      },
+      {
+        time: new Date(optimalStart + 3600000).toISOString(),
+        activity: "Main Event",
+      },
+      {
+        time: new Date(optimalStart + 7200000).toISOString(),
+        activity: "Closing",
+      },
+    ];
   }
 
   private generateCulturalRecommendations(
@@ -683,6 +1349,249 @@ export class CultureService extends EventEmitter {
         optimal: Math.floor(atmosphere.socialDynamics * 30),
         recommended: 90,
       },
+      location: {
+        districtId: atmosphere.district,
+        coordinates: atmosphere.coordinates,
+      },
+      timing: {
+        startTime: atmosphere.recommendedStartTime,
+        endTime: atmosphere.recommendedEndTime,
+      },
+      participants: atmosphere.expectedParticipants || [],
+      culturalImpact: this.calculateCulturalImpact(atmosphere),
     };
+  }
+
+  calculateCulturalImpact(atmosphere: CulturalAtmosphere): number {
+    return (
+      atmosphere.harmonyIndex * 0.4 + (1 - atmosphere.culturalTension) * 0.6
+    );
+  }
+
+  private generateReligiousEvents(): Array<{
+    title: string;
+    description: string;
+    location: {
+      districtId: string;
+      venue: string;
+      coordinates: [number, number];
+    };
+    schedule: Array<{ time: string; activity: string }>;
+    origin: string;
+  }> {
+    const events = [
+      {
+        title: "Interfaith Harmony Festival",
+        description:
+          "A celebration of unity and understanding between different faiths",
+        location: {
+          districtId: "religious_district",
+          venue: "Unity Plaza",
+          coordinates: [0, 0] as [number, number],
+        },
+        schedule: [
+          { time: new Date().toISOString(), activity: "Opening Ceremony" },
+          {
+            time: new Date(Date.now() + 3600000).toISOString(),
+            activity: "Interfaith Dialogue",
+          },
+          {
+            time: new Date(Date.now() + 7200000).toISOString(),
+            activity: "Cultural Performances",
+          },
+          {
+            time: new Date(Date.now() + 10800000).toISOString(),
+            activity: "Community Feast",
+          },
+        ],
+        origin: "Multicultural",
+      },
+      // ... other events with fixed coordinates type
+    ];
+
+    // Add events for each registered religion
+    for (const [_, religion] of this.religions) {
+      const holyPlace = religion.holyPlaces.find(
+        (place) => place.status === "existing"
+      );
+      if (holyPlace) {
+        events.push({
+          title: `${religion.name} Celebration`,
+          description: `A special gathering to celebrate the traditions of ${religion.name}`,
+          location: holyPlace.location,
+          schedule: [
+            { time: new Date().toISOString(), activity: "Opening Prayer" },
+            {
+              time: new Date(Date.now() + 3600000).toISOString(),
+              activity: "Religious Ceremony",
+            },
+            {
+              time: new Date(Date.now() + 7200000).toISOString(),
+              activity: "Community Gathering",
+            },
+          ],
+          origin: religion.name,
+        });
+      }
+    }
+
+    return events;
+  }
+
+  async createNewReligion(religionData: {
+    name: string;
+    founder: string;
+    mainBeliefs: string[];
+    practices: string[];
+    proposedHolyPlaces: Array<{
+      name: string;
+      type: string;
+      location: CulturalEvent["location"];
+    }>;
+  }): Promise<Religion> {
+    const religion: Religion = {
+      id: crypto.randomUUID(),
+      name: religionData.name,
+      foundingDate: new Date().toISOString(),
+      founder: religionData.founder,
+      mainBeliefs: religionData.mainBeliefs,
+      practices: religionData.practices,
+      holyPlaces: religionData.proposedHolyPlaces.map((place) => ({
+        ...place,
+        status: "planned",
+        donationProgress: 0,
+      })),
+      followers: 0,
+      events: [],
+    };
+
+    this.religions.set(religion.id, religion);
+    this.emit("religionCreated", religion);
+
+    // Create initial religious event
+    const foundingEvent = await this.createCulturalEvent({
+      type: "religious_ceremony",
+      title: `Founding of ${religion.name}`,
+      description: `A historic ceremony marking the establishment of ${religion.name}`,
+      location: {
+        districtId: "religious_district",
+        venue: "Unity Plaza",
+        coordinates: [0, 0] as [number, number],
+      },
+      schedule: [
+        { time: new Date().toISOString(), activity: "Founding Ceremony" },
+        {
+          time: new Date(Date.now() + 3600000).toISOString(),
+          activity: "Declaration of Beliefs",
+        },
+        {
+          time: new Date(Date.now() + 7200000).toISOString(),
+          activity: "Community Celebration",
+        },
+      ],
+      culturalSignificance: 1.0,
+      impact: {
+        social: 0.9,
+        cultural: 1.0,
+        economic: 0.7,
+      },
+      status: "upcoming",
+      participants: [],
+      culturalOrigin: religion.name,
+    });
+
+    religion.events.push(foundingEvent.id);
+    return religion;
+  }
+
+  async donateToHolyPlace(
+    religionId: string,
+    holyPlaceName: string,
+    amount: number
+  ): Promise<void> {
+    const religion = this.religions.get(religionId);
+    if (!religion) throw new Error("Religion not found");
+
+    const holyPlace = religion.holyPlaces.find(
+      (place) => place.name === holyPlaceName
+    );
+    if (!holyPlace) throw new Error("Holy place not found");
+
+    if (holyPlace.status === "existing")
+      throw new Error("Holy place already exists");
+
+    holyPlace.donationProgress = (holyPlace.donationProgress || 0) + amount;
+
+    // Check if donations are sufficient to start/complete construction
+    if (holyPlace.donationProgress >= 1000000) {
+      // Example threshold
+      holyPlace.status = "existing";
+      this.emit("holyPlaceCompleted", { religionId, holyPlace });
+
+      // Create celebration event
+      await this.createCulturalEvent({
+        type: "religious_ceremony",
+        title: `${holyPlace.name} Inauguration`,
+        description: `Grand opening ceremony of the newly constructed ${holyPlace.name}`,
+        location: holyPlace.location,
+        schedule: [
+          { time: new Date().toISOString(), activity: "Opening Ceremony" },
+          {
+            time: new Date(Date.now() + 3600000).toISOString(),
+            activity: "Religious Ceremony",
+          },
+          {
+            time: new Date(Date.now() + 7200000).toISOString(),
+            activity: "Community Celebration",
+          },
+        ],
+        culturalSignificance: 1.0,
+        impact: {
+          social: 0.9,
+          cultural: 1.0,
+          economic: 0.8,
+        },
+        status: "upcoming",
+        participants: [],
+        culturalOrigin: religion.name,
+      });
+    } else if (
+      holyPlace.donationProgress >= 500000 &&
+      holyPlace.status === "planned"
+    ) {
+      holyPlace.status = "under_construction";
+      this.emit("constructionStarted", { religionId, holyPlace });
+    }
+
+    this.emit("donationReceived", { religionId, holyPlace, amount });
+  }
+
+  async updateReligionMetrics(religionId: string): Promise<void> {
+    const religion = this.religions.get(religionId);
+    if (!religion) throw new Error("Religion not found");
+
+    // Update followers based on event participation and cultural impact
+    const recentEvents = Array.from(this.events.values()).filter(
+      (event) =>
+        religion.events.includes(event.id) &&
+        new Date(event.endTime).getTime() >
+          Date.now() - 30 * 24 * 60 * 60 * 1000 // Last 30 days
+    );
+
+    const totalParticipants = recentEvents.reduce(
+      (sum, event) => sum + event.participants.length,
+      0
+    );
+    const averageImpact =
+      recentEvents.reduce((sum, event) => sum + event.culturalSignificance, 0) /
+      recentEvents.length;
+
+    // Adjust followers based on participation and impact
+    religion.followers = Math.floor(totalParticipants * averageImpact * 1.5); // Simple growth model
+
+    this.emit("religionMetricsUpdated", {
+      religionId,
+      followers: religion.followers,
+    });
   }
 }

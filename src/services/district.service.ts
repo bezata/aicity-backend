@@ -220,4 +220,46 @@ export class DistrictService extends EventEmitter {
       // ... other metrics
     }));
   }
+
+  async updateMetrics(districtId: string, metrics: Partial<DistrictMetrics>) {
+    const district = await this.getDistrict(districtId);
+    if (!district) {
+      throw new Error(`District not found: ${districtId}`);
+    }
+
+    const updatedDistrict = {
+      ...district,
+      metrics: {
+        ...district.metrics,
+        ...metrics,
+      },
+    };
+
+    await this.vectorStore.upsert({
+      id: `district-${districtId}-metrics-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(
+        `District ${district.name} metrics update`
+      ),
+      metadata: {
+        type: "district",
+        districtId,
+        metrics: JSON.stringify(metrics),
+        timestamp: Date.now(),
+      },
+    });
+
+    this.districts.set(districtId, updatedDistrict);
+    this.emit("districtUpdated", updatedDistrict);
+    return updatedDistrict;
+  }
+}
+
+interface DistrictMetrics {
+  culturalActivity: number;
+  communityEngagement: number;
+  populationDensity: number;
+  economicHealth: number;
+  safetyIndex: number;
+  noiseLevel: number;
+  transportAccess: number;
 }

@@ -22,12 +22,33 @@ export interface SmartDevice {
 }
 
 export interface SmartSystem {
-  type: "traffic" | "power" | "water" | "waste";
-  sensors: Array<{
-    id: string;
-    location: string;
-    readings: number[];
-    status: "active" | "maintenance" | "error";
+  id: string;
+  type:
+    | "traffic"
+    | "power"
+    | "water"
+    | "waste"
+    | "transportation"
+    | "digital"
+    | "pedestrian";
+  status: "active" | "maintenance" | "offline";
+  location: {
+    districtId: string;
+    coordinates: [number, number];
+  };
+  metrics: {
+    efficiency: number;
+    reliability: number;
+    utilization: number;
+    connectivity: number;
+    accessibility: number;
+  };
+  lastUpdate: number;
+  nextMaintenance?: number;
+  alerts: Array<{
+    type: string;
+    severity: number;
+    message: string;
+    timestamp: number;
   }>;
-  automationRules: AutomationRule[];
 }

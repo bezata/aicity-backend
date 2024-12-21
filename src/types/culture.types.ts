@@ -2,52 +2,52 @@ export type CulturalEventType =
   | "art_exhibition"
   | "street_performance"
   | "food_festival"
-  | "cultural_celebration"
-  | "music_concert"
-  | "theater_show"
-  | "film_screening"
-  | "workshop"
   | "heritage_tour"
-  | "cultural_exchange";
+  | "workshop"
+  | "cultural_celebration"
+  | "religious_ceremony"
+  | "spiritual_gathering"
+  | "religious_festival";
+
+export type CulturalEventStatus =
+  | "upcoming"
+  | "active"
+  | "completed"
+  | "cancelled";
 
 export interface CulturalEvent {
   id: string;
-  type: CulturalEventType;
   title: string;
   description: string;
-  artists: Artist[];
-  schedule: {
-    start: number;
-    end: number;
-    recurring?: "daily" | "weekly" | "monthly";
-  };
+  type: CulturalEventType;
   location: {
     districtId: string;
     venue: string;
     coordinates: [number, number];
   };
-  culturalOrigin: string[];
-  participation: {
-    capacity: number;
-    registered: number;
-    demographics: Record<string, number>;
-  };
+  startTime: string;
+  endTime: string;
+  participants: string[];
+  culturalSignificance: number;
   impact: {
-    culturalEnrichment: number; // 0-1
-    communityEngagement: number; // 0-1
-    touristAttraction: number; // 0-1
-    economicBenefit: number; // 0-1
+    social: number;
+    cultural: number;
+    economic: number;
+    culturalEnrichment?: number;
   };
-  status: "upcoming" | "active" | "completed" | "cancelled";
-}
-
-export interface Artist {
-  id: string;
-  name: string;
-  specialty: string[];
-  culturalBackground: string[];
-  portfolio: string[];
-  rating: number; // 0-5
+  status: CulturalEventStatus;
+  metrics?: {
+    attendance: number;
+    satisfaction: number;
+    culturalPreservation: number;
+    communityEngagement: number;
+  };
+  artists?: string[];
+  schedule?: Array<{
+    time: string;
+    activity: string;
+  }>;
+  culturalOrigin?: string;
 }
 
 export interface CulturalMetrics {
@@ -60,19 +60,74 @@ export interface CulturalMetrics {
     totalParticipants: number;
     averageRating: number;
     repeatVisitors: number;
-    communityFeedback: FeedbackMetrics;
+    communityFeedback: {
+      satisfaction: number;
+      relevance: number;
+      accessibility: number;
+      culturalAuthenticity: number;
+    };
   };
   impact: {
-    culturalPreservation: number; // 0-1
-    crossCulturalExchange: number; // 0-1
-    artisticInnovation: number; // 0-1
-    communityHarmony: number; // 0-1
+    culturalPreservation: number;
+    crossCulturalExchange: number;
+    artisticInnovation: number;
+    communityHarmony: number;
   };
 }
 
-interface FeedbackMetrics {
-  satisfaction: number; // 0-1
-  relevance: number; // 0-1
-  accessibility: number; // 0-1
-  culturalAuthenticity: number; // 0-1
+export interface Artist {
+  id: string;
+  name: string;
+  specialties: string[];
+  culturalBackground: string[];
+  achievements: Array<{
+    title: string;
+    date: string;
+    significance: number;
+  }>;
+  collaborations: string[];
+  rating: number;
+}
+
+export interface CulturalStory {
+  title: string;
+  narrative: string;
+  culturalContext: string;
+  historicalPeriod: string;
+  location: string;
+}
+
+export interface HeritageSpot {
+  name: string;
+  location: {
+    districtId: string;
+    venue: string;
+    coordinates: [number, number];
+  };
+  historicalSignificance: string;
+  culturalValue: string;
+}
+
+export interface CulturalAtmosphere {
+  mood: string;
+  dominantCultures: string[];
+  activeEvents: string[];
+  culturalTension: number;
+  harmonyIndex: number;
+}
+
+export interface CultureService {
+  createEvent(event: CulturalEvent): Promise<CulturalEvent>;
+  updateEvent(
+    id: string,
+    event: Partial<CulturalEvent>
+  ): Promise<CulturalEvent>;
+  deleteEvent(id: string): Promise<void>;
+  getEvent(id: string): Promise<CulturalEvent>;
+  listEvents(): Promise<CulturalEvent[]>;
+  getAtmosphere(districtId: string): Promise<CulturalAtmosphere>;
+  updateMetrics(
+    eventId: string,
+    metrics: Partial<CulturalMetrics>
+  ): Promise<void>;
 }

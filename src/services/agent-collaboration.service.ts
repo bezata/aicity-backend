@@ -10,6 +10,7 @@ import { Message } from "../types/conversation.types";
 import _ from "lodash";
 import { CulturalEvent } from "../types/culture.types";
 import { AnalyticsService } from "./analytics.service";
+import { AIIntegrationService } from "./ai-integration.service";
 
 type VectorMetadataType =
   | "conversation"
@@ -119,7 +120,8 @@ export class AgentCollaborationService extends EventEmitter {
     private togetherService: TogetherService,
     private vectorStore: VectorStoreService,
     private cityService: CityService,
-    private analyticsService: AnalyticsService
+    private analyticsService: AnalyticsService,
+    private aiIntegrationService: AIIntegrationService
   ) {
     super();
     this.initializeService();
@@ -237,12 +239,18 @@ export class AgentCollaborationService extends EventEmitter {
     let currentRound = 0;
 
     try {
+      // Record activity for all participating agents at the start of discussion
+      await this.recordMultipleAgentActivity(session.agents);
+
       while (currentRound < this.config.maxDiscussionRounds) {
         const roundResult = await this.conductDiscussionRound(
           sessionId,
           event,
           currentRound
         );
+
+        // Record activity for participating agents after each round
+        await this.recordMultipleAgentActivity(session.agents);
 
         if (roundResult.consensusReached || roundResult.emergencyAction) {
           await this.finalizeDecisions(sessionId, roundResult);
@@ -1476,6 +1484,9 @@ Please provide these details to continue the discussion.`;
     content: string
   ): Promise<any> {
     try {
+      // Record activity for both agents
+      await this.recordMultipleAgentActivity([agentId1, agentId2]);
+
       const embedding = await this.vectorStore.createEmbedding(content);
 
       const interactionId = `interaction-${Date.now()}`;
@@ -1573,5 +1584,13 @@ Please provide these details to continue the discussion.`;
       console.error("Error fetching relevant memories:", error);
       return "Historical memories temporarily unavailable.";
     }
+  }
+
+  private async recordAgentActivity(agentId: string) {
+    await this.aiIntegrationService.recordAgentActivity(agentId);
+  }
+
+  private async recordMultipleAgentActivity(agentIds: string[]) {
+    await Promise.all(agentIds.map((id) => this.recordAgentActivity(id)));
   }
 }

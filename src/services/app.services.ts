@@ -184,13 +184,20 @@ const districtService = new DistrictService(
   togetherService,
   analyticsService
 );
+
+// Initialize AI Integration service first since other services depend on it
+const aiIntegration = new AIIntegrationService(vectorStore);
+
 const collaborationService = new AgentCollaborationService(
   togetherService,
   vectorStore,
   cityService,
-  analyticsService
+  analyticsService,
+  aiIntegration
 );
+
 const socketManager = new SocketManagerService(collaborationService);
+
 const cityEventsService = new CityEventsService(
   metricsService,
   collaborationService,
@@ -279,8 +286,6 @@ const culturalTransport = new CulturalTransportService(
   vectorStore,
   analyticsService
 );
-
-const aiIntegration = new AIIntegrationService(vectorStore);
 
 // Initialize economy service
 const economyService = new EconomyService(vectorStore, districtService);

@@ -16,8 +16,45 @@ export class AIIntegrationService {
   private decisionHistory: Map<string, AIDecisionContext> = new Map();
   private patterns: Map<string, AIPattern> = new Map();
   private protocols: Map<string, AIProtocol> = new Map();
+  private lastHeartbeat: Map<string, number> = new Map();
+  private readonly HEARTBEAT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
-  constructor(private vectorStore: VectorStoreService) {}
+  constructor(private vectorStore: VectorStoreService) {
+    this.startHeartbeatMonitoring();
+  }
+
+  private startHeartbeatMonitoring() {
+    setInterval(() => this.checkAgentHeartbeats(), 60 * 1000); // Check every minute
+  }
+
+  private checkAgentHeartbeats() {
+    const now = Date.now();
+    for (const [agentId, lastBeat] of this.lastHeartbeat.entries()) {
+      if (now - lastBeat > this.HEARTBEAT_TIMEOUT) {
+        this.activeAgents.delete(agentId);
+        this.lastHeartbeat.delete(agentId);
+        this.updateNetworkStatus();
+      }
+    }
+  }
+
+  private updateNetworkStatus() {
+    if (this.networkStatus) {
+      this.networkStatus = {
+        ...this.networkStatus,
+        connectedAgents: this.activeAgents.size,
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  async recordAgentActivity(agentId: string) {
+    if (!this.activeAgents.has(agentId)) {
+      this.activeAgents.add(agentId);
+    }
+    this.lastHeartbeat.set(agentId, Date.now());
+    this.updateNetworkStatus();
+  }
 
   async initializeSystem(
     config: SystemInitializationConfig
@@ -92,6 +129,9 @@ export class AIIntegrationService {
     if (!this.systemId) {
       throw new Error("System not initialized");
     }
+
+    // Record agent activity when they make a decision
+    await this.recordAgentActivity(agentId);
 
     const decisionContext: AIDecisionContext = {
       agentId,
@@ -223,6 +263,10 @@ export class AIIntegrationService {
 
   getSystemStatus(): NetworkStatus | null {
     return this.networkStatus;
+  }
+
+  getActiveAgents(): string[] {
+    return Array.from(this.activeAgents);
   }
 
   isInitialized(): boolean {

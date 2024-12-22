@@ -1,80 +1,162 @@
-export interface AIDecisionContext {
-  confidence: number;
-  factors: string[];
-  alternatives: string[];
-  impact: {
-    social: number;
-    economic: number;
-    environmental: number;
-  };
-  timeframe: string;
+export interface SystemInitializationConfig {
+  agents: string[];
+  protocol: string;
+  initialState?: Record<string, any>;
 }
 
-export interface AIInteractionProtocol {
-  type: "direct" | "assisted" | "automated";
-  complexity: number;
-  userPreference: string;
-  adaptationLevel: number;
-  lastInteraction: Date;
-  successRate: number;
-}
-
-export interface CityPattern {
-  id: string;
-  type: string;
-  confidence: number;
-  frequency: number;
-  impact: number;
-  relatedPatterns: string[];
-  firstObserved: Date;
-  lastObserved: Date;
-  predictions: {
-    shortTerm: string;
-    mediumTerm: string;
-    longTerm: string;
-  };
-}
-
-export interface VectorQuery {
-  vector: number[];
-  filter?: {
-    [key: string]: {
-      $eq?: string | number | boolean;
-      $ne?: string | number | boolean;
-      $gt?: number;
-      $gte?: number;
-      $lt?: number;
-      $lte?: number;
-      $in?: (string | number)[];
-      $nin?: (string | number)[];
-      $exists?: boolean;
-    };
-  };
-  topK: number;
-}
-
-export interface VectorMetadata {
-  type: string;
-  context?: any;
+export interface NetworkStatus {
+  isActive: boolean;
+  connectedAgents: number;
+  protocol: string;
   timestamp: number;
-  patternId?: string;
 }
 
-export interface VectorRecord {
+export interface SystemInitializationResult {
+  systemId: string;
+  activeAgents: string[];
+  networkStatus: NetworkStatus;
+}
+
+export interface AIDecisionContext {
+  agentId: string;
+  decision: string;
+  context: Record<string, any>;
+  timestamp: number;
+}
+
+export interface AIPattern {
   id: string;
-  values: number[];
-  metadata: Partial<VectorMetadata>;
+  pattern: string;
+  context: Record<string, any>;
+  confidence: number;
+  timestamp: number;
 }
 
-export interface AIAnalysis {
-  complexity: number;
-  impact: number;
-  shortTerm: string;
-  mediumTerm: string;
-  longTerm: string;
+export interface AIProtocol {
+  id: string;
+  rules: string[];
+  constraints: Record<string, any>;
+  version: string;
+  timestamp: number;
 }
 
-export interface AIServiceResponse {
-  text: string;
-  analysis?: AIAnalysis;
+export type RecordType =
+  | "protocol"
+  | "state"
+  | "decision"
+  | "pattern"
+  | "conversation"
+  | "collaboration"
+  | "district"
+  | "transport"
+  | "agent_residence"
+  | "agent_visit";
+
+export interface BaseMetadata {
+  type: RecordType;
+  timestamp: number;
+}
+
+export interface ChatMetadata extends BaseMetadata {
+  type: "conversation";
+  senderId: string;
+  receiverId: string;
+}
+
+export interface StateMetadata extends BaseMetadata {
+  type: "state";
+  state: Record<string, any>;
+}
+
+export interface ProtocolMetadata extends BaseMetadata {
+  type: "protocol";
+  protocol: string;
+}
+
+export interface DecisionMetadata extends BaseMetadata {
+  type: "decision";
+  agentId: string;
+  state?: {
+    decision: string;
+    context: Record<string, any>;
+  };
+}
+
+export interface PatternMetadata extends BaseMetadata {
+  type: "pattern";
+  state?: {
+    pattern: string;
+    context: Record<string, any>;
+    confidence: number;
+  };
+}
+
+export interface GenericMetadata extends BaseMetadata {
+  type: Exclude<
+    RecordType,
+    "conversation" | "state" | "protocol" | "decision" | "pattern"
+  >;
+  agentId?: string;
+  state?: Record<string, any>;
+}
+
+export type RecordMetadata =
+  | ChatMetadata
+  | StateMetadata
+  | ProtocolMetadata
+  | DecisionMetadata
+  | PatternMetadata
+  | GenericMetadata;
+
+export type Metadata = RecordMetadata;
+
+// Type guards
+export function isProtocolMetadata(
+  metadata: Metadata
+): metadata is ProtocolMetadata {
+  return metadata.type === "protocol";
+}
+
+export function isStateMetadata(metadata: Metadata): metadata is StateMetadata {
+  return metadata.type === "state";
+}
+
+export function isDecisionMetadata(
+  metadata: Metadata
+): metadata is DecisionMetadata {
+  return metadata.type === "decision";
+}
+
+export function isPatternMetadata(
+  metadata: Metadata
+): metadata is PatternMetadata {
+  return metadata.type === "pattern";
+}
+
+export function isChatMetadata(metadata: Metadata): metadata is ChatMetadata {
+  return metadata.type === "conversation";
+}
+
+export function isGenericMetadata(
+  metadata: Metadata
+): metadata is GenericMetadata {
+  return (
+    !isProtocolMetadata(metadata) &&
+    !isStateMetadata(metadata) &&
+    !isDecisionMetadata(metadata) &&
+    !isPatternMetadata(metadata) &&
+    !isChatMetadata(metadata)
+  );
+}
+
+// Query result interfaces
+export interface QueryMatch {
+  id: string;
+  score: number;
+  metadata: Metadata;
+}
+
+export interface QueryResult {
+  matches?: QueryMatch[];
+  namespace?: string;
 }

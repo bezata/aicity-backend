@@ -35,6 +35,10 @@ export class TransportService extends EventEmitter {
     this.startMetricsTracking();
   }
 
+  public getAllRoutes(): TransportRoute[] {
+    return Array.from(this.routes.values());
+  }
+
   private async initializeTransportSystem() {
     // Initialize basic routes and stops
     await this.generateBaseNetwork();
@@ -715,5 +719,86 @@ export class TransportService extends EventEmitter {
   private startMetricsTracking() {
     // Update metrics every 5 minutes
     setInterval(() => this.updateTransportMetrics(), 5 * 60 * 1000);
+  }
+
+  private async adjustService(rhythm: { mood: string; intensity: number }) {
+    // Adjust service based on city rhythm
+    const adjustmentFactor = this.calculateAdjustmentFactor(rhythm);
+    await this.adjustEfficiency(adjustmentFactor);
+
+    // Update schedules based on rhythm
+    for (const route of this.routes.values()) {
+      const updatedSchedule = this.adjustScheduleForRhythm(
+        route.schedule,
+        rhythm
+      );
+      const updatedRoute = { ...route, schedule: updatedSchedule };
+      this.routes.set(route.id, updatedRoute);
+      await this.storeRouteUpdate(updatedRoute);
+    }
+
+    this.emit("serviceAdjusted", {
+      rhythmMood: rhythm.mood,
+      adjustmentFactor,
+      timestamp: Date.now(),
+    });
+  }
+
+  private calculateAdjustmentFactor(rhythm: {
+    mood: string;
+    intensity: number;
+  }): number {
+    // Base adjustment on mood and intensity
+    const moodFactors: Record<string, number> = {
+      busy: 1.2,
+      relaxed: 0.8,
+      festive: 1.1,
+      quiet: 0.7,
+    };
+
+    const baseFactor = moodFactors[rhythm.mood] || 1.0;
+    return Math.max(0.3, Math.min(1.5, baseFactor * rhythm.intensity));
+  }
+
+  private adjustScheduleForRhythm(
+    schedule: RouteSchedule,
+    rhythm: { mood: string; intensity: number }
+  ): RouteSchedule {
+    const adjustedWeekday = schedule.weekday.map((slot) => ({
+      ...slot,
+      frequency: this.adjustFrequencyForRhythm(slot.frequency, rhythm),
+      capacity: this.adjustCapacityForRhythm(slot.capacity, rhythm),
+    }));
+
+    const adjustedWeekend = schedule.weekend.map((slot) => ({
+      ...slot,
+      frequency: this.adjustFrequencyForRhythm(slot.frequency, rhythm),
+      capacity: this.adjustCapacityForRhythm(slot.capacity, rhythm),
+    }));
+
+    return {
+      ...schedule,
+      weekday: adjustedWeekday,
+      weekend: adjustedWeekend,
+      lastUpdated: Date.now(),
+    };
+  }
+
+  private adjustFrequencyForRhythm(
+    baseFrequency: number,
+    rhythm: { mood: string; intensity: number }
+  ): number {
+    const factor =
+      rhythm.mood === "busy" ? 0.8 : rhythm.mood === "quiet" ? 1.2 : 1.0;
+    return Math.max(5, Math.round(baseFrequency * factor));
+  }
+
+  private adjustCapacityForRhythm(
+    baseCapacity: number,
+    rhythm: { mood: string; intensity: number }
+  ): number {
+    const factor =
+      rhythm.mood === "busy" ? 1.2 : rhythm.mood === "quiet" ? 0.8 : 1.0;
+    return Math.max(0.3, Math.min(1.0, baseCapacity * factor));
   }
 }

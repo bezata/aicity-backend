@@ -1,28 +1,48 @@
-import { AIServiceResponse } from "./ai-integration.types";
+import { Metadata, QueryResult } from "./ai-integration.types";
 
 export interface MetricsService {
   getMetrics(): Promise<any>;
-  getCurrentMetrics(): Promise<any>;
-  getAllMetrics(): Promise<any>;
-  getMetricsForPattern(patternType: string): Promise<any>;
+  updateMetrics(metrics: any): Promise<void>;
 }
 
 export interface TogetherService {
-  generateCompletion(prompt: string): Promise<AIServiceResponse>;
-  generateAnalysis(input: string): Promise<AIServiceResponse>;
-  generateText(prompt: string): Promise<string>;
-  analyze(input: string): Promise<any>;
+  generateCompletion(prompt: string): Promise<{
+    text: string;
+    analysis?: {
+      complexity: number;
+      impact: number;
+      shortTerm: string;
+      mediumTerm: string;
+      longTerm: string;
+    };
+  }>;
 }
 
 export interface AnalyticsService {
+  trackEvent(eventName: string, data: any): void;
   getUserAnalytics(userId: string): Promise<any>;
-  getUserMetrics(userId: string): Promise<any>;
-  getMetrics(userId: string): Promise<any>;
+  trackMood(mood: number): void;
+  trackInteraction(entity: any, interaction: any): void;
+}
+
+export interface VectorMetadata {
+  type: string;
+  context?: any;
+  timestamp: number;
+  patternId?: string;
+  agentId?: string;
+  protocol?: string;
+  state?: any;
 }
 
 export interface VectorStoreService {
-  createEmbedding(text: string): Promise<number[]>;
-  query(query: {
+  createEmbedding(content: string): Promise<number[]>;
+  upsert(record: {
+    id: string;
+    values: number[];
+    metadata: Metadata;
+  }): Promise<{ success: boolean; id: string }>;
+  query(params: {
     vector: number[];
     filter?: {
       [key: string]: {
@@ -38,21 +58,6 @@ export interface VectorStoreService {
       };
     };
     topK: number;
-  }): Promise<{
-    matches: Array<{
-      id: string;
-      score: number;
-      metadata: any;
-    }>;
-  }>;
-  upsert(record: {
-    id: string;
-    values: number[];
-    metadata: {
-      type: string;
-      context?: any;
-      timestamp: number;
-      patternId?: string;
-    };
-  }): Promise<void>;
+  }): Promise<QueryResult>;
+  deleteAll(): Promise<void>;
 }

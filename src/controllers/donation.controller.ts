@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { swagger } from "@elysiajs/swagger";
 import { DonationService } from "../services/donation.service";
 
+// Schema definitions
 const DonationSchema = t.Object({
   donorId: t.String(),
   donorName: t.String(),
@@ -113,10 +114,6 @@ const CulturalMilestoneSchema = t.Object({
   }),
 });
 
-const CommunityStorySchema = t.Object({
-  story: t.String(),
-});
-
 const SimpleDonationSchema = t.Object({
   userId: t.String(),
   userName: t.String(),
@@ -125,506 +122,380 @@ const SimpleDonationSchema = t.Object({
   departmentId: t.String(),
 });
 
-export function setupDonationRoutes(
-  app: Elysia,
-  donationService: DonationService
-) {
-  return app.use(swagger()).group("/donations", (app) =>
-    app
-      // Process new donation
-      .post(
-        "/",
-        async ({ body }) => {
-          const donationId = await donationService.processDonation(body);
-          return { donationId };
-        },
-        {
-          body: DonationSchema,
-          detail: {
-            summary: "Process a new donation",
-            tags: ["Donations"],
-          },
-        }
-      )
+export const DonationController = (donationService: DonationService) =>
+  new Elysia({ prefix: "/donations" })
 
-      // Get suggested activities for a donation
-      .get(
-        "/activities/:donationId",
-        async ({ params: { donationId } }) => {
-          const donation = Array.from(
-            donationService["donations"].values()
-          ).find((d) => d.id === donationId);
-          if (!donation) {
-            throw new Error("Donation not found");
+    .post(
+      "/",
+      async ({ body }) => {
+        const donationId = await donationService.processDonation(body);
+        return { success: true, donationId };
+      },
+      {
+        body: DonationSchema,
+        detail: {
+          tags: ["Donations"],
+          summary: "Process a new donation",
+        },
+      }
+    )
+    .get(
+      "/activities/:donationId",
+      async ({ params: { donationId } }) => {
+        const donation = Array.from(donationService["donations"].values()).find(
+          (d) => d.id === donationId
+        );
+        if (!donation) {
+          throw new Error("Donation not found");
+        }
+        return donationService.suggestCommunityActivities(donation);
+      },
+      {
+        params: t.Object({
+          donationId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get suggested community activities for a donation",
+        },
+      }
+    )
+    .get(
+      "/events/:districtId",
+      async ({ params: { districtId } }) => {
+        return donationService.getUpcomingCulturalEvents(districtId);
+      },
+      {
+        params: t.Object({
+          districtId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get upcoming cultural and religious events in a district",
+        },
+      }
+    )
+    .get(
+      "/district/:districtId/category/:category",
+      async ({ params: { districtId, category } }) => {
+        const donations = await donationService.getDonationsByDistrict(
+          districtId
+        );
+        return donations.filter((d) => d.category === category);
+      },
+      {
+        params: t.Object({
+          districtId: t.String(),
+          category: t.Union([
+            t.Literal("religious"),
+            t.Literal("cultural"),
+            t.Literal("general"),
+            t.Literal("educational"),
+            t.Literal("infrastructure"),
+            t.Literal("environmental"),
+          ]),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get donations by category in a district",
+        },
+      }
+    )
+    .get(
+      "/district/:districtId/cultural-impact",
+      async ({ params: { districtId } }) => {
+        const donations = await donationService.getDonationsByDistrict(
+          districtId
+        );
+        const culturalDonations = donations.filter(
+          (d) => d.category === "religious" || d.category === "cultural"
+        );
+
+        const summary = {
+          totalDonations: culturalDonations.length,
+          totalAmount: culturalDonations.reduce((sum, d) => sum + d.amount, 0),
+          religions: new Set<string>(),
+          traditions: new Set<string>(),
+          festivals: new Set<string>(),
+          artForms: new Set<string>(),
+          upcomingEvents: await donationService.getUpcomingCulturalEvents(
+            districtId
+          ),
+          communityEngagement: {
+            totalVolunteers: 0,
+            activeEvents: new Set<string>(),
+            popularActivities: new Set<string>(),
+          },
+        };
+
+        culturalDonations.forEach((d) => {
+          if (d.subcategory?.religious) {
+            summary.religions.add(d.subcategory.religious.religion);
+            if (d.subcategory.religious.occasion)
+              summary.festivals.add(d.subcategory.religious.occasion);
           }
-          return donationService.suggestCommunityActivities(donation);
-        },
-        {
-          params: t.Object({
-            donationId: t.String(),
-          }),
-          detail: {
-            summary: "Get suggested community activities for a donation",
-            tags: ["Donations"],
-          },
-        }
-      )
+          if (d.subcategory?.cultural) {
+            summary.traditions.add(d.subcategory.cultural.tradition);
+            if (d.subcategory.cultural.festival)
+              summary.festivals.add(d.subcategory.cultural.festival);
+            if (d.subcategory.cultural.artForm)
+              summary.artForms.add(d.subcategory.cultural.artForm);
+          }
+          if (d.communityParticipation) {
+            summary.communityEngagement.totalVolunteers +=
+              d.communityParticipation.volunteers;
+            d.communityParticipation.events.forEach((e) =>
+              summary.communityEngagement.activeEvents.add(e)
+            );
+            d.communityParticipation.activities.forEach((a) =>
+              summary.communityEngagement.popularActivities.add(a)
+            );
+          }
+        });
 
-      // Get upcoming cultural events in a district
-      .get(
-        "/events/:districtId",
-        async ({ params: { districtId } }) => {
-          return donationService.getUpcomingCulturalEvents(districtId);
-        },
-        {
-          params: t.Object({
-            districtId: t.String(),
-          }),
-          detail: {
-            summary: "Get upcoming cultural and religious events in a district",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get donations by category in a district
-      .get(
-        "/district/:districtId/category/:category",
-        async ({ params: { districtId, category } }) => {
-          const donations = await donationService.getDonationsByDistrict(
-            districtId
-          );
-          return donations.filter((d) => d.category === category);
-        },
-        {
-          params: t.Object({
-            districtId: t.String(),
-            category: t.Union([
-              t.Literal("religious"),
-              t.Literal("cultural"),
-              t.Literal("general"),
-              t.Literal("educational"),
-              t.Literal("infrastructure"),
-              t.Literal("environmental"),
-            ]),
-          }),
-          detail: {
-            summary: "Get donations by category in a district",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get cultural impact summary for a district
-      .get(
-        "/district/:districtId/cultural-impact",
-        async ({ params: { districtId } }) => {
-          const donations = await donationService.getDonationsByDistrict(
-            districtId
-          );
-          const culturalDonations = donations.filter(
-            (d) => d.category === "religious" || d.category === "cultural"
-          );
-
-          const summary = {
-            totalDonations: culturalDonations.length,
-            totalAmount: culturalDonations.reduce(
-              (sum, d) => sum + d.amount,
-              0
+        return {
+          ...summary,
+          religions: Array.from(summary.religions),
+          traditions: Array.from(summary.traditions),
+          festivals: Array.from(summary.festivals),
+          artForms: Array.from(summary.artForms),
+          communityEngagement: {
+            ...summary.communityEngagement,
+            activeEvents: Array.from(summary.communityEngagement.activeEvents),
+            popularActivities: Array.from(
+              summary.communityEngagement.popularActivities
             ),
-            religions: new Set<string>(),
-            traditions: new Set<string>(),
-            festivals: new Set<string>(),
-            artForms: new Set<string>(),
-            upcomingEvents: await donationService.getUpcomingCulturalEvents(
-              districtId
-            ),
-            communityEngagement: {
-              totalVolunteers: 0,
-              activeEvents: new Set<string>(),
-              popularActivities: new Set<string>(),
+          },
+        };
+      },
+      {
+        params: t.Object({
+          districtId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get cultural and religious impact summary for a district",
+        },
+      }
+    )
+    .get(
+      "/district/:districtId",
+      async ({ params: { districtId } }) => {
+        return donationService.getDonationsByDistrict(districtId);
+      },
+      {
+        params: t.Object({
+          districtId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get donations by district",
+        },
+      }
+    )
+    .get(
+      "/department/:departmentId",
+      async ({ params: { departmentId } }) => {
+        return donationService.getDonationsByDepartment(departmentId);
+      },
+      {
+        params: t.Object({
+          departmentId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get donations by department",
+        },
+      }
+    )
+    .get(
+      "/announcements/:districtId",
+      async ({ params: { districtId } }) => {
+        return donationService.getDistrictAnnouncements(districtId);
+      },
+      {
+        params: t.Object({
+          districtId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get district donation announcements",
+        },
+      }
+    )
+    .post(
+      "/announcements/:announcementId/react",
+      async ({ params: { announcementId }, body }) => {
+        await donationService.addReactionToAnnouncement(
+          announcementId,
+          body.reaction
+        );
+        return { success: true };
+      },
+      {
+        params: t.Object({
+          announcementId: t.String(),
+        }),
+        body: ReactionSchema,
+        detail: {
+          tags: ["Donations"],
+          summary: "Add reaction to donation announcement",
+        },
+      }
+    )
+    .get(
+      "/:donationId/impact",
+      async ({ params: { donationId } }) => {
+        const impact = await donationService.getDonationImpact(donationId);
+        if (!impact) {
+          throw new Error("Impact not found for donation");
+        }
+        return impact;
+      },
+      {
+        params: t.Object({
+          donationId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get donation impact metrics",
+        },
+      }
+    )
+    .post(
+      "/challenges",
+      async ({ body }) => {
+        const challengeId = await donationService.createDonationChallenge(body);
+        return { success: true, challengeId };
+      },
+      {
+        body: DonationChallengeSchema,
+        detail: {
+          tags: ["Donations"],
+          summary: "Create a new donation challenge",
+        },
+      }
+    )
+    .get(
+      "/challenges/active",
+      async () => {
+        return donationService.getActiveChallenges();
+      },
+      {
+        detail: {
+          tags: ["Donations"],
+          summary: "Get all active donation challenges",
+        },
+      }
+    )
+    .get(
+      "/challenges/:challengeId/progress",
+      async ({ params: { challengeId } }) => {
+        return donationService.getDonationChallengeProgress(challengeId);
+      },
+      {
+        params: t.Object({
+          challengeId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get detailed progress of a donation challenge",
+        },
+      }
+    )
+    .post(
+      "/challenges/:challengeId/participate",
+      async ({ params: { challengeId }, body }) => {
+        await donationService.participateInChallenge(
+          body.donationId,
+          challengeId
+        );
+        return { success: true };
+      },
+      {
+        params: t.Object({
+          challengeId: t.String(),
+        }),
+        body: t.Object({
+          donationId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Participate in a donation challenge",
+        },
+      }
+    )
+    .post(
+      "/milestones",
+      async ({ body }) => {
+        const milestoneId = await donationService.createCulturalMilestone(body);
+        return { success: true, milestoneId };
+      },
+      {
+        body: CulturalMilestoneSchema,
+        detail: {
+          tags: ["Donations"],
+          summary: "Create a new cultural milestone",
+        },
+      }
+    )
+    .post(
+      "/stories/:donationId",
+      async ({ params: { donationId }, body }) => {
+        await donationService.addCommunityStory(donationId, body.story);
+        return { success: true };
+      },
+      {
+        params: t.Object({
+          donationId: t.String(),
+        }),
+        body: t.Object({
+          story: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Add a community story to a donation",
+        },
+      }
+    )
+    .post(
+      "/simple",
+      async ({ body }) => {
+        try {
+          const donationData = {
+            donorId: body.userId,
+            donorName: body.userName,
+            amount: body.amount,
+            districtId: body.districtId,
+            departmentId: body.departmentId,
+            purpose: "Support city initiatives",
+            category: "general" as const,
+            impact: {
+              category: "general",
+              description: "Supporting city development",
+              beneficiaries: Math.floor(body.amount / 100), // Estimate beneficiaries
             },
           };
 
-          culturalDonations.forEach((d) => {
-            if (d.subcategory?.religious) {
-              summary.religions.add(d.subcategory.religious.religion);
-              if (d.subcategory.religious.occasion)
-                summary.festivals.add(d.subcategory.religious.occasion);
-            }
-            if (d.subcategory?.cultural) {
-              summary.traditions.add(d.subcategory.cultural.tradition);
-              if (d.subcategory.cultural.festival)
-                summary.festivals.add(d.subcategory.cultural.festival);
-              if (d.subcategory.cultural.artForm)
-                summary.artForms.add(d.subcategory.cultural.artForm);
-            }
-            if (d.communityParticipation) {
-              summary.communityEngagement.totalVolunteers +=
-                d.communityParticipation.volunteers;
-              d.communityParticipation.events.forEach((e) =>
-                summary.communityEngagement.activeEvents.add(e)
-              );
-              d.communityParticipation.activities.forEach((a) =>
-                summary.communityEngagement.popularActivities.add(a)
-              );
-            }
-          });
+          const donationId = await donationService.processDonation(
+            donationData
+          );
 
           return {
-            ...summary,
-            religions: Array.from(summary.religions),
-            traditions: Array.from(summary.traditions),
-            festivals: Array.from(summary.festivals),
-            artForms: Array.from(summary.artForms),
-            communityEngagement: {
-              ...summary.communityEngagement,
-              activeEvents: Array.from(
-                summary.communityEngagement.activeEvents
-              ),
-              popularActivities: Array.from(
-                summary.communityEngagement.popularActivities
-              ),
-            },
+            success: true,
+            donationId,
+            message: "Donation processed and announced successfully",
           };
-        },
-        {
-          params: t.Object({
-            districtId: t.String(),
-          }),
-          detail: {
-            summary: "Get cultural and religious impact summary for a district",
-            tags: ["Donations"],
-          },
+        } catch (error) {
+          console.error("Failed to process simple donation:", error);
+          throw error;
         }
-      )
-
-      // Get donations by district
-      .get(
-        "/district/:districtId",
-        async ({ params: { districtId } }) => {
-          return donationService.getDonationsByDistrict(districtId);
+      },
+      {
+        body: SimpleDonationSchema,
+        detail: {
+          tags: ["Donations"],
+          summary: "Process a simple donation",
         },
-        {
-          params: t.Object({
-            districtId: t.String(),
-          }),
-          detail: {
-            summary: "Get donations by district",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get donations by department
-      .get(
-        "/department/:departmentId",
-        async ({ params: { departmentId } }) => {
-          return donationService.getDonationsByDepartment(departmentId);
-        },
-        {
-          params: t.Object({
-            departmentId: t.String(),
-          }),
-          detail: {
-            summary: "Get donations by department",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get district announcements
-      .get(
-        "/announcements/:districtId",
-        async ({ params: { districtId } }) => {
-          return donationService.getDistrictAnnouncements(districtId);
-        },
-        {
-          params: t.Object({
-            districtId: t.String(),
-          }),
-          detail: {
-            summary: "Get district donation announcements",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Add reaction to announcement
-      .post(
-        "/announcements/:announcementId/react",
-        async ({ params: { announcementId }, body }) => {
-          await donationService.addReactionToAnnouncement(
-            announcementId,
-            body.reaction
-          );
-          return { success: true };
-        },
-        {
-          params: t.Object({
-            announcementId: t.String(),
-          }),
-          body: ReactionSchema,
-          detail: {
-            summary: "Add reaction to donation announcement",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get donation impact
-      .get(
-        "/:donationId/impact",
-        async ({ params: { donationId } }) => {
-          const impact = await donationService.getDonationImpact(donationId);
-          if (!impact) {
-            throw new Error("Impact not found for donation");
-          }
-          return impact;
-        },
-        {
-          params: t.Object({
-            donationId: t.String(),
-          }),
-          detail: {
-            summary: "Get donation impact metrics",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Create donation challenge
-      .post(
-        "/challenges",
-        async ({ body }) => {
-          const challengeId = await donationService.createDonationChallenge(
-            body
-          );
-          return { challengeId };
-        },
-        {
-          body: DonationChallengeSchema,
-          detail: {
-            summary: "Create a new donation challenge",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get active challenges
-      .get(
-        "/challenges/active",
-        async () => {
-          return donationService.getActiveChallenges();
-        },
-        {
-          detail: {
-            summary: "Get all active donation challenges",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get challenge progress
-      .get(
-        "/challenges/:challengeId/progress",
-        async ({ params: { challengeId } }) => {
-          return donationService.getDonationChallengeProgress(challengeId);
-        },
-        {
-          params: t.Object({
-            challengeId: t.String(),
-          }),
-          detail: {
-            summary: "Get detailed progress of a donation challenge",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Participate in challenge
-      .post(
-        "/challenges/:challengeId/participate",
-        async ({ params: { challengeId }, body }) => {
-          await donationService.participateInChallenge(
-            body.donationId,
-            challengeId
-          );
-          return { success: true };
-        },
-        {
-          params: t.Object({
-            challengeId: t.String(),
-          }),
-          body: t.Object({
-            donationId: t.String(),
-          }),
-          detail: {
-            summary: "Participate in a donation challenge",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Create cultural milestone
-      .post(
-        "/milestones",
-        async ({ body }) => {
-          const milestoneId = await donationService.createCulturalMilestone(
-            body
-          );
-          return { milestoneId };
-        },
-        {
-          body: CulturalMilestoneSchema,
-          detail: {
-            summary: "Create a new cultural milestone",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Add community story
-      .post(
-        "/stories/:donationId",
-        async ({ params: { donationId }, body }) => {
-          await donationService.addCommunityStory(donationId, body.story);
-          return { success: true };
-        },
-        {
-          params: t.Object({
-            donationId: t.String(),
-          }),
-          body: CommunityStorySchema,
-          detail: {
-            summary: "Add a community story to a donation",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get cultural impact summary
-      .get(
-        "/district/:districtId/cultural-impact",
-        async ({ params: { districtId } }) => {
-          return donationService
-            .getDonationsByDistrict(districtId)
-            .then((donations) => {
-              const culturalDonations = donations.filter(
-                (d) => d.category === "religious" || d.category === "cultural"
-              );
-
-              const summary = {
-                totalDonations: culturalDonations.length,
-                totalAmount: culturalDonations.reduce(
-                  (sum, d) => sum + d.amount,
-                  0
-                ),
-                activeEvents: new Set<string>(),
-                traditions: new Set<string>(),
-                communities: new Set<string>(),
-                stories: [] as string[],
-                upcomingCelebrations: [] as { event: string; date: number }[],
-              };
-
-              culturalDonations.forEach((d) => {
-                if (d.communityParticipation?.events) {
-                  d.communityParticipation.events.forEach((e) =>
-                    summary.activeEvents.add(e)
-                  );
-                }
-                if (d.culturalSignificance?.traditionLinks) {
-                  d.culturalSignificance.traditionLinks.forEach((t) =>
-                    summary.traditions.add(t)
-                  );
-                }
-                if (d.subcategory?.religious?.community) {
-                  summary.communities.add(d.subcategory.religious.community);
-                }
-                if (d.subcategory?.cultural?.community) {
-                  summary.communities.add(d.subcategory.cultural.community);
-                }
-                if (d.culturalSignificance?.communityStories) {
-                  summary.stories.push(
-                    ...d.culturalSignificance.communityStories
-                  );
-                }
-              });
-
-              return {
-                ...summary,
-                activeEvents: Array.from(summary.activeEvents),
-                traditions: Array.from(summary.traditions),
-                communities: Array.from(summary.communities),
-                stories: summary.stories.slice(0, 10), // Latest 10 stories
-              };
-            });
-        },
-        {
-          params: t.Object({
-            districtId: t.String(),
-          }),
-          detail: {
-            summary: "Get cultural impact summary for a district",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Get upcoming events
-      .get(
-        "/events/:districtId",
-        async ({ params: { districtId } }) => {
-          return donationService.getUpcomingCulturalEvents(districtId);
-        },
-        {
-          params: t.Object({
-            districtId: t.String(),
-          }),
-          detail: {
-            summary: "Get upcoming cultural and religious events",
-            tags: ["Donations"],
-          },
-        }
-      )
-
-      // Add this new route
-      .post(
-        "/simple",
-        async ({ body }) => {
-          try {
-            const donationData = {
-              donorId: body.userId,
-              donorName: body.userName,
-              amount: body.amount,
-              districtId: body.districtId,
-              departmentId: body.departmentId,
-              purpose: "Support city initiatives",
-              category: "general" as const,
-              impact: {
-                category: "general",
-                description: "Supporting city development",
-                beneficiaries: Math.floor(body.amount / 100), // Estimate beneficiaries
-              },
-            };
-
-            const donationId = await donationService.processDonation(
-              donationData
-            );
-
-            return {
-              success: true,
-              donationId,
-              message: "Donation processed and announced successfully",
-            };
-          } catch (error) {
-            console.error("Failed to process simple donation:", error);
-            throw error;
-          }
-        },
-        {
-          body: SimpleDonationSchema,
-        }
-      )
-  );
-}
+      }
+    );

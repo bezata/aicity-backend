@@ -324,3 +324,16 @@ export const findSimilarStyles = (
     })
     .map(([key]) => key as ConversationStyle);
 };
+
+export interface ErrorResponse {
+  success: false;
+  error: string;
+  code: number;
+}
+
+export interface SuccessResponse<T = any> {
+  success: true;
+  data: T;
+}
+
+export type ApiResponse<T = any> = ErrorResponse | SuccessResponse<T>;

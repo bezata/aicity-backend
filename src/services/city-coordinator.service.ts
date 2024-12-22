@@ -5,7 +5,10 @@ import {
   AgentProposal,
   CoordinationEvent,
 } from "../types/city-coordinator.types";
-import { VectorStoreService } from "./vector-store.service";
+import {
+  VectorStoreService,
+  CulturalHotspotMetadata,
+} from "./vector-store.service";
 import { DepartmentService } from "./department.service";
 import { EnvironmentService } from "./environment.service";
 import { TransportService } from "./transport.service";
@@ -16,6 +19,7 @@ import { AnalyticsService } from "./analytics.service";
 import { Agent } from "../types/agent.types";
 import { Message } from "../types/conversation.types";
 import { CityMemoryService } from "./city-memory.service";
+import type { RecordMetadata } from "@pinecone-database/pinecone";
 
 // Add these interfaces for type safety
 interface MetricsData {
@@ -28,6 +32,26 @@ interface MetricsData {
 interface EnvironmentalData {
   airQuality: number;
   waterQuality: number;
+}
+
+// Add interface for Pinecone match
+interface PineconeMatch {
+  id: string;
+  score: number;
+  metadata: RecordMetadata & {
+    name?: string;
+    location?: { lat: number; lng: number };
+    visitorCount?: number;
+    culturalSignificance?: number;
+    eventFrequency?: string;
+    nearbyAttractions?: any[];
+  };
+}
+
+// Add interface for Pinecone query response
+interface PineconeQueryResponse {
+  matches: PineconeMatch[];
+  namespace: string;
 }
 
 export class CityCoordinatorService extends EventEmitter {
@@ -112,6 +136,9 @@ export class CityCoordinatorService extends EventEmitter {
     // Initialize city metrics
     this.currentMetrics = await this.gatherCityMetrics();
 
+    // Initialize cultural data
+    await this.initializeCulturalData();
+
     // Track initial metrics
     this.trackAnalytics("metrics_initialization", {
       content: "Initial city metrics gathered",
@@ -137,6 +164,73 @@ export class CityCoordinatorService extends EventEmitter {
       "communityMoodUpdated",
       this.handleSocialEvent.bind(this)
     );
+  }
+
+  private async initializeCulturalData() {
+    try {
+      // Sample cultural hotspots data
+      const culturalHotspots = [
+        {
+          name: "City Central Museum",
+          location_lat: 40.7128,
+          location_lng: -74.006,
+          visitorCount: 5000,
+          culturalSignificance: 0.9,
+          eventFrequency: "high",
+          nearbyAttractions: ["Art Gallery", "Historical Library"],
+        },
+        {
+          name: "Heritage Theater",
+          location_lat: 40.7589,
+          location_lng: -73.9851,
+          visitorCount: 3000,
+          culturalSignificance: 0.85,
+          eventFrequency: "medium",
+          nearbyAttractions: ["Concert Hall", "Cultural Center"],
+        },
+        {
+          name: "Arts District",
+          location_lat: 40.7549,
+          location_lng: -73.984,
+          visitorCount: 8000,
+          culturalSignificance: 0.95,
+          eventFrequency: "high",
+          nearbyAttractions: ["Street Art Gallery", "Craft Market"],
+        },
+      ];
+
+      // Create embeddings and store cultural hotspots
+      for (const hotspot of culturalHotspots) {
+        const embedding = await this.vectorStore.createEmbedding(
+          `${hotspot.name} cultural hotspot with ${hotspot.eventFrequency} event frequency`
+        );
+
+        await this.vectorStore.upsert({
+          id: crypto.randomUUID(),
+          values: embedding,
+          metadata: {
+            type: "transport",
+            subtype: "cultural_hotspot",
+            ...hotspot,
+          },
+        });
+
+        console.log(`Initialized cultural hotspot: ${hotspot.name}`);
+      }
+
+      this.analyticsService.trackEvent("cultural_data_initialization", {
+        timestamp: Date.now(),
+        count: culturalHotspots.length,
+        status: "success",
+      });
+    } catch (error) {
+      console.error("Failed to initialize cultural data:", error);
+      this.analyticsService.trackEvent("cultural_data_initialization", {
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+        status: "failed",
+      });
+    }
   }
 
   private async evaluateProposalWithHistoricalContext(
@@ -439,10 +533,18 @@ export class CityCoordinatorService extends EventEmitter {
   }
 
   private async handleTransportEvent(routes: TransportRoute[]) {
+    // Ensure routes is an array
+    if (!Array.isArray(routes) || routes.length === 0) {
+      console.warn("Received invalid or empty routes in handleTransportEvent");
+      return;
+    }
+
     // Update infrastructure metrics based on transport data
-    const congestionLevels = routes.map((r) => r.metrics.efficiency);
+    const congestionLevels = routes.map((r) => r?.metrics?.efficiency ?? 0);
     const avgCongestion =
-      congestionLevels.reduce((a, b) => a + b, 0) / congestionLevels.length;
+      congestionLevels.length > 0
+        ? congestionLevels.reduce((a, b) => a + b, 0) / congestionLevels.length
+        : 0;
 
     this.currentMetrics.infrastructure = {
       ...this.currentMetrics.infrastructure,
@@ -523,8 +625,8 @@ export class CityCoordinatorService extends EventEmitter {
   private async getInfrastructureMetrics(): Promise<
     CityMetrics["infrastructure"]
   > {
-    const routes = await this.transportService.getRoutes();
-    const transportRoutes = Array.from(routes.values()) as TransportRoute[];
+    // Get routes using the public method
+    const transportRoutes = this.transportService.getAllRoutes();
 
     return {
       trafficCongestion: 1 - this.calculateAverageCongestion(transportRoutes),
@@ -546,9 +648,17 @@ export class CityCoordinatorService extends EventEmitter {
   }
 
   private calculateTransitReliability(routes: TransportRoute[]): number {
+    if (!Array.isArray(routes) || routes.length === 0) {
+      return 0;
+    }
+
     return (
-      routes.reduce((acc, route) => acc + route.metrics.reliability, 0) /
-      routes.length
+      routes.reduce((acc, route) => {
+        if (!route?.metrics?.reliability) {
+          return acc;
+        }
+        return acc + route.metrics.reliability;
+      }, 0) / routes.length
     );
   }
 
@@ -570,23 +680,28 @@ export class CityCoordinatorService extends EventEmitter {
   }
 
   private async calculateGreenSpaceIndex(): Promise<number> {
-    const environmentalMetrics =
-      await this.environmentService.getDistrictMetrics("all");
-    if (!environmentalMetrics) return 0.5; // Default value if no data
-
-    const districts = Array.from(environmentalMetrics.values());
-    const totalGreenSpace = districts.reduce<number>((acc, metrics) => {
-      if (
-        metrics &&
-        metrics.greenSpace &&
-        typeof metrics.greenSpace.coverage === "number"
-      ) {
-        return acc + metrics.greenSpace.coverage / 100;
+    try {
+      const environmentalMetrics =
+        await this.environmentService.getEnvironmentalMetrics();
+      if (!environmentalMetrics || !("greenSpace" in environmentalMetrics)) {
+        console.warn("No environmental metrics available, using default value");
+        return 0.5;
       }
-      return acc;
-    }, 0);
 
-    return totalGreenSpace / Math.max(districts.length, 1);
+      // Calculate green space ratio from the metrics
+      const greenSpaceMetrics = environmentalMetrics.greenSpace;
+      if (typeof greenSpaceMetrics?.coverage === "number") {
+        return Math.max(0.3, Math.min(1.0, greenSpaceMetrics.coverage / 100));
+      }
+
+      return 0.5;
+    } catch (error) {
+      console.error(
+        "Failed to calculate green space index:",
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      return 0.5; // Default fallback value
+    }
   }
 
   // Add these helper methods for air and water quality calculations
@@ -667,5 +782,64 @@ export class CityCoordinatorService extends EventEmitter {
 
   async getActiveProposals(): Promise<AgentProposal[]> {
     return Array.from(this.activeProposals.values());
+  }
+
+  private async initializeCulturalRoutes() {
+    try {
+      const embedding = await this.vectorStore.createEmbedding(
+        "cultural hotspots and transport routes"
+      );
+      const response = await this.vectorStore.query({
+        vector: embedding,
+        filter: {
+          type: { $eq: "transport" },
+          subtype: { $eq: "cultural_hotspot" },
+        },
+        topK: 10,
+      });
+
+      console.log("Raw query response:", JSON.stringify(response, null, 2));
+
+      // Ensure we have matches
+      if (!response || !response.matches || !Array.isArray(response.matches)) {
+        console.warn("No valid matches in query response");
+        return [];
+      }
+
+      // Process the matches array directly from response.matches
+      const culturalHotspots = response.matches
+        .filter((match) => match && match.metadata)
+        .map((match) => ({
+          id: match.id,
+          name: match.metadata.name || "Unknown Location",
+          location: {
+            lat: Number(match.metadata.location_lat) || 0,
+            lng: Number(match.metadata.location_lng) || 0,
+          },
+          visitorCount: Number(match.metadata.visitorCount) || 0,
+          culturalSignificance:
+            Number(match.metadata.culturalSignificance) || 0.5,
+          eventFrequency: String(match.metadata.eventFrequency || "low"),
+          nearbyAttractions: Array.isArray(match.metadata.nearbyAttractions)
+            ? match.metadata.nearbyAttractions
+            : [],
+        }));
+
+      console.log(
+        "Processed cultural hotspots:",
+        JSON.stringify(culturalHotspots, null, 2)
+      );
+      return culturalHotspots;
+    } catch (error) {
+      console.error("Failed to initialize cultural routes:", error);
+      this.analyticsService.trackEvent(
+        "cultural_transport_initialization_failed",
+        {
+          timestamp: Date.now(),
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      return [];
+    }
   }
 }

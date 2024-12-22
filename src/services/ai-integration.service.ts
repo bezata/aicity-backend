@@ -1,424 +1,247 @@
-import { EventEmitter } from "events";
+import { VectorStoreService } from "./vector-store.service";
 import {
-  VectorStoreService,
-  MetricsService,
-  TogetherService,
-  AnalyticsService,
-} from "../types/service.types";
-import { CityService } from "./city.service";
-import { EventBus } from "./event-bus.service";
-import {
+  SystemInitializationConfig,
+  SystemInitializationResult,
+  NetworkStatus,
   AIDecisionContext,
-  AIInteractionProtocol,
-  CityPattern,
-  VectorQuery,
-  VectorRecord,
-  AIAnalysis,
-  AIServiceResponse,
-  VectorMetadata,
+  AIPattern,
+  AIProtocol,
+  ProtocolMetadata,
+  StateMetadata,
+  DecisionMetadata,
+  PatternMetadata,
+  Metadata,
+  isDecisionMetadata,
+  isPatternMetadata,
+  QueryMatch,
+  RecordMetadata,
 } from "../types/ai-integration.types";
+import { v4 as uuidv4 } from "uuid";
 
-export class AIIntegrationService extends EventEmitter {
-  private readonly eventBus: EventBus;
+export class AIIntegrationService {
+  private activeAgents: Set<string> = new Set();
+  private systemId: string | null = null;
+  private networkStatus: NetworkStatus | null = null;
   private decisionHistory: Map<string, AIDecisionContext> = new Map();
-  private interactionProtocols: Map<string, AIInteractionProtocol> = new Map();
-  private cityPatterns: Map<string, CityPattern> = new Map();
-  private learningRate: number = 0.1;
-  private adaptationThreshold: number = 0.7;
+  private patterns: Map<string, AIPattern> = new Map();
+  private protocols: Map<string, AIProtocol> = new Map();
 
-  constructor(
-    private vectorStore: VectorStoreService,
-    private metricsService: MetricsService,
-    private cityService: CityService,
-    private togetherService: TogetherService,
-    private analyticsService: AnalyticsService
-  ) {
-    super();
-    this.eventBus = EventBus.getInstance();
-    this.initializeAIIntegration();
+  constructor(private vectorStore: VectorStoreService) {}
+
+  async initializeSystem(
+    config: SystemInitializationConfig
+  ): Promise<SystemInitializationResult> {
+    try {
+      // Generate a unique system ID
+      this.systemId = uuidv4();
+
+      // Register agents in the system
+      this.activeAgents = new Set(config.agents);
+
+      // Initialize network status
+      this.networkStatus = {
+        isActive: true,
+        connectedAgents: this.activeAgents.size,
+        protocol: config.protocol,
+        timestamp: Date.now(),
+      };
+
+      // Store initial protocol configuration
+      const protocolMetadata: ProtocolMetadata = {
+        type: "protocol",
+        protocol: config.protocol,
+        timestamp: Date.now(),
+      };
+
+      const protocolVector = await this.vectorStore.createEmbedding(
+        JSON.stringify(config.protocol)
+      );
+
+      await this.vectorStore.upsert({
+        id: `protocol:${this.systemId}`,
+        values: protocolVector,
+        metadata: protocolMetadata as any,
+      });
+
+      // Store initial state if provided
+      if (config.initialState) {
+        const stateMetadata: StateMetadata = {
+          type: "state",
+          state: config.initialState,
+          timestamp: Date.now(),
+        };
+
+        const stateVector = await this.vectorStore.createEmbedding(
+          JSON.stringify(config.initialState)
+        );
+
+        await this.vectorStore.upsert({
+          id: `state:${this.systemId}`,
+          values: stateVector,
+          metadata: stateMetadata as any,
+        });
+      }
+
+      return {
+        systemId: this.systemId,
+        activeAgents: Array.from(this.activeAgents),
+        networkStatus: this.networkStatus,
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to initialize system: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
   }
 
-  // Public getters for private properties
-  public getDecisionHistory(): Map<string, AIDecisionContext> {
-    return this.decisionHistory;
-  }
-
-  public getInteractionProtocols(): Map<string, AIInteractionProtocol> {
-    return this.interactionProtocols;
-  }
-
-  public getCityPatterns(): Map<string, CityPattern> {
-    return this.cityPatterns;
-  }
-
-  private initializeAIIntegration() {
-    // Initialize continuous learning cycles
-    setInterval(() => this.updateDecisionModels(), 5 * 60 * 1000); // Every 5 minutes
-    setInterval(() => this.optimizeInteractionProtocols(), 15 * 60 * 1000); // Every 15 minutes
-    setInterval(() => this.analyzePatterns(), 30 * 60 * 1000); // Every 30 minutes
-  }
-
-  // Sophisticated Decision Making
-  async makeDecision(
-    context: string,
-    options: string[]
-  ): Promise<{ decision: string; context: AIDecisionContext }> {
-    const embedding = await this.vectorStore.createEmbedding(context);
-    const query: VectorQuery = {
-      vector: embedding,
-      filter: { type: { $eq: "decision_history" } },
-      topK: 5,
-    };
-    const historicalData = await this.vectorStore.query(query);
+  async recordDecision(
+    agentId: string,
+    decision: string,
+    context: Record<string, any>
+  ): Promise<void> {
+    if (!this.systemId) {
+      throw new Error("System not initialized");
+    }
 
     const decisionContext: AIDecisionContext = {
-      confidence: 0,
-      factors: [],
-      alternatives: options,
-      impact: { social: 0, economic: 0, environmental: 0 },
-      timeframe: "immediate",
+      agentId,
+      decision,
+      context,
+      timestamp: Date.now(),
     };
 
-    // Analyze historical decisions
-    const historicalInsights = await this.analyzeHistoricalDecisions(
-      historicalData.matches
+    const decisionId = `decision:${this.systemId}:${agentId}:${Date.now()}`;
+    this.decisionHistory.set(decisionId, decisionContext);
+
+    const decisionMetadata: DecisionMetadata = {
+      type: "decision",
+      agentId,
+      state: {
+        decision,
+        context,
+      },
+      timestamp: Date.now(),
+    };
+
+    const decisionVector = await this.vectorStore.createEmbedding(
+      JSON.stringify({ decision, context })
     );
 
-    // Get current city metrics
-    const cityMetrics = await this.metricsService.getMetrics();
-
-    // Generate decision using AI
-    const decision = await this.generateAIDecision(
-      context,
-      options,
-      historicalInsights,
-      cityMetrics
-    );
-
-    // Update decision history
-    this.decisionHistory.set(decision.id, decisionContext);
-
-    return { decision: decision.choice, context: decisionContext };
+    await this.vectorStore.upsert({
+      id: decisionId,
+      values: decisionVector,
+      metadata: decisionMetadata as any,
+    });
   }
 
-  // Enhanced Human-AI Interaction
-  async handleInteraction(
-    userId: string,
-    input: string,
-    context: any
-  ): Promise<{
-    response: string;
-    protocol: AIInteractionProtocol;
-  }> {
-    let protocol =
-      this.interactionProtocols.get(userId) || this.createDefaultProtocol();
+  async findSimilarDecisions(
+    content: string,
+    limit = 5
+  ): Promise<AIDecisionContext[]> {
+    const vector = await this.vectorStore.createEmbedding(content);
 
-    // Analyze interaction context
-    const interactionComplexity = await this.analyzeComplexity(input);
-    const userPreference = await this.getUserPreference(userId);
-
-    // Adapt protocol based on user behavior and preferences
-    protocol = await this.adaptProtocol(protocol, {
-      complexity: interactionComplexity,
-      preference: userPreference,
-      context,
+    const results = await this.vectorStore.query({
+      vector,
+      filter: {
+        type: { $eq: "decision" },
+      },
+      topK: limit,
     });
 
-    // Generate appropriate response
-    const response = await this.generateResponse(input, protocol, context);
+    if (!results.matches) return [];
 
-    // Update protocol metrics
-    protocol.lastInteraction = new Date();
-    protocol.successRate = this.calculateSuccessRate(protocol);
-    this.interactionProtocols.set(userId, protocol);
-
-    return { response, protocol };
-  }
-
-  // Pattern Learning and Analysis
-  async learnPattern(data: any): Promise<CityPattern> {
-    const patternType = await this.classifyPattern(data);
-    const existingPattern = Array.from(this.cityPatterns.values()).find(
-      (p) => p.type === patternType
-    );
-
-    if (existingPattern) {
-      // Update existing pattern
-      existingPattern.frequency += 1;
-      existingPattern.confidence = this.updateConfidence(existingPattern);
-      existingPattern.lastObserved = new Date();
-      existingPattern.predictions = await this.generatePredictions(
-        existingPattern
-      );
-
-      this.cityPatterns.set(existingPattern.id, existingPattern);
-      return existingPattern;
-    }
-
-    // Create new pattern
-    const newPattern: CityPattern = {
-      id: crypto.randomUUID(),
-      type: patternType,
-      confidence: 0.1,
-      frequency: 1,
-      impact: await this.calculatePatternImpact(data),
-      relatedPatterns: await this.findRelatedPatterns(data),
-      firstObserved: new Date(),
-      lastObserved: new Date(),
-      predictions: await this.generatePredictions({ type: patternType, data }),
-    };
-
-    this.cityPatterns.set(newPattern.id, newPattern);
-    return newPattern;
-  }
-
-  // Private helper methods
-  private async analyzeHistoricalDecisions(
-    history: any[]
-  ): Promise<AIAnalysis> {
-    const result = await this.togetherService.generateCompletion(
-      `Analyze these historical decisions and their outcomes: ${JSON.stringify(
-        history
-      )}`
-    );
-    return (
-      result.analysis || {
-        complexity: 0.5,
-        impact: 0.5,
-        shortTerm: "",
-        mediumTerm: "",
-        longTerm: "",
-      }
-    );
-  }
-
-  private async generateAIDecision(
-    context: string,
-    options: string[],
-    history: AIAnalysis,
-    metrics: any
-  ): Promise<{ id: string; choice: string }> {
-    const prompt = `Given the context: ${context}\nOptions: ${options.join(
-      ", "
-    )}\nHistorical data: ${JSON.stringify(
-      history
-    )}\nCurrent metrics: ${JSON.stringify(
-      metrics
-    )}\nWhat is the optimal decision?`;
-
-    const response = await this.togetherService.generateCompletion(prompt);
-    return {
-      id: crypto.randomUUID(),
-      choice: response.text,
-    };
-  }
-
-  private createDefaultProtocol(): AIInteractionProtocol {
-    return {
-      type: "assisted",
-      complexity: 0.5,
-      userPreference: "balanced",
-      adaptationLevel: 0.5,
-      lastInteraction: new Date(),
-      successRate: 1.0,
-    };
-  }
-
-  private async analyzeComplexity(input: string): Promise<number> {
-    const analysis = await this.togetherService.generateCompletion(input);
-    return analysis.analysis?.complexity || 0.5;
-  }
-
-  private async getUserPreference(userId: string): Promise<string> {
-    const userMetrics = await this.analyticsService.getUserAnalytics(userId);
-    return this.determinePreference(userMetrics);
-  }
-
-  private async adaptProtocol(
-    protocol: AIInteractionProtocol,
-    context: any
-  ): Promise<AIInteractionProtocol> {
-    const adaptedProtocol = { ...protocol };
-
-    if (context.complexity > protocol.complexity) {
-      adaptedProtocol.complexity = Math.min(
-        1,
-        protocol.complexity + this.learningRate
-      );
-    }
-
-    adaptedProtocol.adaptationLevel = Math.min(
-      1,
-      protocol.adaptationLevel +
-        this.learningRate * (context.complexity - protocol.complexity)
-    );
-
-    return adaptedProtocol;
-  }
-
-  private async generateResponse(
-    input: string,
-    protocol: AIInteractionProtocol,
-    context: any
-  ): Promise<string> {
-    const prompt = this.buildResponsePrompt(input, protocol, context);
-    const response = await this.togetherService.generateCompletion(prompt);
-    return response.text;
-  }
-
-  private calculateSuccessRate(protocol: AIInteractionProtocol): number {
-    // Implement success rate calculation based on interaction history
-    return protocol.successRate * 0.95 + 0.05; // Simplified example
-  }
-
-  private async classifyPattern(data: any): Promise<string> {
-    const embedding = await this.vectorStore.createEmbedding(
-      JSON.stringify(data)
-    );
-    const query: VectorQuery = {
-      vector: embedding,
-      filter: { type: { $eq: "city_pattern" } },
-      topK: 3,
-    };
-    const similar = await this.vectorStore.query(query);
-
-    return this.determinePatternType(similar.matches);
-  }
-
-  private updateConfidence(pattern: CityPattern): number {
-    return Math.min(
-      1,
-      pattern.confidence + this.learningRate * pattern.frequency
-    );
-  }
-
-  private async calculatePatternImpact(data: any): Promise<number> {
-    const cityMetrics = await this.metricsService.getMetrics();
-    const analysis = await this.togetherService.generateCompletion(
-      `Analyze the impact of this pattern: ${JSON.stringify(
-        data
-      )} on city metrics: ${JSON.stringify(cityMetrics)}`
-    );
-    return analysis.analysis?.impact || 0.5;
-  }
-
-  private async findRelatedPatterns(data: any): Promise<string[]> {
-    const embedding = await this.vectorStore.createEmbedding(
-      JSON.stringify(data)
-    );
-    const query: VectorQuery = {
-      vector: embedding,
-      filter: { type: { $eq: "city_pattern" } },
-      topK: 5,
-    };
-    const similar = await this.vectorStore.query(query);
-
-    return similar.matches.map(
-      (m: { metadata: VectorMetadata }) => m.metadata.patternId || ""
-    );
-  }
-
-  private async generatePredictions(context: any): Promise<{
-    shortTerm: string;
-    mediumTerm: string;
-    longTerm: string;
-  }> {
-    const analysis = await this.togetherService.generateCompletion(
-      `Generate predictions for pattern: ${JSON.stringify(context)}`
-    );
-
-    return {
-      shortTerm: analysis.analysis?.shortTerm || "",
-      mediumTerm: analysis.analysis?.mediumTerm || "",
-      longTerm: analysis.analysis?.longTerm || "",
-    };
-  }
-
-  private buildResponsePrompt(
-    input: string,
-    protocol: AIInteractionProtocol,
-    context: any
-  ): string {
-    return `Given the input: "${input}"\nProtocol type: ${
-      protocol.type
-    }\nComplexity level: ${protocol.complexity}\nUser preference: ${
-      protocol.userPreference
-    }\nContext: ${JSON.stringify(context)}\nGenerate an appropriate response.`;
-  }
-
-  private determinePreference(metrics: any): string {
-    // Implement logic to determine user preference based on metrics
-    return "balanced";
-  }
-
-  private determinePatternType(similarPatterns: any[]): string {
-    // Implement pattern type determination logic
-    return "behavioral";
-  }
-
-  // Continuous Learning Methods
-  private async updateDecisionModels() {
-    const recentDecisions = Array.from(this.decisionHistory.entries()).filter(
-      ([_, context]) =>
-        new Date().getTime() - new Date(context.timeframe).getTime() <
-        24 * 60 * 60 * 1000
-    );
-
-    for (const [id, context] of recentDecisions) {
-      await this.vectorStore.upsert({
-        id: `decision-${id}`,
-        values: await this.vectorStore.createEmbedding(JSON.stringify(context)),
-        metadata: {
-          type: "decision_history",
-          context,
-          timestamp: Date.now(),
-          patternId: id,
-        },
+    return results.matches
+      .filter((result: QueryMatch) => isDecisionMetadata(result.metadata))
+      .map((result: QueryMatch) => {
+        const metadata = result.metadata as DecisionMetadata;
+        const state = metadata.state || { decision: "", context: {} };
+        return {
+          agentId: metadata.agentId,
+          decision: state.decision,
+          context: state.context,
+          timestamp: metadata.timestamp,
+        };
       });
-    }
   }
 
-  private async optimizeInteractionProtocols() {
-    for (const [userId, protocol] of this.interactionProtocols.entries()) {
-      if (protocol.successRate < this.adaptationThreshold) {
-        const optimizedProtocol = await this.adaptProtocol(protocol, {
-          complexity: protocol.complexity,
-          preference: await this.getUserPreference(userId),
-          context: { needsOptimization: true },
-        });
-        this.interactionProtocols.set(userId, optimizedProtocol);
-      }
+  async storePattern(
+    pattern: string,
+    context: Record<string, any>,
+    confidence: number
+  ): Promise<void> {
+    if (!this.systemId) {
+      throw new Error("System not initialized");
     }
+
+    const patternId = `pattern:${this.systemId}:${Date.now()}`;
+    const aiPattern: AIPattern = {
+      id: patternId,
+      pattern,
+      context,
+      confidence,
+      timestamp: Date.now(),
+    };
+
+    this.patterns.set(patternId, aiPattern);
+
+    const patternMetadata: PatternMetadata = {
+      type: "pattern",
+      state: {
+        pattern,
+        context,
+        confidence,
+      },
+      timestamp: Date.now(),
+    };
+
+    const patternVector = await this.vectorStore.createEmbedding(pattern);
+
+    await this.vectorStore.upsert({
+      id: patternId,
+      values: patternVector,
+      metadata: patternMetadata as any,
+    });
   }
 
-  private async analyzePatterns() {
-    const patterns = Array.from(this.cityPatterns.values());
-    const significantPatterns = patterns.filter((p) => p.confidence > 0.7);
+  async findSimilarPatterns(content: string, limit = 5): Promise<AIPattern[]> {
+    const vector = await this.vectorStore.createEmbedding(content);
 
-    for (const pattern of significantPatterns) {
-      const relatedMetrics = await this.metricsService.getMetrics();
-      const analysis = await this.togetherService.generateCompletion(
-        `Analyze pattern ${pattern.type} with metrics: ${JSON.stringify(
-          relatedMetrics
-        )}`
-      );
+    const results = await this.vectorStore.query({
+      vector,
+      filter: {
+        type: { $eq: "pattern" },
+      },
+      topK: limit,
+    });
 
-      this.eventBus.emit("patternAnalyzed", {
-        patternId: pattern.id,
-        analysis: analysis.analysis,
-        recommendations: await this.generateRecommendations(pattern, analysis),
+    if (!results.matches) return [];
+
+    return results.matches
+      .filter((result: QueryMatch) => isPatternMetadata(result.metadata))
+      .map((result: QueryMatch) => {
+        const metadata = result.metadata as PatternMetadata;
+        const state = metadata.state || {
+          pattern: "",
+          context: {},
+          confidence: 0,
+        };
+        return {
+          id: result.id,
+          pattern: state.pattern,
+          context: state.context,
+          confidence: state.confidence,
+          timestamp: metadata.timestamp,
+        };
       });
-    }
   }
 
-  private async generateRecommendations(
-    pattern: CityPattern,
-    analysis: AIServiceResponse
-  ) {
-    const prompt = `Based on pattern ${
-      pattern.type
-    } and analysis ${JSON.stringify(analysis)}, what actions should be taken?`;
-    const response = await this.togetherService.generateCompletion(prompt);
-    return response.text;
+  getSystemStatus(): NetworkStatus | null {
+    return this.networkStatus;
+  }
+
+  isInitialized(): boolean {
+    return this.systemId !== null && this.networkStatus !== null;
   }
 }

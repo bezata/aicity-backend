@@ -31,10 +31,13 @@ import { AdaptiveLearningService } from "./adaptive-learning.service";
 import { CityCoordinatorService } from "./city-coordinator.service";
 import { CulturalDonationService } from "./cultural-donation.service";
 import { CulturalTransportService } from "./cultural-transport.service";
+import { AIIntegrationService } from "./ai-integration.service";
+import { DonationService } from "./donation.service";
 
 // Define store type
 export type AppStore = {
   services: {
+    donationService: DonationService;
     togetherService: TogetherService;
     vectorStore: VectorStoreService;
     conversationService: ConversationService;
@@ -59,6 +62,7 @@ export type AppStore = {
     cityRhythm: CityRhythmService;
     culturalDonation: CulturalDonationService;
     culturalTransport: CulturalTransportService;
+    aiIntegration: AIIntegrationService;
   };
   conversations: Map<string, any[]>;
 };
@@ -257,58 +261,66 @@ const conversationService = new ConversationService(
   cityEventsService
 );
 
-// Initialize economy service
-const economyService = new EconomyService(vectorStore, districtService);
-
-// Initialize adaptive learning service
 const adaptiveLearning = new AdaptiveLearningService(
   vectorStore,
   metricsService,
   cityService
 );
 
-// Initialize cultural donation service
-const culturalDonationService = new CulturalDonationService(
+const culturalDonation = new CulturalDonationService(
   cultureService,
   developmentService,
   vectorStore
 );
 
-// Initialize cultural transport service
-const culturalTransportService = new CulturalTransportService(
+const culturalTransport = new CulturalTransportService(
   cultureService,
   transportService,
   vectorStore,
   analyticsService
 );
 
+const aiIntegration = new AIIntegrationService(vectorStore);
+
+// Initialize economy service
+const economyService = new EconomyService(vectorStore, districtService);
+const donationService = new DonationService(
+  vectorStore,
+  departmentService,
+  districtService,
+  socialDynamicsService
+);
 // Create initial store
-export const createStore = (): AppStore => ({
-  services: {
-    togetherService,
-    vectorStore,
-    conversationService,
-    cityService,
-    analyticsService,
-    collaborationService,
-    socketManager,
-    districtService,
-    cityEventsService,
-    metricsService,
-    departmentService,
-    citizenService,
-    departmentAgentService,
-    developmentService,
-    environmentService,
-    spatialCoordination,
-    cityMemory,
-    culture: cultureService,
-    economyService,
-    adaptiveLearning,
-    cityCoordinator,
-    cityRhythm: cityRhythmService,
-    culturalDonation: culturalDonationService,
-    culturalTransport: culturalTransportService,
-  },
-  conversations: new Map(),
-});
+export function createStore(): AppStore {
+  return {
+    services: {
+      donationService,
+      togetherService,
+      vectorStore,
+      conversationService,
+      cityService,
+      analyticsService,
+      collaborationService,
+      socketManager,
+      districtService,
+      cityEventsService,
+      metricsService,
+      departmentService,
+      citizenService,
+      departmentAgentService,
+      developmentService,
+      environmentService,
+      spatialCoordination,
+      cityMemory,
+      culture: cultureService,
+      economyService,
+      adaptiveLearning,
+      cityCoordinator,
+      cityRhythm: cityRhythmService,
+      culturalDonation,
+      culturalTransport,
+      aiIntegration,
+    },
+    conversations: new Map(),
+  };
+}

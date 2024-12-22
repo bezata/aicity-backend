@@ -18,6 +18,23 @@ export interface ChatMetadata {
   type?: VectorStoreType;
 }
 
+export interface LocationMetadata {
+  lat: number;
+  lng: number;
+}
+
+export interface CulturalHotspotMetadata {
+  name: string;
+  location_lat: number;
+  location_lng: number;
+  visitorCount: number;
+  culturalSignificance: number;
+  eventFrequency: string;
+  nearbyAttractions: string[];
+  type: string;
+  subtype: string;
+}
+
 export class VectorStoreService {
   private client: Pinecone;
   private index: any;
@@ -27,7 +44,9 @@ export class VectorStoreService {
     this.client = new Pinecone({
       apiKey: process.env.PINECONE_API_KEY!,
     });
-    this.index = this.client.index<ChatMetadata & RecordMetadata>("aicity");
+    this.index = this.client.index<
+      ChatMetadata & RecordMetadata & CulturalHotspotMetadata
+    >("aicity");
   }
 
   async query({
@@ -35,7 +54,6 @@ export class VectorStoreService {
     filter,
     topK = 5,
     includeMetadata = true,
-    namespace = "",
   }: {
     vector: number[];
     filter?: {
@@ -53,15 +71,30 @@ export class VectorStoreService {
     };
     topK?: number;
     includeMetadata?: boolean;
-    namespace?: string;
   }) {
     try {
-      return await this.index.query({
+      const response = await this.index.query({
         vector,
         filter,
         topK,
+        includeValues: false,
         includeMetadata,
       });
+
+      // Log the raw response for debugging
+      console.log("Raw Pinecone response:", JSON.stringify(response, null, 2));
+
+      // Ensure we have a valid response with matches
+      if (!response || typeof response !== "object") {
+        console.warn("Invalid response from Pinecone");
+        return { matches: [] };
+      }
+
+      // Return the response with matches array
+      return {
+        matches: response.matches || [],
+        usage: response.usage,
+      };
     } catch (error) {
       console.error("Pinecone query failed:", error);
       throw error;
@@ -75,7 +108,7 @@ export class VectorStoreService {
   }: {
     id: string;
     values: number[];
-    metadata: Partial<ChatMetadata & RecordMetadata & { type: string }>;
+    metadata: Partial<ChatMetadata & RecordMetadata & CulturalHotspotMetadata>;
   }) {
     try {
       await this.index.upsert([

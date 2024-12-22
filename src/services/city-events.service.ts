@@ -235,6 +235,11 @@ export class CityEventsService extends EventEmitter {
   private async selectAffectedDistrict(event: RandomEvent) {
     const districts = await this.districtService.getAllDistricts();
 
+    if (!districts || districts.length === 0) {
+      console.warn("No districts available in the system");
+      throw new Error("No districts available");
+    }
+
     // Query vector store for relevant district based on event context
     const query = await this.vectorStore.query({
       vector: await this.vectorStore.createEmbedding(
@@ -246,13 +251,17 @@ export class CityEventsService extends EventEmitter {
       topK: 1,
     });
 
-    if (query.matches.length > 0) {
+    if (query.matches && query.matches.length > 0) {
       const districtId = query.matches[0].metadata.districtId;
-      return districts.find((d) => d.id === districtId) || districts[0];
+      const matchedDistrict = districts.find((d) => d.id === districtId);
+      if (matchedDistrict) {
+        return matchedDistrict;
+      }
     }
 
-    // Fallback to random district
-    return districts[Math.floor(Math.random() * districts.length)];
+    // If no matching district found or vector search failed, select a random district
+    const randomIndex = Math.floor(Math.random() * districts.length);
+    return districts[randomIndex];
   }
 
   private selectRandomEvent(): RandomEvent {

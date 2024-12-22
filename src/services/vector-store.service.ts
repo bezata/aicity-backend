@@ -1,38 +1,67 @@
 // src/services/vector-store.service.ts
 import { Pinecone } from "@pinecone-database/pinecone";
-import { RecordMetadata } from "@pinecone-database/pinecone";
+import {
+  RecordMetadata,
+  RecordMetadataValue,
+} from "@pinecone-database/pinecone";
 import { TogetherService } from "./together.service";
 import { VectorStoreType } from "../types/vector-store.types";
 import type { ConversationStyle } from "../types/common.types";
 import type { Message } from "../types/conversation.types";
 
-export interface ChatMetadata {
+// Base metadata interface that follows Pinecone's requirements
+export interface BaseMetadata {
+  record_type: string;
+  timestamp: number;
+  [key: string]: RecordMetadataValue;
+}
+
+export interface ChatMetadata extends BaseMetadata {
   conversationId: string;
   agentId: string;
   content: string;
-  timestamp: number;
   role: "assistant" | "user";
-  topics?: string[];
-  style?: string;
-  sentiment?: string;
-  type?: VectorStoreType;
+  topics: string;
+  style: string;
+  sentiment: string;
+  type: string;
 }
 
-export interface LocationMetadata {
+export interface LocationMetadata extends BaseMetadata {
   lat: number;
   lng: number;
 }
 
-export interface CulturalHotspotMetadata {
+export interface CulturalHotspotMetadata extends BaseMetadata {
   name: string;
   location_lat: number;
   location_lng: number;
   visitorCount: number;
   culturalSignificance: number;
   eventFrequency: string;
-  nearbyAttractions: string[];
+  nearbyAttractions: string;
   type: string;
   subtype: string;
+}
+
+export interface AISystemMetadata extends BaseMetadata {
+  agent_id: string;
+  decision_text: string;
+  pattern_text: string;
+  confidence: string;
+  protocol_name: string;
+  system_id: string;
+  context_data: string;
+}
+
+export interface CCTVMetadata extends BaseMetadata {
+  camera_id: string;
+  location: string;
+  activity: string;
+  confidence: number;
+  detected_objects: string;
+  area_type: string;
+  alert_level: string;
 }
 
 export class VectorStoreService {
@@ -45,7 +74,11 @@ export class VectorStoreService {
       apiKey: process.env.PINECONE_API_KEY!,
     });
     this.index = this.client.index<
-      ChatMetadata & RecordMetadata & CulturalHotspotMetadata
+      | ChatMetadata
+      | LocationMetadata
+      | CulturalHotspotMetadata
+      | AISystemMetadata
+      | CCTVMetadata
     >("aicity");
   }
 
@@ -81,16 +114,13 @@ export class VectorStoreService {
         includeMetadata,
       });
 
-      // Log the raw response for debugging
       console.log("Raw Pinecone response:", JSON.stringify(response, null, 2));
 
-      // Ensure we have a valid response with matches
       if (!response || typeof response !== "object") {
         console.warn("Invalid response from Pinecone");
         return { matches: [] };
       }
 
-      // Return the response with matches array
       return {
         matches: response.matches || [],
         usage: response.usage,
@@ -108,14 +138,43 @@ export class VectorStoreService {
   }: {
     id: string;
     values: number[];
-    metadata: Partial<ChatMetadata & RecordMetadata & CulturalHotspotMetadata>;
+    metadata: Partial<
+      | ChatMetadata
+      | LocationMetadata
+      | CulturalHotspotMetadata
+      | AISystemMetadata
+      | CCTVMetadata
+    >;
   }) {
     try {
+      // Ensure timestamp is a number
+      if (metadata.timestamp && typeof metadata.timestamp === "string") {
+        metadata.timestamp = parseInt(metadata.timestamp);
+      }
+
+      // Convert any nested objects or arrays to strings
+      const flatMetadata = Object.entries(metadata).reduce(
+        (acc, [key, value]) => {
+          if (value === undefined || value === null) {
+            return acc;
+          }
+          if (Array.isArray(value)) {
+            acc[key] = value.join(",");
+          } else if (typeof value === "object") {
+            acc[key] = JSON.stringify(value);
+          } else {
+            acc[key] = value.toString();
+          }
+          return acc;
+        },
+        {} as Record<string, string | number>
+      );
+
       await this.index.upsert([
         {
           id,
           values,
-          metadata,
+          metadata: flatMetadata,
         },
       ]);
       return { success: true, id };
@@ -124,17 +183,49 @@ export class VectorStoreService {
       throw error;
     }
   }
+
   async upsertMany(data: {
     vectors: Array<{
       id: string;
       values: number[];
-      metadata: Partial<ChatMetadata & RecordMetadata & { type: string }>;
+      metadata: Partial<
+        | ChatMetadata
+        | LocationMetadata
+        | CulturalHotspotMetadata
+        | AISystemMetadata
+        | CCTVMetadata
+      >;
     }>;
     namespace?: string;
   }) {
     try {
-      await this.index.upsert(data.vectors, data.namespace);
-      return data;
+      // Process each vector's metadata
+      const processedVectors = data.vectors.map((vector) => {
+        const flatMetadata = Object.entries(vector.metadata).reduce(
+          (acc, [key, value]) => {
+            if (value === undefined || value === null) {
+              return acc;
+            }
+            if (Array.isArray(value)) {
+              acc[key] = value.join(",");
+            } else if (typeof value === "object") {
+              acc[key] = JSON.stringify(value);
+            } else {
+              acc[key] = value.toString();
+            }
+            return acc;
+          },
+          {} as Record<string, string | number>
+        );
+
+        return {
+          ...vector,
+          metadata: flatMetadata,
+        };
+      });
+
+      await this.index.upsert(processedVectors, data.namespace);
+      return { ...data, vectors: processedVectors };
     } catch (error) {
       console.error("Pinecone upsert failed:", error);
       throw error;
@@ -161,7 +252,6 @@ export class VectorStoreService {
 
   async analyzeSentiment(content: string): Promise<number> {
     try {
-      // Use the TogetherService to analyze the sentiment
       const prompt = `Analyze the sentiment and significance of this interaction. Rate it from 0 to 1 where 1 is extremely significant/emotional and 0 is mundane/neutral. Only respond with the number.
       
       Content: "${content}"
@@ -188,7 +278,7 @@ export class VectorStoreService {
           rain: ["Analyzing sentiment in rainy conditions."],
           sunny: ["Analyzing sentiment in sunny conditions."],
         },
-        memoryWindowSize: 1, // Only need current message
+        memoryWindowSize: 1,
         emotionalRange: {
           min: 0,
           max: 1,
@@ -211,12 +301,11 @@ export class VectorStoreService {
         "You are a sentiment analyzer that only responds with a number between 0 and 1."
       );
 
-      // Extract the number from the response
       const significance = parseFloat(response.trim());
       return isNaN(significance) ? 0.5 : Math.max(0, Math.min(1, significance));
     } catch (error) {
       console.error("Failed to analyze sentiment:", error);
-      return 0.5; // Default to neutral if analysis fails
+      return 0.5;
     }
   }
 }

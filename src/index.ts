@@ -2,9 +2,10 @@ import { Elysia, t } from "elysia";
 import { swagger } from "@elysiajs/swagger";
 import { jwt } from "@elysiajs/jwt";
 import { cors } from "@elysiajs/cors";
-import { Handler } from "elysia";
 import { verifyAuth } from "./middleware/auth";
-import { ErrorResponse } from "./types/common.types";
+import { ErrorResponse } from "./types/responses";
+import { agents, residentAgents } from "./config/agents";
+import { cityManagementAgents, allCityAgents } from "./config/city-agents";
 
 // Import controllers
 import { CityRhythmController } from "./controllers/city-rhythm.controller";
@@ -13,13 +14,48 @@ import { AdaptiveLearningController } from "./controllers/adaptive-learning.cont
 import { AIController } from "./controllers/ai.controller";
 import { AIIntegrationController } from "./controllers/ai-integration.controller";
 import { DepartmentController } from "./controllers/department.controller";
+import { createStore } from "./services/app.services";
 import { DistrictController } from "./controllers/district.controller";
 import { DonationController } from "./controllers/donation.controller";
-import { createStore } from "./services/app.services";
 
-const store = createStore();
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
+const store = createStore();
+
+// Initialize AI system with all agents
+async function initializeAISystem() {
+  try {
+    const allAgents = [...allCityAgents.map((agent) => agent.id)];
+
+    // Create Pinecone-compatible metadata
+    const residentAgentIds = residentAgents.map((a) => a.id).join(",");
+    const cityAgentIds = cityManagementAgents.map((a) => a.id).join(",");
+
+    const result = await store.services.aiIntegration.initializeSystem({
+      agents: allAgents,
+      protocol: "city-management",
+      initialState: {
+        resident_agents: residentAgentIds, // String value
+        city_agents: cityAgentIds, // String value
+        agent_count: allAgents.length, // Number value
+        initialized: true, // Boolean value
+        agent_types: allAgents.map((id) => {
+          // Array of strings
+          if (residentAgents.map((a) => a.id).includes(id))
+            return `${id}:resident`;
+          if (cityManagementAgents.map((a) => a.id).includes(id))
+            return `${id}:management`;
+          return `${id}:unknown`;
+        }),
+      },
+    });
+    console.log("🤖 AI System initialized with", allAgents.length, "agents");
+    return result;
+  } catch (error) {
+    console.error("Failed to initialize AI system:", error);
+    throw error;
+  }
+}
 
 const app = new Elysia()
   .use(
@@ -238,10 +274,17 @@ const apiGroup = app.group("/api", ((app: any) => {
 
 app.use(apiGroup as any);
 
-app.listen(process.env.PORT || 3000);
-
-console.log(
-  `🦊 AI City server is running at ${app.server?.hostname}:${app.server?.port}`
-);
+// Initialize AI system before starting the server
+initializeAISystem()
+  .then(() => {
+    app.listen(process.env.PORT || 3000);
+    console.log(
+      `🦊 AI City server is running at ${app.server?.hostname}:${app.server?.port}`
+    );
+  })
+  .catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
 
 export type App = typeof app;

@@ -1,4 +1,4 @@
-import { VectorStoreService } from "./vector-store.service";
+import { VectorStoreService, AISystemMetadata } from "./vector-store.service";
 import {
   SystemInitializationConfig,
   SystemInitializationResult,
@@ -6,15 +6,6 @@ import {
   AIDecisionContext,
   AIPattern,
   AIProtocol,
-  ProtocolMetadata,
-  StateMetadata,
-  DecisionMetadata,
-  PatternMetadata,
-  Metadata,
-  isDecisionMetadata,
-  isPatternMetadata,
-  QueryMatch,
-  RecordMetadata,
 } from "../types/ai-integration.types";
 import { v4 as uuidv4 } from "uuid";
 
@@ -32,13 +23,8 @@ export class AIIntegrationService {
     config: SystemInitializationConfig
   ): Promise<SystemInitializationResult> {
     try {
-      // Generate a unique system ID
       this.systemId = uuidv4();
-
-      // Register agents in the system
       this.activeAgents = new Set(config.agents);
-
-      // Initialize network status
       this.networkStatus = {
         isActive: true,
         connectedAgents: this.activeAgents.size,
@@ -46,11 +32,12 @@ export class AIIntegrationService {
         timestamp: Date.now(),
       };
 
-      // Store initial protocol configuration
-      const protocolMetadata: ProtocolMetadata = {
-        type: "protocol",
-        protocol: config.protocol,
+      // Store protocol with flat metadata
+      const protocolMetadata: Partial<AISystemMetadata> = {
+        record_type: "protocol",
+        protocol_name: config.protocol,
         timestamp: Date.now(),
+        system_id: this.systemId,
       };
 
       const protocolVector = await this.vectorStore.createEmbedding(
@@ -60,15 +47,16 @@ export class AIIntegrationService {
       await this.vectorStore.upsert({
         id: `protocol:${this.systemId}`,
         values: protocolVector,
-        metadata: protocolMetadata as any,
+        metadata: protocolMetadata,
       });
 
       // Store initial state if provided
       if (config.initialState) {
-        const stateMetadata: StateMetadata = {
-          type: "state",
-          state: config.initialState,
+        const stateMetadata: Partial<AISystemMetadata> = {
+          record_type: "state",
           timestamp: Date.now(),
+          system_id: this.systemId,
+          context_data: JSON.stringify(config.initialState),
         };
 
         const stateVector = await this.vectorStore.createEmbedding(
@@ -78,7 +66,7 @@ export class AIIntegrationService {
         await this.vectorStore.upsert({
           id: `state:${this.systemId}`,
           values: stateVector,
-          metadata: stateMetadata as any,
+          metadata: stateMetadata,
         });
       }
 
@@ -115,14 +103,13 @@ export class AIIntegrationService {
     const decisionId = `decision:${this.systemId}:${agentId}:${Date.now()}`;
     this.decisionHistory.set(decisionId, decisionContext);
 
-    const decisionMetadata: DecisionMetadata = {
-      type: "decision",
-      agentId,
-      state: {
-        decision,
-        context,
-      },
+    const decisionMetadata: Partial<AISystemMetadata> = {
+      record_type: "decision",
+      agent_id: agentId,
+      decision_text: decision,
       timestamp: Date.now(),
+      system_id: this.systemId,
+      context_data: JSON.stringify(context),
     };
 
     const decisionVector = await this.vectorStore.createEmbedding(
@@ -132,38 +119,8 @@ export class AIIntegrationService {
     await this.vectorStore.upsert({
       id: decisionId,
       values: decisionVector,
-      metadata: decisionMetadata as any,
+      metadata: decisionMetadata,
     });
-  }
-
-  async findSimilarDecisions(
-    content: string,
-    limit = 5
-  ): Promise<AIDecisionContext[]> {
-    const vector = await this.vectorStore.createEmbedding(content);
-
-    const results = await this.vectorStore.query({
-      vector,
-      filter: {
-        type: { $eq: "decision" },
-      },
-      topK: limit,
-    });
-
-    if (!results.matches) return [];
-
-    return results.matches
-      .filter((result: QueryMatch) => isDecisionMetadata(result.metadata))
-      .map((result: QueryMatch) => {
-        const metadata = result.metadata as DecisionMetadata;
-        const state = metadata.state || { decision: "", context: {} };
-        return {
-          agentId: metadata.agentId,
-          decision: state.decision,
-          context: state.context,
-          timestamp: metadata.timestamp,
-        };
-      });
   }
 
   async storePattern(
@@ -186,14 +143,13 @@ export class AIIntegrationService {
 
     this.patterns.set(patternId, aiPattern);
 
-    const patternMetadata: PatternMetadata = {
-      type: "pattern",
-      state: {
-        pattern,
-        context,
-        confidence,
-      },
+    const patternMetadata: Partial<AISystemMetadata> = {
+      record_type: "pattern",
+      pattern_text: pattern,
+      confidence: confidence.toString(),
       timestamp: Date.now(),
+      system_id: this.systemId,
+      context_data: JSON.stringify(context),
     };
 
     const patternVector = await this.vectorStore.createEmbedding(pattern);
@@ -201,7 +157,38 @@ export class AIIntegrationService {
     await this.vectorStore.upsert({
       id: patternId,
       values: patternVector,
-      metadata: patternMetadata as any,
+      metadata: patternMetadata,
+    });
+  }
+
+  async findSimilarDecisions(
+    content: string,
+    limit = 5
+  ): Promise<AIDecisionContext[]> {
+    const vector = await this.vectorStore.createEmbedding(content);
+
+    const results = await this.vectorStore.query({
+      vector,
+      filter: {
+        record_type: { $eq: "decision" },
+      },
+      topK: limit,
+    });
+
+    if (!results.matches) return [];
+
+    return results.matches.map((result: any) => {
+      const metadata = result.metadata as AISystemMetadata;
+      const context = metadata.context_data
+        ? JSON.parse(metadata.context_data)
+        : {};
+
+      return {
+        agentId: metadata.agent_id,
+        decision: metadata.decision_text,
+        context,
+        timestamp: metadata.timestamp,
+      };
     });
   }
 
@@ -211,30 +198,27 @@ export class AIIntegrationService {
     const results = await this.vectorStore.query({
       vector,
       filter: {
-        type: { $eq: "pattern" },
+        record_type: { $eq: "pattern" },
       },
       topK: limit,
     });
 
     if (!results.matches) return [];
 
-    return results.matches
-      .filter((result: QueryMatch) => isPatternMetadata(result.metadata))
-      .map((result: QueryMatch) => {
-        const metadata = result.metadata as PatternMetadata;
-        const state = metadata.state || {
-          pattern: "",
-          context: {},
-          confidence: 0,
-        };
-        return {
-          id: result.id,
-          pattern: state.pattern,
-          context: state.context,
-          confidence: state.confidence,
-          timestamp: metadata.timestamp,
-        };
-      });
+    return results.matches.map((result: any) => {
+      const metadata = result.metadata as AISystemMetadata;
+      const context = metadata.context_data
+        ? JSON.parse(metadata.context_data)
+        : {};
+
+      return {
+        id: result.id,
+        pattern: metadata.pattern_text,
+        context,
+        confidence: parseFloat(metadata.confidence),
+        timestamp: metadata.timestamp,
+      };
+    });
   }
 
   getSystemStatus(): NetworkStatus | null {

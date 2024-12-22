@@ -42,12 +42,7 @@ export interface TransportRoute {
   mode: TransportMode;
   name: string;
   type: "bus" | "train" | "tram" | "metro";
-  stops: Array<{
-    location: {
-      districtId: string;
-      coordinates: [number, number];
-    };
-  }>;
+  stops: TransportStop[];
   schedule: RouteSchedule;
   status: "active" | "delayed" | "suspended";
   capacity: {
@@ -69,6 +64,10 @@ export interface TransportStop {
     districtId: string;
     coordinates: [number, number];
   };
+  type?: string;
+  priority?: number;
+  temporary?: boolean;
+  duration?: number;
   routes: string[]; // route IDs
   facilities: ("shelter" | "seating" | "ticket_machine" | "accessibility")[];
   crowding: number; // 0-1
@@ -86,4 +85,37 @@ export interface TimeSlot {
   end: number;
   frequency: number;
   capacity: number;
+}
+
+export interface RouteAdjustment {
+  location: [number, number];
+  priority: number;
+  suggestedStops: {
+    primaryStop: {
+      name: string;
+      coordinates: [number, number];
+      type: string;
+    };
+    nearbyAttractions?: Array<{
+      name: string;
+      type: string;
+      location: [number, number];
+    }>;
+  };
+}
+
+export interface TemporaryRouteAdjustment {
+  routeId: string;
+  adjustmentType: "major" | "minor";
+  temporaryStops: Array<{
+    name: string;
+    coordinates: [number, number];
+    type: string;
+    duration: number;
+  }>;
+  timeWindow: {
+    start: number;
+    end: number;
+  };
+  priority: number;
 }

@@ -6,6 +6,9 @@ import { LandmarkService } from "../services/landmark.service";
 import { DistrictService } from "./district.service";
 import { SmartInfrastructureService } from "./smart-infrastructure.service";
 import { CityEvent } from "../types/city-events";
+import { AnalyticsService } from "./analytics.service";
+import { Agent } from "../types/agent.types";
+import { Message } from "../types/conversation.types";
 
 interface CityMemory {
   type: "historical" | "cultural" | "social" | "environmental";
@@ -46,26 +49,218 @@ interface MemoryCollection {
   };
 }
 
+interface InfrastructureData {
+  nearestLandmark?: string;
+  coordinates?: [number, number];
+  type?: string;
+  status?: string;
+}
+
+interface DistrictMetrics {
+  culturalIndex: number;
+  socialIndex: number;
+  economicIndex: number;
+}
+
 export class CityMemoryService extends EventEmitter {
   private memoryCache: Map<string, MemoryCollection> = new Map();
   private readonly CACHE_DURATION = 60 * 60 * 1000; // 1 hour
   private readonly SIGNIFICANCE_THRESHOLD = 0.7;
+  private readonly memoryAgent: Agent = {
+    id: "city-memory",
+    name: "Memory Service",
+    personality: "Analytical and preservative",
+    systemPrompt: "Manage and preserve city memories and cultural heritage",
+    interests: ["cultural preservation", "history", "community memory"],
+    preferredStyle: "formal",
+    memoryWindowSize: 1000,
+    emotionalRange: { min: 0.3, max: 0.8 },
+    traits: {
+      analyticalThinking: 0.8,
+      creativity: 0.6,
+      empathy: 0.7,
+      curiosity: 0.9,
+      enthusiasm: 0.6,
+      reliability: 0.9,
+      environmentalAwareness: 0.7,
+    },
+  };
 
   constructor(
     private vectorStore: VectorStoreService,
     private culturalService: CultureService,
-    private landmarkService: LandmarkService
+    private landmarkService: LandmarkService,
+    private districtService: DistrictService,
+    private smartInfrastructureService: SmartInfrastructureService,
+    private analyticsService: AnalyticsService
   ) {
     super();
     this.initializeMemoryService();
   }
 
   private async initializeMemoryService() {
+    // Track service initialization
+    this.analyticsService.trackInteraction(this.memoryAgent, {
+      id: crypto.randomUUID(),
+      agentId: this.memoryAgent.id,
+      content: "City Memory Service initialized",
+      timestamp: Date.now(),
+      role: "assistant",
+      sentiment: 0.8,
+      topics: ["memory", "initialization"],
+    });
+
     setInterval(() => this.analyzeCityMemoryPatterns(), 24 * 60 * 60 * 1000); // Daily analysis
     setInterval(
       () => this.updateMemoryPreservationPriorities(),
       12 * 60 * 60 * 1000
     ); // Every 12 hours
+
+    // Listen to district events for memory context
+    this.districtService.on(
+      "districtUpdated",
+      this.handleDistrictUpdate.bind(this)
+    );
+    this.smartInfrastructureService.on(
+      "infrastructureChange",
+      this.handleInfrastructureChange.bind(this)
+    );
+  }
+
+  private async handleDistrictUpdate(districtEvent: any) {
+    // Update memory context based on district changes
+    const districtMemories = await this.getDistrictMemories(
+      districtEvent.districtId
+    );
+    for (const memory of districtMemories.memories) {
+      await this.updateMemoryContext(memory, districtEvent);
+    }
+  }
+
+  private async handleInfrastructureChange(change: any) {
+    // Update location context in affected memories
+    const affectedMemories = await this.findMemoriesByLocation(change.location);
+    for (const memory of affectedMemories) {
+      await this.updateLocationContext(memory, change);
+    }
+  }
+
+  private async updateMemoryContext(memory: CityMemory, districtEvent: any) {
+    const updatedMemory = { ...memory };
+    const district = await this.districtService.getDistrict(memory.districtId);
+
+    if (district) {
+      updatedMemory.culturalSignificance = this.recalculateSignificance(
+        memory,
+        district
+      );
+      await this.storeCollectiveMemory(updatedMemory);
+    }
+
+    // Track context update
+    this.analyticsService.trackInteraction(this.memoryAgent, {
+      id: crypto.randomUUID(),
+      agentId: this.memoryAgent.id,
+      content: `Updated memory context for ${memory.type} memory`,
+      timestamp: Date.now(),
+      role: "assistant",
+      sentiment: 0.6,
+      topics: ["memory", "context", "update"],
+    });
+  }
+
+  private async updateLocationContext(
+    memory: CityMemory,
+    infrastructureChange: any
+  ) {
+    const locationData = await this.getInfrastructureData(
+      memory.location?.coordinates || [0, 0]
+    );
+
+    if (locationData?.nearestLandmark) {
+      memory.location = {
+        coordinates: memory.location?.coordinates || [0, 0],
+        landmark: locationData.nearestLandmark,
+      };
+      await this.storeCollectiveMemory(memory);
+    }
+  }
+
+  // Helper method to get infrastructure data
+  private async getInfrastructureData(
+    coordinates: [number, number]
+  ): Promise<InfrastructureData> {
+    try {
+      const nearbyInfrastructure =
+        await this.smartInfrastructureService.getNearbyInfrastructure(
+          coordinates
+        );
+      const landmarks = await this.landmarkService.getAllLandmarks();
+
+      const nearestLandmark = landmarks.find(
+        (l) => this.calculateDistance(coordinates, l.coordinates) < 1000 // Within 1km
+      );
+
+      return {
+        nearestLandmark: nearestLandmark?.name,
+        coordinates,
+        type: nearbyInfrastructure?.type,
+        status: nearbyInfrastructure?.status,
+      };
+    } catch (error) {
+      console.error("Error getting infrastructure data:", error);
+      return {};
+    }
+  }
+
+  // Helper method to get district metrics
+  private async getDistrictMetrics(
+    districtId: string
+  ): Promise<DistrictMetrics> {
+    try {
+      const district = await this.districtService.getDistrict(districtId);
+      const culturalData = await this.culturalService.getDistrictCulture(
+        districtId
+      );
+
+      return {
+        culturalIndex: culturalData?.culturalIndex || 1,
+        socialIndex: district?.socialMetrics?.index || 1,
+        economicIndex: district?.economicMetrics?.index || 1,
+      };
+    } catch (error) {
+      console.error("Error getting district metrics:", error);
+      return {
+        culturalIndex: 1,
+        socialIndex: 1,
+        economicIndex: 1,
+      };
+    }
+  }
+
+  private async findMemoriesByLocation(
+    coordinates: [number, number]
+  ): Promise<CityMemory[]> {
+    const nearbyMemories = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding(
+        `location memories ${coordinates.join(",")}`
+      ),
+      filter: {
+        type: { $eq: "district" },
+        subtype: { $eq: "collective_memory" },
+      },
+      topK: 10,
+    });
+
+    return this.processMemoryResults(nearbyMemories.matches);
+  }
+
+  private recalculateSignificance(memory: CityMemory, district: any): number {
+    const baseSignificance = memory.culturalSignificance;
+    const districtFactor = district.culturalImportance || 1;
+    const timeFactor = this.calculateTemporalRelevance(memory.timestamp);
+
+    return baseSignificance * 0.5 + districtFactor * 0.3 + timeFactor * 0.2;
   }
 
   private async analyzeCityMemoryPatterns() {
@@ -134,6 +329,38 @@ export class CityMemoryService extends EventEmitter {
   }
   async storeCollectiveMemory(memory: CityMemory): Promise<void> {
     try {
+      // Track memory storage
+      this.analyticsService.trackInteraction(this.memoryAgent, {
+        id: crypto.randomUUID(),
+        agentId: this.memoryAgent.id,
+        content: `Storing ${memory.type} memory: ${memory.description}`,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: 0.7,
+        topics: ["memory", "storage", memory.type],
+      });
+
+      // Enrich with district context
+      const district = await this.districtService.getDistrict(
+        memory.districtId
+      );
+      if (district) {
+        const districtMetrics = await this.getDistrictMetrics(
+          memory.districtId
+        );
+        memory.culturalSignificance *= districtMetrics.culturalIndex;
+      }
+
+      // Enrich with infrastructure context
+      if (memory.location) {
+        const infrastructureData = await this.getInfrastructureData(
+          memory.location.coordinates
+        );
+        if (infrastructureData.nearestLandmark) {
+          memory.location.landmark = infrastructureData.nearestLandmark;
+        }
+      }
+
       // Enrich memory with additional context
       const enrichedMemory = await this.enrichMemoryContext(memory);
 
@@ -757,5 +984,25 @@ export class CityMemoryService extends EventEmitter {
     }
 
     return memories;
+  }
+
+  private calculateDistance(
+    coord1: [number, number],
+    coord2: [number, number]
+  ): number {
+    const [lat1, lon1] = coord1;
+    const [lat2, lon2] = coord2;
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance in meters
   }
 }

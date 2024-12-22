@@ -140,4 +140,10 @@ export interface CultureService {
     eventId: string,
     metrics: Partial<CulturalMetrics>
   ): Promise<void>;
+  getDistrictCulture(districtId: string): Promise<{
+    culturalIndex: number;
+    events: any[];
+    heritage: any[];
+    traditions: any[];
+  }>;
 }

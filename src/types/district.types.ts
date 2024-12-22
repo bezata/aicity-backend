@@ -1,5 +1,4 @@
 import { CityEventCategory } from "./city-events";
-import { TransportHub } from "./transport.types";
 
 export type DistrictType =
   | "residential"
@@ -14,13 +13,20 @@ export interface District {
   name: string;
   type: DistrictType;
   population: number;
+  boundaries: Array<[number, number]>;
+  area: number;
   density: number;
   economicActivity: number;
-  coordinates: [number, number];
   currentEvents: LocalEvent[];
-  transportHubs: TransportHub[];
+  transportHubs: DistrictTransportHub[];
   residentAgents: string[];
   visitorAgents: string[];
+  amenities: {
+    schools: number;
+    hospitals: number;
+    parks: number;
+    shops: number;
+  };
   metrics: {
     // Safety & Environment
     safety: number;
@@ -28,6 +34,9 @@ export interface District {
     noise: number;
     crowding: number;
     ambiance: number;
+    education: number;
+    healthcare: number;
+    environment: number;
 
     // Economic & Development
     economicGrowth: number;
@@ -49,27 +58,42 @@ export interface District {
     greenSpaceCoverage: number;
     environmentalHealth: number;
   };
-  schedules: string[];
+  socialMetrics: {
+    communityEngagement: number;
+    culturalDiversity: number;
+    socialCohesion: number;
+    publicServices: number;
+    index: number;
+  };
+  economicMetrics: {
+    employmentRate: number;
+    averageIncome: number;
+    businessActivity: number;
+    employment: number;
+    index: number;
+  };
 }
 
 export interface LocalEvent {
   id: string;
-  type: EventType;
-  title: string;
+  type: string;
+  name: string;
   description: string;
-  category: CityEventCategory;
-  severity: number;
-  timestamp: number;
-  duration: number;
+  category: "environmental" | "social" | "economic" | "cultural";
+  startTime: number;
+  endTime: number;
   urgency: number;
   impact: {
+    type: string;
+    severity: number;
+    radius: number;
     environmental: number;
     social: number;
     economic: number;
   };
-  affectedDistricts: string[];
-  requiredAgents: string[];
+  location: [number, number];
   status: "pending" | "in_progress" | "resolved";
+  affectedDistricts: string[];
   propagationProbability: number;
   resolution?: {
     actions: string[];
@@ -78,31 +102,16 @@ export interface LocalEvent {
   };
 }
 
-export interface DistrictMetrics {
-  // Safety & Environment
-  safety: number;
-  cleanliness: number;
-  noise: number;
-  crowding: number;
-  ambiance: number;
-
-  // Economic & Development
-  economicGrowth: number;
-  propertyValues: number;
-  businessActivity: number;
-
-  // Infrastructure & Services
-  infrastructureQuality: number;
-  publicServiceAccess: number;
-  transportEfficiency: number;
-
-  // Social & Cultural
-  culturalVibrancy: number;
-  communityWellbeing: number;
-  socialCohesion: number;
-
-  // Sustainability
-  energyEfficiency: number;
-  greenSpaceCoverage: number;
-  environmentalHealth: number;
+export interface DistrictTransportHub {
+  id: string;
+  type: string;
+  capacity: number;
+  currentUtilization: number;
+  status: "active" | "inactive" | "maintenance";
+  lastMaintenance: number;
+  schedule?: {
+    weekday: string[];
+    weekend: string[];
+    holidays: string[];
+  };
 }

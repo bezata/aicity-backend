@@ -3,6 +3,7 @@ import { VectorStoreService } from "./vector-store.service";
 import { MetricsService } from "./metrics.service";
 import { CityService } from "./city.service";
 import _ from "lodash";
+import { CityMetrics } from "../types/city-metrics";
 
 interface CityLearningData {
   successPatterns: Array<{
@@ -153,13 +154,20 @@ export class AdaptiveLearningService extends EventEmitter {
       []
     );
 
-    return patterns.filter((p: { impact: number }) => p.impact >= this.config.impactThreshold);
+    return patterns.filter(
+      (p: { impact: number }) => p.impact >= this.config.impactThreshold
+    );
   }
 
   private async identifySystemWeaknesses(): Promise<
     Array<{ issue: string; frequency: number; severity: number }>
   > {
-    const metricsAnalysis = await this.metricsService.getMetricsAnalysis();
+    const metricsAnalysis =
+      (await this.metricsService.getMetricsAnalysis()) as {
+        current: CityMetrics;
+        trends: { improving: string[]; declining: string[]; stable: string[] };
+        recommendations: string[];
+      };
     const weaknesses: Array<{
       issue: string;
       frequency: number;
@@ -493,5 +501,137 @@ export class AdaptiveLearningService extends EventEmitter {
 
   private handleMetricsAlert(alert: Record<string, any>) {
     console.log("Metrics alert:", alert);
+  }
+
+  async getCityLearningData(): Promise<CityLearningData> {
+    return this.collectCityData();
+  }
+
+  async getAdaptationPlans(): Promise<AdaptationPlan[]> {
+    const learningData = await this.collectCityData();
+    const currentPlan = await this.generateAdaptations(learningData);
+    return [currentPlan];
+  }
+
+  async createAdaptationPlan(plan: AdaptationPlan): Promise<AdaptationPlan> {
+    // Validate and store the plan
+    await this.implementAdaptations(plan);
+    return plan;
+  }
+
+  async getDomainInsights(domain: string): Promise<any> {
+    const metrics = (await this.metricsService.getMetricsAnalysis()) as {
+      current: CityMetrics;
+    };
+    const domainMetrics = metrics.current[domain as keyof CityMetrics] || {};
+    const trends = await this.analyzeTrends({ domain, metrics: domainMetrics });
+
+    return {
+      metrics: domainMetrics,
+      trends,
+      recommendations: await this.generateDomainRecommendations(domain, trends),
+    };
+  }
+
+  async handleEvent(event: any): Promise<void> {
+    // Process the event and update learning history
+    const eventData = {
+      timestamp: Date.now(),
+      ...event,
+    };
+
+    const domain = this.identifyEventDomain(event);
+    if (!this.learningHistory.has(domain)) {
+      this.learningHistory.set(domain, []);
+    }
+    this.learningHistory.get(domain)?.push(eventData);
+
+    // Trigger learning cycle if needed
+    if (this.shouldTriggerLearning(domain)) {
+      await this.evolveCity();
+    }
+  }
+
+  async getLearningMetrics(): Promise<any> {
+    const metrics = {
+      totalEvents: Array.from(this.learningHistory.values()).flat().length,
+      domainCoverage: this.learningHistory.size,
+      lastEvolution: this.lastEvolutionTimestamp,
+      adaptationRate: this.config.adaptationRate,
+      confidenceLevel: this.config.confidenceThreshold,
+      domains: {} as Record<string, any>,
+    };
+
+    // Add domain-specific metrics
+    for (const [domain, events] of this.learningHistory.entries()) {
+      metrics.domains[domain] = {
+        eventCount: events.length,
+        lastEvent: events[events.length - 1]?.timestamp,
+        patterns: await this.analyzeSuccessfulInteractions(),
+      };
+    }
+
+    return metrics;
+  }
+
+  async getRecommendations(): Promise<any> {
+    const learningData = await this.collectCityData();
+    return {
+      immediate: learningData.adaptationOpportunities
+        .filter((opp) => opp.potential > 0.7)
+        .map((opp) => ({
+          type: "high-priority",
+          ...opp,
+        })),
+      planned: learningData.adaptationOpportunities
+        .filter((opp) => opp.potential <= 0.7)
+        .map((opp) => ({
+          type: "planned",
+          ...opp,
+        })),
+      emergingNeeds: learningData.emergingNeeds,
+    };
+  }
+
+  private lastEvolutionTimestamp: number = Date.now();
+
+  private identifyEventDomain(event: any): string {
+    // Logic to identify which domain an event belongs to
+    if (event.domain) return event.domain;
+    if (event.type?.includes(".")) return event.type.split(".")[0];
+    return "general";
+  }
+
+  private shouldTriggerLearning(domain: string): boolean {
+    const events = this.learningHistory.get(domain) || [];
+    const recentEvents = events.filter(
+      (e) => e.timestamp > Date.now() - this.config.analysisWindow
+    );
+    return recentEvents.length >= 10; // Trigger learning after 10 events in window
+  }
+
+  private async generateDomainRecommendations(
+    domain: string,
+    trends: any
+  ): Promise<any[]> {
+    const recommendations = [];
+
+    if (trends.growth > 0.1) {
+      recommendations.push({
+        type: "scaling",
+        priority: "high",
+        description: `Scale ${domain} infrastructure to handle growth`,
+      });
+    }
+
+    if (trends.efficiency < 0.7) {
+      recommendations.push({
+        type: "optimization",
+        priority: "medium",
+        description: `Optimize ${domain} processes for better efficiency`,
+      });
+    }
+
+    return recommendations;
   }
 }

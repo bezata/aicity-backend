@@ -8,7 +8,20 @@ export interface Message {
   role: "assistant" | "user";
   sentiment?: number;
   topics?: string[];
+  metadata?: {
+    emergencyId?: string;
+    type?: string;
+    severity?: string;
+    isEmergency?: boolean;
+    eventId?: string;
+    culturalImpact?: number;
+    conversationId?: string;
+    coordinates?: string[];
+    style?: string;
+  };
 }
+
+export type ConversationStatus = "active" | "idle" | "inactive";
 
 export interface ConversationState {
   conversationId: string;
@@ -19,7 +32,7 @@ export interface ConversationState {
   topics: string[];
   currentTopics: Set<string>;
   sentiment: number;
-  status: "active" | "idle" | "inactive";
+  status: ConversationStatus;
   momentum: number;
   silenceDuration: number;
   silenceProbability: number;
@@ -40,13 +53,14 @@ export interface Event {
 }
 
 export interface ChatMetadata {
-  conversationId: string;
+  type: string;
   agentId: string;
-  content: string;
-  timestamp: number;
-  role: "assistant" | "user";
-  topics?: string[];
-  style?: string;
+  content?: string;
   sentiment?: string;
-  type?: string;
+  timestamp: number;
+  role?: string;
+  topics?: string[];
+  conversationId: string;
+  coordinates?: string[];
+  style?: string;
 }

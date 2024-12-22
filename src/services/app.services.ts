@@ -27,6 +27,10 @@ import { CityRhythmService } from "./city-rhythm.service";
 import { TransportService } from "./transport.service";
 import { EconomyService } from "./economy.service";
 import { LandmarkService } from "./landmark.service";
+import { AdaptiveLearningService } from "./adaptive-learning.service";
+import { CityCoordinatorService } from "./city-coordinator.service";
+import { CulturalDonationService } from "./cultural-donation.service";
+import { CulturalTransportService } from "./cultural-transport.service";
 
 // Define store type
 export type AppStore = {
@@ -50,6 +54,11 @@ export type AppStore = {
     cityMemory: CityMemoryService;
     culture: CultureService;
     economyService: EconomyService;
+    adaptiveLearning: AdaptiveLearningService;
+    cityCoordinator: CityCoordinatorService;
+    cityRhythm: CityRhythmService;
+    culturalDonation: CulturalDonationService;
+    culturalTransport: CulturalTransportService;
   };
   conversations: Map<string, any[]>;
 };
@@ -64,24 +73,35 @@ let weatherService: WeatherService;
 let transportService: TransportService;
 let cityRhythmService: CityRhythmService;
 let socialDynamicsService: SocialDynamicsService;
-
+const analyticsService = new AnalyticsService();
 // Initialize base services
 const togetherService = new TogetherService(process.env.TOGETHER_API_KEY);
 const vectorStore = new VectorStoreService(togetherService);
 const metricsService = new MetricsService(vectorStore);
-const cityService = new CityService();
-const departmentService = new DepartmentService(vectorStore, togetherService);
+const cityService = new CityService(metricsService);
+const departmentService = new DepartmentService(
+  vectorStore,
+  togetherService,
+  analyticsService,
+  metricsService
+);
 const citizenService = new CitizenService(
   vectorStore,
   togetherService,
-  departmentService
+  departmentService,
+  analyticsService
 );
 const emergencyService = new EmergencyService(
   vectorStore,
   departmentService,
   citizenService
 );
-
+const initialDistrictService = new DistrictService(
+  cityService,
+  vectorStore,
+  togetherService,
+  analyticsService
+);
 // Create initial instances with undefined instead of null
 const initialCityRhythm = new CityRhythmService(
   vectorStore,
@@ -105,7 +125,9 @@ const initialTransport = new TransportService(
   vectorStore,
   initialWeather,
   initialCityRhythm,
-  emergencyService
+  initialEmergency,
+  initialDistrictService,
+  metricsService
 );
 
 // Now create the final instances with proper dependencies
@@ -120,7 +142,9 @@ transportService = new TransportService(
   vectorStore,
   weatherService,
   initialCityRhythm,
-  emergencyService
+  initialEmergency,
+  initialDistrictService,
+  metricsService
 );
 cityRhythmService = new CityRhythmService(
   vectorStore,
@@ -145,40 +169,71 @@ const cultureService = new CultureService(
   socialDynamicsService,
   cityRhythmService
 );
-const landmarkService = new LandmarkService();
+const landmarkService = new LandmarkService(vectorStore, analyticsService);
+
 // Initialize remaining services
 const agentCulture = new AgentCultureService(cultureService, vectorStore);
-const cityMemory = new CityMemoryService(
-  vectorStore,
-  cultureService,
-  landmarkService
-);
-const analyticsService = new AnalyticsService();
+
 const districtService = new DistrictService(
   cityService,
   vectorStore,
-  togetherService
+  togetherService,
+  analyticsService
 );
 const collaborationService = new AgentCollaborationService(
   togetherService,
   vectorStore,
-  cityService
+  cityService,
+  analyticsService
 );
 const socketManager = new SocketManagerService(collaborationService);
 const cityEventsService = new CityEventsService(
   metricsService,
   collaborationService,
   vectorStore,
-  districtService
+  districtService,
+  analyticsService
 );
-const smartInfrastructureService = new SmartInfrastructureService();
+const smartInfrastructureService = new SmartInfrastructureService(
+  vectorStore,
+  metricsService,
+  transportService
+);
+
+// Initialize city memory service with all dependencies
+const cityMemory = new CityMemoryService(
+  vectorStore,
+  cultureService,
+  landmarkService,
+  districtService,
+  smartInfrastructureService,
+  analyticsService
+);
+
 const environmentService = new EnvironmentService(
   vectorStore,
   districtService,
-  smartInfrastructureService
+  smartInfrastructureService,
+  analyticsService
 );
 
-const departmentAgentService = new DepartmentAgentService(togetherService);
+// Initialize city coordinator service
+const cityCoordinator = new CityCoordinatorService(
+  vectorStore,
+  departmentService,
+  environmentService,
+  transportService,
+  socialDynamicsService,
+  analyticsService,
+  cityMemory
+);
+
+const departmentAgentService = new DepartmentAgentService(
+  togetherService,
+  analyticsService,
+  departmentService,
+  metricsService
+);
 const developmentService = new DevelopmentService(
   vectorStore,
   districtService,
@@ -205,6 +260,28 @@ const conversationService = new ConversationService(
 // Initialize economy service
 const economyService = new EconomyService(vectorStore, districtService);
 
+// Initialize adaptive learning service
+const adaptiveLearning = new AdaptiveLearningService(
+  vectorStore,
+  metricsService,
+  cityService
+);
+
+// Initialize cultural donation service
+const culturalDonationService = new CulturalDonationService(
+  cultureService,
+  developmentService,
+  vectorStore
+);
+
+// Initialize cultural transport service
+const culturalTransportService = new CulturalTransportService(
+  cultureService,
+  transportService,
+  vectorStore,
+  analyticsService
+);
+
 // Create initial store
 export const createStore = (): AppStore => ({
   services: {
@@ -224,13 +301,14 @@ export const createStore = (): AppStore => ({
     developmentService,
     environmentService,
     spatialCoordination,
-    cityMemory: new CityMemoryService(
-      vectorStore,
-      cultureService,
-      landmarkService
-    ),
+    cityMemory,
     culture: cultureService,
     economyService,
+    adaptiveLearning,
+    cityCoordinator,
+    cityRhythm: cityRhythmService,
+    culturalDonation: culturalDonationService,
+    culturalTransport: culturalTransportService,
   },
   conversations: new Map(),
 });

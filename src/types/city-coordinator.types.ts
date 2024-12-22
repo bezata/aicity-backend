@@ -43,32 +43,58 @@ export interface CityMetrics {
 
 export interface AgentProposal {
   id: string;
-  domain: DomainType;
   title: string;
   description: string;
-  impact: {
-    metrics: Partial<CityMetrics>;
-    priority: number; // 0-1
-    timeframe: number; // days
-    cost: number; // currency
+  category: "environmental" | "social" | "cultural" | "infrastructure";
+  domain: DomainType;
+  targetDistrict: string;
+  stakeholders: string[];
+  estimatedImpact: {
+    overall: number;
+    environmental?: number;
+    social?: number;
+    cultural?: number;
+    economic?: number;
   };
-  requirements: {
-    resources: string[];
-    dependencies: string[]; // other proposal IDs
-    approvals: string[]; // department IDs
+  impact: {
+    metrics: Record<string, number>;
+    priority: number;
   };
   simulation: {
-    confidence: number; // 0-1
-    risks: string[];
-    alternatives: string[];
+    confidence: number;
+    results?: Record<string, any>;
+  };
+  requirements: {
+    dependencies: string[];
+    approvals: string[];
+    resources?: string[];
+  };
+  location?: {
+    coordinates: [number, number];
+    landmark?: string;
   };
   status:
     | "proposed"
     | "simulating"
     | "approved"
-    | "rejected"
     | "implementing"
-    | "completed";
+    | "rejected"
+    | "implemented"
+    | "failed";
+  timeline: {
+    proposed: number;
+    implemented?: number;
+    completed?: number;
+  };
+  resources: {
+    required: string[];
+    allocated: string[];
+  };
+  metrics?: {
+    success: number;
+    efficiency: number;
+    sustainability: number;
+  };
 }
 
 export interface CoordinationEvent {

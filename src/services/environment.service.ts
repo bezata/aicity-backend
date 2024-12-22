@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { VectorStoreService } from "./vector-store.service";
 import { DistrictService } from "./district.service";
 import { SmartInfrastructureService } from "./smart-infrastructure.service";
+import { AnalyticsService } from "./analytics.service";
 import {
   EnvironmentalAlert,
   EnvironmentalMetrics,
@@ -34,10 +35,57 @@ export class EnvironmentService extends EventEmitter {
   constructor(
     private vectorStore: VectorStoreService,
     private districtService: DistrictService,
-    private smartInfrastructure: SmartInfrastructureService
+    private smartInfrastructure: SmartInfrastructureService,
+    private analyticsService: AnalyticsService
   ) {
     super();
+    this.initializeService();
+  }
+
+  private initializeService() {
     this.initializeEnvironmentalMonitoring();
+
+    // Track environmental alerts
+    this.on("environmentalAlert", (alert) => {
+      this.analyticsService.trackInteraction(
+        { id: alert.districtId, type: "environment" } as any,
+        {
+          type: "alert",
+          content: alert.description,
+          sentiment: alert.severity > 0.7 ? 0.2 : 0.5,
+          topics: ["environment", alert.type, "alert"],
+        } as any
+      );
+    });
+
+    // Track air quality changes
+    this.on("airQualityChanged", (data) => {
+      this.analyticsService.trackInteraction(
+        { id: data.districtId, type: "environment" } as any,
+        {
+          type: "air_quality",
+          content: `Air quality index: ${data.aqi}`,
+          sentiment: data.aqi > 150 ? 0.3 : 0.8,
+          topics: ["environment", "air_quality", "health"],
+        } as any
+      );
+    });
+
+    // Track sustainability metrics
+    this.on("sustainabilityMetricsUpdated", (metrics) => {
+      this.analyticsService.trackInteraction(
+        { id: metrics.districtId, type: "environment" } as any,
+        {
+          type: "sustainability",
+          content: `Sustainability score: ${metrics.score}`,
+          sentiment: metrics.score,
+          topics: ["environment", "sustainability", "metrics"],
+        } as any
+      );
+
+      // Track overall environmental mood
+      this.analyticsService.trackMood(metrics.score);
+    });
   }
 
   private initializeEnvironmentalMonitoring() {

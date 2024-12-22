@@ -12,6 +12,10 @@ import { TransportService } from "./transport.service";
 import { SocialDynamicsService } from "./social-dynamics.service";
 import { EnvironmentalAlert } from "../types/environment.types";
 import { TransportRoute } from "../types/transport.types";
+import { AnalyticsService } from "./analytics.service";
+import { Agent } from "../types/agent.types";
+import { Message } from "../types/conversation.types";
+import { CityMemoryService } from "./city-memory.service";
 
 // Add these interfaces for type safety
 interface MetricsData {
@@ -27,6 +31,36 @@ interface EnvironmentalData {
 }
 
 export class CityCoordinatorService extends EventEmitter {
+  private readonly coordinatorAgent: Agent = {
+    id: "city-coordinator",
+    name: "City Coordinator",
+    personality: "Analytical and efficient",
+    systemPrompt: "Coordinate city operations and optimize resource allocation",
+    interests: ["city planning", "resource optimization", "coordination"],
+    preferredStyle: "formal",
+    memoryWindowSize: 100,
+    emotionalRange: {
+      min: 0.3,
+      max: 0.8,
+    },
+    traits: {
+      analyticalThinking: 0.9,
+      creativity: 0.6,
+      empathy: 0.7,
+      curiosity: 0.8,
+      enthusiasm: 0.7,
+      efficiency: 0.9,
+      reliability: 0.9,
+      longTermThinking: 0.9,
+      environmentalAwareness: 0.8,
+    },
+    metadata: {
+      role: "coordinator",
+      specialization: ["city planning", "resource management"],
+    },
+    isActive: true,
+  };
+
   private currentMetrics: CityMetrics;
   private activeProposals: Map<string, AgentProposal> = new Map();
   private implementationQueue: AgentProposal[] = [];
@@ -36,7 +70,9 @@ export class CityCoordinatorService extends EventEmitter {
     private departmentService: DepartmentService,
     private environmentService: EnvironmentService,
     private transportService: TransportService,
-    private socialDynamicsService: SocialDynamicsService
+    private socialDynamicsService: SocialDynamicsService,
+    private analyticsService: AnalyticsService,
+    private cityMemoryService: CityMemoryService
   ) {
     super();
     this.currentMetrics = {
@@ -76,6 +112,13 @@ export class CityCoordinatorService extends EventEmitter {
     // Initialize city metrics
     this.currentMetrics = await this.gatherCityMetrics();
 
+    // Track initial metrics
+    this.trackAnalytics("metrics_initialization", {
+      content: "Initial city metrics gathered",
+      topics: ["metrics", "initialization"],
+      sentiment: this.calculateOverallMetricsSentiment(this.currentMetrics),
+    });
+
     // Start coordination cycles
     setInterval(() => this.updateCityMetrics(), 1000 * 60 * 30); // Every 30 minutes
     setInterval(() => this.evaluateProposals(), 1000 * 60 * 60); // Every hour
@@ -96,20 +139,102 @@ export class CityCoordinatorService extends EventEmitter {
     );
   }
 
-  async submitProposal(
-    proposal: Omit<AgentProposal, "id" | "status">
-  ): Promise<AgentProposal> {
-    const newProposal: AgentProposal = {
+  private async evaluateProposalWithHistoricalContext(
+    proposal: AgentProposal
+  ): Promise<{
+    score: number;
+    historicalInsights: string[];
+  }> {
+    // Search for relevant historical memories
+    const memories = await this.cityMemoryService.searchMemories(
+      `${proposal.title} ${proposal.description}`,
+      {
+        minSignificance: 0.7,
+        type:
+          proposal.category === "environmental"
+            ? "environmental"
+            : proposal.category === "social"
+            ? "social"
+            : "cultural",
+      }
+    );
+
+    const historicalInsights: string[] = [];
+    let score = proposal.estimatedImpact.overall;
+
+    // Analyze historical patterns
+    for (const memory of memories) {
+      if (memory.type === proposal.category) {
+        // Adjust score based on historical success/failure patterns
+        score *= memory.emotionalImpact > 0.7 ? 1.1 : 0.9;
+        historicalInsights.push(
+          `Historical precedent: ${memory.description} (Impact: ${memory.emotionalImpact})`
+        );
+      }
+    }
+
+    // Track the analysis
+    this.analyticsService.trackInteraction(this.coordinatorAgent, {
       id: crypto.randomUUID(),
-      ...proposal,
-      status: "proposed",
+      agentId: this.coordinatorAgent.id,
+      content: `Evaluated proposal ${proposal.id} with historical context`,
+      timestamp: Date.now(),
+      role: "assistant",
+      sentiment: score > proposal.estimatedImpact.overall ? 0.8 : 0.4,
+      topics: ["proposal", "evaluation", "historical-analysis"],
+    });
+
+    return { score, historicalInsights };
+  }
+
+  private async storeProposalOutcome(
+    proposal: AgentProposal,
+    success: boolean
+  ): Promise<void> {
+    // Store the outcome as a memory for future reference
+    await this.cityMemoryService.storeCollectiveMemory({
+      type:
+        proposal.category === "environmental"
+          ? "environmental"
+          : proposal.category === "social"
+          ? "social"
+          : "cultural",
+      description: `Proposal: ${proposal.title} - ${
+        success ? "Succeeded" : "Failed"
+      }`,
+      districtId: proposal.targetDistrict,
+      timestamp: Date.now(),
+      emotionalImpact: success ? 0.8 : 0.3,
+      participants: proposal.stakeholders,
+      culturalSignificance: proposal.estimatedImpact.cultural || 0.5,
+      tags: ["proposal", proposal.category, success ? "success" : "failure"],
+      location: proposal.location,
+    });
+  }
+
+  async submitProposal(proposal: AgentProposal): Promise<{
+    accepted: boolean;
+    score: number;
+    insights: string[];
+  }> {
+    // Evaluate proposal with historical context
+    const { score, historicalInsights } =
+      await this.evaluateProposalWithHistoricalContext(proposal);
+
+    const accepted = score >= 0.7;
+    if (accepted) {
+      this.activeProposals.set(proposal.id, proposal);
+      this.implementationQueue.push(proposal);
+    }
+
+    // Store the decision outcome
+    await this.storeProposalOutcome(proposal, accepted);
+
+    return {
+      accepted,
+      score,
+      insights: historicalInsights,
     };
-
-    await this.validateProposal(newProposal);
-    await this.simulateProposal(newProposal);
-    this.activeProposals.set(newProposal.id, newProposal);
-
-    return newProposal;
   }
 
   private async validateProposal(proposal: AgentProposal) {
@@ -134,6 +259,13 @@ export class CityCoordinatorService extends EventEmitter {
   private async simulateProposal(proposal: AgentProposal) {
     proposal.status = "simulating";
 
+    // Track simulation start
+    this.trackAnalytics("proposal_simulation", {
+      content: `Simulating proposal: ${proposal.title}`,
+      topics: [proposal.domain, "simulation"],
+      sentiment: 0.5,
+    });
+
     // Store simulation in vector DB with proper typing
     await this.vectorStore.upsert({
       id: `proposal-sim-${proposal.id}`,
@@ -156,6 +288,13 @@ export class CityCoordinatorService extends EventEmitter {
     } else {
       proposal.status = "rejected";
     }
+
+    // Track simulation result
+    this.trackAnalytics("simulation_result", {
+      content: `Simulation completed with confidence: ${proposal.simulation.confidence}`,
+      topics: [proposal.domain, "simulation", proposal.status],
+      sentiment: proposal.status === "approved" ? 0.8 : 0.3,
+    });
 
     this.emit("proposalSimulated", { proposal });
   }
@@ -216,6 +355,13 @@ export class CityCoordinatorService extends EventEmitter {
   }
 
   private async implementProposal(proposal: AgentProposal) {
+    // Track implementation start
+    this.trackAnalytics("proposal_implementation", {
+      content: `Starting implementation of proposal: ${proposal.title}`,
+      topics: [proposal.domain, "implementation"],
+      sentiment: 0.7,
+    });
+
     // Notify relevant departments
     for (const deptId of proposal.requirements.approvals) {
       await this.departmentService.addActivity(deptId, {
@@ -240,6 +386,11 @@ export class CityCoordinatorService extends EventEmitter {
         requirements: proposal.requirements,
       },
     };
+
+    // Track implementation completion
+    this.analyticsService.trackMood(
+      this.calculateProposalImpactSentiment(proposal)
+    );
 
     await this.recordEvent(event);
   }
@@ -313,7 +464,19 @@ export class CityCoordinatorService extends EventEmitter {
   }
 
   private async updateCityMetrics() {
+    const previousMetrics = { ...this.currentMetrics };
     this.currentMetrics = await this.gatherCityMetrics();
+
+    // Track metrics changes
+    this.trackAnalytics("metrics_update", {
+      content: "City metrics updated",
+      topics: ["metrics", "update"],
+      sentiment: this.calculateMetricsChangeSentiment(
+        previousMetrics,
+        this.currentMetrics
+      ),
+    });
+
     this.emit("metricsUpdated", this.currentMetrics);
   }
 
@@ -449,5 +612,60 @@ export class CityCoordinatorService extends EventEmitter {
         0
       ) / waterAlerts.length
     );
+  }
+
+  // Helper methods for analytics
+  private calculateOverallMetricsSentiment(metrics: CityMetrics): number {
+    const values = [
+      ...Object.values(metrics.sustainability),
+      ...Object.values(metrics.economy),
+      ...Object.values(metrics.social),
+      ...Object.values(metrics.infrastructure),
+    ];
+    return values.reduce((acc, val) => acc + val, 0) / values.length;
+  }
+
+  private calculateProposalImpactSentiment(proposal: AgentProposal): number {
+    return (
+      proposal.simulation.confidence * 0.4 +
+      proposal.impact.priority * 0.3 +
+      this.calculateMetricImpactSentiment(proposal.impact.metrics) * 0.3
+    );
+  }
+
+  private calculateMetricImpactSentiment(metrics: any): number {
+    const values = Object.values(metrics).filter(
+      (val): val is number => typeof val === "number"
+    );
+    return values.length > 0
+      ? values.reduce((acc, val) => acc + val, 0) / values.length
+      : 0.5;
+  }
+
+  private calculateMetricsChangeSentiment(
+    previous: CityMetrics,
+    current: CityMetrics
+  ): number {
+    const prevSentiment = this.calculateOverallMetricsSentiment(previous);
+    const currentSentiment = this.calculateOverallMetricsSentiment(current);
+    return 0.5 + (currentSentiment - prevSentiment);
+  }
+
+  // Helper method for analytics tracking
+  private trackAnalytics(eventType: string, messageData: Partial<Message>) {
+    const message: Message = {
+      id: crypto.randomUUID(),
+      agentId: this.coordinatorAgent.id,
+      role: "assistant",
+      timestamp: Date.now(),
+      content: messageData.content || "",
+      sentiment: messageData.sentiment,
+      topics: messageData.topics,
+    };
+    this.analyticsService.trackInteraction(this.coordinatorAgent, message);
+  }
+
+  async getActiveProposals(): Promise<AgentProposal[]> {
+    return Array.from(this.activeProposals.values());
   }
 }

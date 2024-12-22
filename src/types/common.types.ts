@@ -261,6 +261,36 @@ export const styleCharacteristics: Record<
     emotionalExpression: 0.7,
     pace: 0.9,
   },
+  wise: {
+    formality: 0.7,
+    technicalDepth: 0.6,
+    emotionalExpression: 0.6,
+    pace: 0.4,
+  },
+  compassionate: {
+    formality: 0.4,
+    technicalDepth: 0.3,
+    emotionalExpression: 0.9,
+    pace: 0.5,
+  },
+  mindful: {
+    formality: 0.5,
+    technicalDepth: 0.4,
+    emotionalExpression: 0.8,
+    pace: 0.4,
+  },
+  traditional: {
+    formality: 0.8,
+    technicalDepth: 0.5,
+    emotionalExpression: 0.4,
+    pace: 0.4,
+  },
+  organized: {
+    formality: 0.7,
+    technicalDepth: 0.6,
+    emotionalExpression: 0.3,
+    pace: 0.6,
+  },
 };
 
 export const getStyleCharacteristics = (

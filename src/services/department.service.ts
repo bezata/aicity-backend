@@ -12,6 +12,8 @@ import {
 } from "../types/department-agent.types";
 import { VectorStoreService } from "./vector-store.service";
 import { TogetherService } from "./together.service";
+import { AnalyticsService } from "./analytics.service";
+import { MetricsService } from "./metrics.service";
 
 export interface DepartmentActivity {
   type: string;
@@ -26,7 +28,9 @@ export class DepartmentService extends EventEmitter {
 
   constructor(
     private vectorStore: VectorStoreService,
-    private togetherService: TogetherService
+    private togetherService: TogetherService,
+    private analyticsService: AnalyticsService,
+    private metricsService: MetricsService
   ) {
     super();
     this.initializeHealthMonitoring();
@@ -38,6 +42,14 @@ export class DepartmentService extends EventEmitter {
     this.healthUpdateInterval = setInterval(() => {
       this.updateAgentHealth();
     }, 30 * 60 * 1000);
+
+    this.analyticsService.trackEvent(
+      "department_health_monitoring_initialized",
+      {
+        timestamp: Date.now(),
+        updateInterval: "30m",
+      }
+    );
   }
 
   private async updateAgentHealth() {
@@ -51,7 +63,13 @@ export class DepartmentService extends EventEmitter {
             department.budget.total
           : 0;
 
+      let updatedAgentsCount = 0;
+      let stressedAgentsCount = 0;
+
       for (const agent of agents) {
+        // Track previous status for analytics
+        const previousStatus = agent.health.status;
+
         // Decrease health and mood over time
         agent.health.energy = Math.max(0, agent.health.energy - 0.1);
         agent.health.motivation = Math.max(0, agent.health.motivation - 0.05);
@@ -63,6 +81,7 @@ export class DepartmentService extends EventEmitter {
           agent.health.mental = Math.max(0, agent.health.mental - 0.2);
           agent.mood.stress = Math.min(1, agent.mood.stress + 0.2);
           agent.health.status = "stressed";
+          stressedAgentsCount++;
         }
 
         // Update overall status
@@ -75,10 +94,33 @@ export class DepartmentService extends EventEmitter {
           // Within 24 hours
           this.applyDonationRecovery(agent);
         }
+
+        // Track status changes
+        if (previousStatus !== agent.health.status) {
+          this.analyticsService.trackEvent("agent_status_changed", {
+            departmentId: deptId,
+            agentId: agent.id,
+            previousStatus,
+            newStatus: agent.health.status,
+            timestamp: Date.now(),
+          });
+        }
+
+        updatedAgentsCount++;
       }
 
       this.departmentAgents.set(deptId, agents);
       this.emit("agentsHealthUpdated", { departmentId: deptId, agents });
+
+      // Track department health metrics
+      this.analyticsService.trackEvent("department_health_updated", {
+        departmentId: deptId,
+        totalAgents: agents.length,
+        updatedAgents: updatedAgentsCount,
+        stressedAgents: stressedAgentsCount,
+        budgetHealth,
+        timestamp: Date.now(),
+      });
     }
   }
 
@@ -137,6 +179,12 @@ export class DepartmentService extends EventEmitter {
         departmentId: department.id,
         departmentType: department.type,
       },
+    });
+
+    this.analyticsService.trackEvent("department_created", {
+      departmentId: department.id,
+      type: department.type,
+      timestamp: Date.now(),
     });
 
     return department;
@@ -200,6 +248,13 @@ export class DepartmentService extends EventEmitter {
         agentId,
         timestamp: Date.now(),
       },
+    });
+
+    this.analyticsService.trackEvent("agent_assigned", {
+      departmentId,
+      agentId,
+      role: newAgent.role,
+      timestamp: Date.now(),
     });
 
     this.emit("agentAssigned", { departmentId, agent: newAgent });
@@ -337,7 +392,51 @@ export class DepartmentService extends EventEmitter {
     departmentId: string,
     activity: DepartmentActivity
   ): Promise<void> {
-    // Implementation
+    const department = this.departments.get(departmentId);
+    if (!department) throw new Error("Department not found");
+
+    await this.vectorStore.upsert({
+      id: `department-activity-${departmentId}-${activity.timestamp}`,
+      values: await this.vectorStore.createEmbedding(
+        `Department ${department.name} activity: ${activity.type}`
+      ),
+      metadata: {
+        type: "district",
+        departmentId,
+        activityType: activity.type,
+        timestamp: activity.timestamp,
+        details: JSON.stringify(activity),
+      },
+    });
+
+    // Update department metrics based on activity
+    if (activity.type === "emergency_response") {
+      department.metrics.responseTime = Math.min(
+        1,
+        department.metrics.responseTime * 1.1
+      );
+    } else if (activity.type === "successful_operation") {
+      department.metrics.successRate = Math.min(
+        1,
+        department.metrics.successRate * 1.05
+      );
+    } else if (activity.type === "collaboration") {
+      department.metrics.collaborationScore = Math.min(
+        1,
+        department.metrics.collaborationScore * 1.05
+      );
+    } else if (activity.type === "training") {
+      const agents = await this.getDepartmentAgents(departmentId);
+      for (const agent of agents) {
+        agent.health.motivation = Math.min(1, agent.health.motivation + 0.1);
+        agent.health.energy = Math.min(1, agent.health.energy + 0.05);
+        agent.mood.enthusiasm = Math.min(1, agent.mood.enthusiasm + 0.1);
+      }
+      this.departmentAgents.set(departmentId, agents);
+    }
+
+    this.departments.set(departmentId, department);
+    this.emit("activityAdded", { departmentId, activity });
   }
 
   async getDepartmentAgents(departmentId: string): Promise<DepartmentAgent[]> {
@@ -360,8 +459,21 @@ export class DepartmentService extends EventEmitter {
     const department = this.departments.get(departmentId);
     if (!department) throw new Error("Department not found");
 
+    // Track initial state for analytics
+    const initialHealth = { ...agent.health };
+    const initialMood = { ...agent.mood };
+
     // Check if department has enough budget
     if (department.budget.total - department.budget.spent < treatment.cost) {
+      this.analyticsService.trackEvent("treatment_failed", {
+        departmentId,
+        agentId,
+        reason: "insufficient_budget",
+        treatment: treatment.treatment,
+        cost: treatment.cost,
+        availableBudget: department.budget.total - department.budget.spent,
+        timestamp: Date.now(),
+      });
       throw new Error("Insufficient department budget for treatment");
     }
 
@@ -405,6 +517,26 @@ export class DepartmentService extends EventEmitter {
       agent.health.status = "recovering";
     }
 
+    // Track treatment effectiveness
+    this.analyticsService.trackEvent("treatment_applied", {
+      departmentId,
+      agentId,
+      treatment: treatment.treatment,
+      cost: treatment.cost,
+      healthImprovement: {
+        physical: agent.health.physical - initialHealth.physical,
+        mental: agent.health.mental - initialHealth.mental,
+        energy: agent.health.energy - initialHealth.energy,
+        motivation: agent.health.motivation - initialHealth.motivation,
+      },
+      moodImprovement: {
+        stress: initialMood.stress - agent.mood.stress,
+        happiness: agent.mood.happiness - initialMood.happiness,
+        satisfaction: agent.mood.satisfaction - initialMood.satisfaction,
+      },
+      timestamp: Date.now(),
+    });
+
     // Store healing event
     await this.vectorStore.upsert({
       id: `agent-healing-${agentId}-${Date.now()}`,
@@ -425,110 +557,86 @@ export class DepartmentService extends EventEmitter {
     return agent;
   }
 
-  private async updateDepartmentPerformance(departmentId: string) {
+  private async updateDepartmentMetrics(departmentId: string) {
     const department = this.departments.get(departmentId);
     if (!department) return;
 
     const agents = await this.getDepartmentAgents(departmentId);
-    if (agents.length === 0) return;
+    const avgHealth =
+      agents.reduce((sum, agent) => {
+        const health =
+          (agent.health.physical +
+            agent.health.mental +
+            agent.health.energy +
+            agent.health.motivation) /
+          4;
+        return sum + health;
+      }, 0) / agents.length;
 
-    interface HealthStats {
-      physical: number;
-      mental: number;
-      energy: number;
-      motivation: number;
-      happiness: number;
-      satisfaction: number;
-      stress: number;
-    }
+    const avgMood =
+      agents.reduce((sum, agent) => {
+        const mood =
+          (agent.mood.happiness +
+            agent.mood.satisfaction +
+            agent.mood.enthusiasm -
+            agent.mood.stress) /
+          4;
+        return sum + mood;
+      }, 0) / agents.length;
 
-    // Calculate average agent health and mood
-    const healthStats = agents.reduce<HealthStats>(
-      (acc, agent) => {
-        acc.physical += agent.health.physical;
-        acc.mental += agent.health.mental;
-        acc.energy += agent.health.energy;
-        acc.motivation += agent.health.motivation;
-        acc.happiness += agent.mood.happiness;
-        acc.satisfaction += agent.mood.satisfaction;
-        acc.stress += agent.mood.stress;
-        return acc;
+    await this.metricsService.updateMetrics({
+      social: {
+        healthcareAccessScore: avgHealth,
+        educationQualityIndex: 0.8, // Default value
+        culturalEngagement: 3.5, // Default value
+        civicParticipation: 0.65, // Default value
+        communityWellbeing: avgMood,
       },
-      {
-        physical: 0,
-        mental: 0,
-        energy: 0,
-        motivation: 0,
-        happiness: 0,
-        satisfaction: 0,
-        stress: 0,
-      }
-    );
-
-    const agentCount = agents.length;
-    (Object.keys(healthStats) as Array<keyof HealthStats>).forEach((key) => {
-      healthStats[key] /= agentCount;
-    });
-
-    // Calculate budget health
-    const budgetHealth =
-      department.budget.total > 0
-        ? (department.budget.total - department.budget.spent) /
-          department.budget.total
-        : 0;
-
-    // Update department metrics based on agent health and budget
-    department.metrics = {
-      efficiency:
-        (healthStats.energy * 0.3 +
-          healthStats.motivation * 0.3 +
-          budgetHealth * 0.4) *
-        (1 - healthStats.stress * 0.5),
-      responseTime:
-        (healthStats.physical * 0.4 + healthStats.energy * 0.6) *
-        (1 - healthStats.stress * 0.3),
-      successRate:
-        (healthStats.mental * 0.3 +
-          healthStats.motivation * 0.4 +
-          budgetHealth * 0.3) *
-        (1 - healthStats.stress * 0.4),
-      collaborationScore:
-        (healthStats.happiness * 0.4 + healthStats.satisfaction * 0.6) *
-        (1 - healthStats.stress * 0.2),
-    };
-
-    // Store performance update in vector store
-    await this.vectorStore.upsert({
-      id: `department-performance-${departmentId}-${Date.now()}`,
-      values: await this.vectorStore.createEmbedding(
-        `Department ${department.name} performance update: efficiency ${department.metrics.efficiency}, response time ${department.metrics.responseTime}, success rate ${department.metrics.successRate}, collaboration ${department.metrics.collaborationScore}`
-      ),
-      metadata: {
-        type: "district",
-        departmentId,
-        metrics: JSON.stringify(department.metrics),
-        agentHealth: JSON.stringify(healthStats),
-        budgetHealth,
-        timestamp: Date.now(),
+      infrastructure: {
+        trafficCongestion: 0.4, // Default value
+        publicTransitReliability: 0.85, // Default value
+        wasteRecyclingRate: 0.6, // Default value
+        infrastructureHealth: department.metrics.efficiency,
+        smartGridEfficiency: 0.8, // Default value
       },
-    });
-
-    this.departments.set(departmentId, department);
-    this.emit("departmentPerformanceUpdated", {
-      departmentId,
-      metrics: department.metrics,
-      healthStats,
-      budgetHealth,
+      safety: {
+        crimeRate: 2.1, // Default value
+        emergencyResponseTime: department.metrics.responseTime,
+        publicTrustIndex: department.metrics.collaborationScore,
+        disasterReadiness: 0.8, // Default value
+      },
     });
   }
 
   private initializePerformanceMonitoring() {
-    // Update department performance every hour
-    setInterval(() => {
-      for (const departmentId of this.departments.keys()) {
-        this.updateDepartmentPerformance(departmentId);
+    // Update performance metrics hourly
+    setInterval(async () => {
+      for (const [departmentId, department] of this.departments) {
+        const agents = await this.getDepartmentAgents(departmentId);
+
+        // Update department metrics
+        department.metrics.responseTime =
+          agents.reduce(
+            (sum, agent) => sum + agent.performance.responseTime,
+            0
+          ) / agents.length;
+        department.metrics.successRate =
+          agents.reduce(
+            (sum, agent) => sum + agent.performance.resolutionRate,
+            0
+          ) / agents.length;
+        department.metrics.collaborationScore =
+          agents.reduce(
+            (sum, agent) => sum + agent.performance.citizenSatisfaction,
+            0
+          ) / agents.length;
+        department.metrics.efficiency =
+          agents.reduce((sum, agent) => sum + agent.performance.efficiency, 0) /
+          agents.length;
+
+        await this.updateDepartmentMetrics(departmentId);
       }
-    }, 60 * 60 * 1000);
+    }, 60 * 60 * 1000); // Every hour
   }
 
   async getDepartment(id: string): Promise<Department | undefined> {

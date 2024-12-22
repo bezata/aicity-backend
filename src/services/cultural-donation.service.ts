@@ -2,85 +2,17 @@ import { EventEmitter } from "events";
 import { CultureService } from "./culture.service";
 import { DevelopmentService } from "./development.service";
 import { VectorStoreService } from "./vector-store.service";
+import {
+  CulturalProject,
+  DonationCampaign,
+  CulturalDonation,
+  CulturalDonationService as ICulturalDonationService,
+} from "../types/cultural-donation.types";
 
-interface CulturalProject {
-  id: string;
-  type:
-    | "heritage"
-    | "venue"
-    | "public_art"
-    | "community_space"
-    | "religious_building"
-    | "interfaith_center";
-  title: string;
-  description: string;
-  districtId: string;
-  location: [number, number];
-  targetAmount: number;
-  donationsReceived: number;
-  expectedImpact: {
-    culturalPreservation: number;
-    communityEngagement: number;
-    touristAttraction: number;
-    spiritualSignificance?: number;
-    interfaithHarmony?: number;
-  };
-  status: "active" | "funded" | "in_progress" | "completed";
-  donors: Array<{
-    id: string;
-    amount: number;
-    timestamp: number;
-    anonymous?: boolean;
-    message?: string;
-  }>;
-  religiousAffiliation?: {
-    tradition: string;
-    leaderApproval?: string;
-    communitySupport: number;
-  };
-  constructionPhases?: Array<{
-    name: string;
-    description: string;
-    cost: number;
-    status: "planned" | "in_progress" | "completed";
-    startDate?: number;
-    completionDate?: number;
-  }>;
-}
-
-interface CulturalDonation {
-  donorId: string;
-  projectId: string;
-  amount: number;
-  message?: string;
-  anonymous?: boolean;
-  recurringInterval?: "monthly" | "quarterly" | "yearly";
-  earmarkForPhase?: string;
-}
-
-interface DonationCampaign {
-  id: string;
-  projectId: string;
-  title: string;
-  description: string;
-  startDate: number;
-  endDate: number;
-  targetAmount: number;
-  currentAmount: number;
-  status: "planned" | "active" | "completed" | "extended";
-  specialEvents: Array<{
-    name: string;
-    date: number;
-    type: "fundraiser" | "ceremony" | "community_gathering";
-  }>;
-  rewards: Array<{
-    level: number;
-    description: string;
-    recognition: string;
-  }>;
-}
-
-export class CulturalDonationService extends EventEmitter {
+export class CulturalDonationService
+  extends EventEmitter
+  implements ICulturalDonationService
+{
   private donationProjects: Map<string, CulturalProject> = new Map();
   private campaigns: Map<string, DonationCampaign> = new Map();
   private recurringDonations: Map<string, CulturalDonation> = new Map();
@@ -94,23 +26,59 @@ export class CulturalDonationService extends EventEmitter {
     this.initializeRecurringDonations();
   }
 
-  private initializeRecurringDonations() {
-    setInterval(() => this.processRecurringDonations(), 24 * 60 * 60 * 1000); // Daily check
+  async getProjects(filters?: {
+    type?: string;
+    status?: string;
+    district?: string;
+  }): Promise<CulturalProject[]> {
+    const projects = Array.from(this.donationProjects.values());
+    if (!filters) return projects;
+
+    return projects.filter(
+      (project) =>
+        (!filters.type || project.type === filters.type) &&
+        (!filters.status || project.status === filters.status) &&
+        (!filters.district || project.districtId === filters.district)
+    );
   }
 
-  async createDonationProject(project: Omit<CulturalProject, "id">) {
+  async getProject(projectId: string): Promise<CulturalProject | undefined> {
+    return this.donationProjects.get(projectId);
+  }
+
+  async getCampaigns(projectId: string): Promise<DonationCampaign[]> {
+    return Array.from(this.campaigns.values()).filter(
+      (campaign) => campaign.projectId === projectId
+    );
+  }
+
+  async getCampaign(campaignId: string): Promise<DonationCampaign | undefined> {
+    return this.campaigns.get(campaignId);
+  }
+
+  async createDonationProject(
+    project: Omit<
+      CulturalProject,
+      | "id"
+      | "status"
+      | "raisedAmount"
+      | "donorCount"
+      | "createdAt"
+      | "updatedAt"
+    >
+  ): Promise<CulturalProject> {
+    const now = Date.now();
     const newProject: CulturalProject = {
-      id: crypto.randomUUID(),
       ...project,
-      status: "active",
-      donationsReceived: 0,
-      donors: [],
-      constructionPhases: this.generateConstructionPhases(
-        project.type,
-        project.targetAmount
-      ),
+      id: `proj_${now}_${Math.random().toString(36).substr(2, 9)}`,
+      status: "pending",
+      raisedAmount: 0,
+      donorCount: 0,
+      createdAt: now,
+      updatedAt: now,
     };
 
+    // Store project in vector database for semantic search
     await this.vectorStore.upsert({
       id: `cultural-project-${newProject.id}`,
       values: await this.vectorStore.createEmbedding(
@@ -129,6 +97,7 @@ export class CulturalDonationService extends EventEmitter {
     });
 
     this.donationProjects.set(newProject.id, newProject);
+    this.emit("project:created", newProject);
     return newProject;
   }
 
@@ -136,134 +105,129 @@ export class CulturalDonationService extends EventEmitter {
     projectId: string,
     campaign: Omit<
       DonationCampaign,
-      "id" | "projectId" | "currentAmount" | "status"
+      | "id"
+      | "projectId"
+      | "status"
+      | "raisedAmount"
+      | "donorCount"
+      | "createdAt"
+      | "updatedAt"
     >
-  ) {
-    const project = this.donationProjects.get(projectId);
-    if (!project) throw new Error("Project not found");
+  ): Promise<DonationCampaign> {
+    const project = await this.getProject(projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
 
+    const now = Date.now();
     const newCampaign: DonationCampaign = {
-      id: crypto.randomUUID(),
-      projectId,
-      currentAmount: 0,
-      status: "planned",
       ...campaign,
+      id: `camp_${now}_${Math.random().toString(36).substr(2, 9)}`,
+      projectId,
+      status: "scheduled",
+      raisedAmount: 0,
+      donorCount: 0,
+      createdAt: now,
+      updatedAt: now,
     };
 
     this.campaigns.set(newCampaign.id, newCampaign);
-    this.emit("campaignCreated", { campaign: newCampaign, project });
+    this.emit("campaign:created", { campaign: newCampaign, project });
     return newCampaign;
   }
 
-  async processDonation(donation: CulturalDonation) {
-    const project = this.donationProjects.get(donation.projectId);
-    if (!project) throw new Error("Project not found");
-
-    if (donation.recurringInterval) {
-      this.recurringDonations.set(
-        `${donation.donorId}-${donation.projectId}`,
-        donation
-      );
+  async processDonation(
+    donation: Omit<
+      CulturalDonation,
+      "id" | "status" | "processedAt" | "createdAt"
+    >
+  ): Promise<void> {
+    const project = await this.getProject(donation.projectId);
+    if (!project) {
+      throw new Error("Project not found");
     }
 
-    project.donationsReceived += donation.amount;
-    project.donors.push({
-      id: donation.donorId,
-      amount: donation.amount,
-      timestamp: Date.now(),
-      anonymous: donation.anonymous,
-      message: donation.message,
-    });
+    const now = Date.now();
+    const newDonation: CulturalDonation = {
+      ...donation,
+      id: `don_${now}_${Math.random().toString(36).substr(2, 9)}`,
+      status: "pending",
+      createdAt: now,
+    };
 
-    // Update campaign if exists
-    const campaign = Array.from(this.campaigns.values()).find(
-      (c) => c.projectId === project.id && c.status === "active"
-    );
-    if (campaign) {
-      campaign.currentAmount += donation.amount;
-      if (campaign.currentAmount >= campaign.targetAmount) {
-        campaign.status = "completed";
-        this.emit("campaignCompleted", { campaign, project });
-      }
-    }
+    try {
+      // Process the donation
+      project.raisedAmount += donation.amount;
+      project.donorCount += 1;
+      project.updatedAt = now;
 
-    // Update construction phases
-    if (donation.earmarkForPhase && project.constructionPhases) {
-      const phase = project.constructionPhases.find(
-        (p) => p.name === donation.earmarkForPhase
-      );
-      if (
-        phase &&
-        phase.status === "planned" &&
-        donation.amount >= phase.cost
-      ) {
-        phase.status = "in_progress";
-        phase.startDate = Date.now();
-      }
-    }
-
-    if (project.donationsReceived >= project.targetAmount) {
-      await this.initiateProjectImplementation(project);
-    }
-
-    this.donationProjects.set(project.id, project);
-    this.emit("donationProcessed", { donation, project });
-  }
-
-  private async processRecurringDonations() {
-    for (const [key, donation] of this.recurringDonations) {
-      const [donorId, projectId] = key.split("-");
-      const project = this.donationProjects.get(projectId);
-      if (!project || project.status !== "active") {
-        this.recurringDonations.delete(key);
-        continue;
+      if (donation.campaignId) {
+        const campaign = await this.getCampaign(donation.campaignId);
+        if (campaign) {
+          campaign.raisedAmount += donation.amount;
+          campaign.donorCount += 1;
+          campaign.updatedAt = now;
+        }
       }
 
-      await this.processDonation({
-        ...donation,
-        donorId,
-        projectId,
-      });
+      if (donation.recurringInterval) {
+        this.recurringDonations.set(newDonation.id, {
+          ...newDonation,
+          status: "processed",
+          processedAt: now,
+        });
+      }
+
+      // Check if project target is reached
+      if (project.raisedAmount >= project.targetAmount) {
+        await this.initiateProjectImplementation(project);
+      }
+
+      this.donationProjects.set(project.id, project);
+      this.emit("donation:processed", { donation: newDonation, project });
+    } catch (error) {
+      this.emit("donation:failed", { donation: newDonation, error });
+      throw error;
     }
   }
 
-  private generateConstructionPhases(
-    type: CulturalProject["type"],
-    totalAmount: number
-  ): CulturalProject["constructionPhases"] {
-    if (
-      !type.includes("religious_building") &&
-      !type.includes("interfaith_center")
-    ) {
-      return undefined;
-    }
+  private initializeRecurringDonations() {
+    setInterval(() => {
+      const now = Date.now();
+      for (const [id, donation] of this.recurringDonations) {
+        if (this.shouldProcessRecurring(donation, now)) {
+          const {
+            id: _,
+            status: __,
+            processedAt: ___,
+            createdAt: ____,
+            ...donationData
+          } = donation;
+          this.processDonation(donationData);
+        }
+      }
+    }, 24 * 60 * 60 * 1000); // Check daily
+  }
 
-    return [
-      {
-        name: "foundation",
-        description: "Laying the foundation and basic structure",
-        cost: totalAmount * 0.3,
-        status: "planned",
-      },
-      {
-        name: "mainStructure",
-        description: "Building the main structure and walls",
-        cost: totalAmount * 0.4,
-        status: "planned",
-      },
-      {
-        name: "interiorAndFinishing",
-        description: "Interior work and finishing touches",
-        cost: totalAmount * 0.2,
-        status: "planned",
-      },
-      {
-        name: "sacredSpaces",
-        description: "Creating and decorating sacred spaces",
-        cost: totalAmount * 0.1,
-        status: "planned",
-      },
-    ];
+  private shouldProcessRecurring(
+    donation: CulturalDonation,
+    now: number
+  ): boolean {
+    if (!donation.processedAt) return false;
+
+    const daysSinceLastProcess =
+      (now - donation.processedAt) / (24 * 60 * 60 * 1000);
+
+    switch (donation.recurringInterval) {
+      case "monthly":
+        return daysSinceLastProcess >= 30;
+      case "quarterly":
+        return daysSinceLastProcess >= 90;
+      case "yearly":
+        return daysSinceLastProcess >= 365;
+      default:
+        return false;
+    }
   }
 
   private async initiateProjectImplementation(project: CulturalProject) {
@@ -294,10 +258,10 @@ export class CulturalDonationService extends EventEmitter {
         touristAttraction: project.expectedImpact.touristAttraction,
         religiousConsideration: project.religiousAffiliation ? 0.9 : undefined,
       },
-      budget: project.donationsReceived,
+      budget: project.raisedAmount,
     });
 
-    project.status = "in_progress";
-    this.emit("projectImplementationStarted", project);
+    project.status = "active";
+    this.emit("project:implementation:started", project);
   }
 }

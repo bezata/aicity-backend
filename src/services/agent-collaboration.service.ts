@@ -9,6 +9,7 @@ import type { WeatherState, CityMood } from "../types/city.types";
 import { Message } from "../types/conversation.types";
 import _ from "lodash";
 import { CulturalEvent } from "../types/culture.types";
+import { AnalyticsService } from "./analytics.service";
 
 type VectorMetadataType =
   | "conversation"
@@ -117,10 +118,54 @@ export class AgentCollaborationService extends EventEmitter {
   constructor(
     private togetherService: TogetherService,
     private vectorStore: VectorStoreService,
-    private cityService: CityService
+    private cityService: CityService,
+    private analyticsService: AnalyticsService
   ) {
     super();
+    this.initializeService();
+  }
+
+  private initializeService() {
     this.setupPeriodicMaintenance();
+
+    // Track collaboration sessions
+    this.on("collaborationStarted", (session) => {
+      this.analyticsService.trackInteraction(
+        { id: session.id, type: "collaboration" } as any,
+        {
+          type: "collaboration",
+          content: `Collaboration session started with ${session.participants.length} participants`,
+          sentiment: 0.7,
+          topics: ["collaboration", "session", "start"],
+        } as any
+      );
+    });
+
+    // Track collaboration outcomes
+    this.on("collaborationEnded", (session) => {
+      this.analyticsService.trackInteraction(
+        { id: session.id, type: "collaboration" } as any,
+        {
+          type: "collaboration",
+          content: `Collaboration session ended with consensus level: ${session.consensusLevel}`,
+          sentiment: session.consensusLevel,
+          topics: ["collaboration", "session", "end", "consensus"],
+        } as any
+      );
+    });
+
+    // Track significant decisions
+    this.on("decisionMade", (decision) => {
+      this.analyticsService.trackInteraction(
+        { id: decision.sessionId, type: "collaboration" } as any,
+        {
+          type: "decision",
+          content: decision.description,
+          sentiment: decision.confidence,
+          topics: ["decision", decision.category, "collaboration"],
+        } as any
+      );
+    });
   }
 
   private setupPeriodicMaintenance() {
@@ -848,8 +893,106 @@ Respond in a professional but conversational tone, addressing other agents by na
     messagesByAgent: Map<string, string[]>
   ): ConflictPoint[] {
     const conflicts: ConflictPoint[] = [];
-    // Implementation
+    const agents = Array.from(messagesByAgent.keys());
+
+    // Define conflict indicators
+    const disagreementPatterns = [
+      /disagree|oppose|reject|object|cannot accept/i,
+      /however|but|instead|rather|alternatively/i,
+      /not convinced|unconvinced|skeptical|doubtful/i,
+      /concerned about|worried about|issue with/i,
+    ];
+
+    // Extract statements following disagreement indicators
+    const agentPositions = new Map<string, Map<string, string>>();
+
+    agents.forEach((agentId) => {
+      const messages = messagesByAgent.get(agentId) || [];
+      messages.forEach((message) => {
+        // Split message into sentences
+        const sentences = message.split(/[.!?]+/).map((s) => s.trim());
+
+        sentences.forEach((sentence, index) => {
+          // Check if sentence contains disagreement
+          const hasDisagreement = disagreementPatterns.some((pattern) =>
+            pattern.test(sentence)
+          );
+
+          if (hasDisagreement && index < sentences.length - 1) {
+            // Get the topic from the disagreement sentence
+            const topic = this.extractTopicFromSentence(sentence);
+            if (!topic) return;
+
+            // Get the position from the next sentence
+            const position = sentences[index + 1];
+
+            // Store the agent's position on this topic
+            if (!agentPositions.has(topic)) {
+              agentPositions.set(topic, new Map());
+            }
+            agentPositions.get(topic)?.set(agentId, position);
+          }
+        });
+      });
+    });
+
+    // Create conflict points where multiple agents have different positions
+    agentPositions.forEach((positions, topic) => {
+      if (positions.size > 1) {
+        // Check if positions are actually conflicting
+        const uniquePositions = new Set(positions.values());
+        if (uniquePositions.size > 1) {
+          conflicts.push({
+            topic,
+            positions,
+          });
+        }
+      }
+    });
+
     return conflicts;
+  }
+
+  private extractTopicFromSentence(sentence: string): string | null {
+    // Common topic indicators in disagreements
+    const topicPatterns = [
+      {
+        pattern: /regarding|about|concerning|on the topic of|with respect to/i,
+        position: "after",
+      },
+      {
+        pattern: /the (proposed|suggested|planned|current|existing)/i,
+        position: "after",
+      },
+      { pattern: /disagree with the/i, position: "after" },
+      { pattern: /oppose the/i, position: "after" },
+      {
+        pattern:
+          /([\w\s]+) (is|are|would be|will be) (not|too|very|extremely)/i,
+        position: "capture",
+      },
+    ];
+
+    for (const { pattern, position } of topicPatterns) {
+      const match = sentence.match(pattern);
+      if (match) {
+        if (position === "after") {
+          const afterMatch = sentence
+            .substring(match.index! + match[0].length)
+            .trim();
+          const topic = afterMatch
+            .split(/[\s,.]/)
+            .slice(0, 3)
+            .join(" ")
+            .trim();
+          return topic || null;
+        } else if (position === "capture" && match[1]) {
+          return match[1].trim();
+        }
+      }
+    }
+
+    return null;
   }
 
   private async generateCompromiseProposals(disagreements: ConflictPoint[]) {
@@ -957,12 +1100,21 @@ Respond in a professional but conversational tone, addressing other agents by na
 
     // Domain-specific topic patterns
     const topicPatterns: Record<string, RegExp> = {
-      infrastructure: /infrastructure|building|construction|maintenance/i,
-      environment: /environmental|sustainability|green|pollution/i,
-      social: /community|social|public|citizens/i,
-      economic: /economic|financial|budget|cost/i,
-      emergency: /emergency|urgent|critical|immediate/i,
-      technology: /technology|digital|smart|system/i,
+      infrastructure:
+        /infrastructure|building|construction|maintenance|facility|road|bridge/i,
+      environment:
+        /environment|sustainability|green|pollution|climate|energy|waste/i,
+      social: /community|social|public|citizens|welfare|education|healthcare/i,
+      economic: /economic|financial|budget|cost|investment|funding|resources/i,
+      emergency: /emergency|urgent|critical|immediate|crisis|safety|risk/i,
+      technology: /technology|digital|smart|system|innovation|automation|data/i,
+      culture: /culture|heritage|tradition|art|festival|celebration|identity/i,
+      governance:
+        /policy|regulation|compliance|governance|management|decision|planning/i,
+      mobility:
+        /transport|traffic|mobility|commute|vehicle|pedestrian|accessibility/i,
+      security:
+        /security|protection|surveillance|safety|prevention|monitoring|guard/i,
     };
 
     Object.entries(topicPatterns).forEach(([topic, pattern]) => {
@@ -1267,8 +1419,55 @@ Please provide these details to continue the discussion.`;
     session: CollaborationSession
   ): Promise<string[]> {
     const content = session.messages.map((m) => m.content).join(" ");
-    // Implementation
-    return [];
+
+    // Define topic categories and their associated keywords
+    const topicPatterns: Record<string, RegExp> = {
+      infrastructure:
+        /infrastructure|building|construction|maintenance|facility|road|bridge/i,
+      environment:
+        /environment|sustainability|green|pollution|climate|energy|waste/i,
+      social: /community|social|public|citizens|welfare|education|healthcare/i,
+      economic: /economic|financial|budget|cost|investment|funding|resources/i,
+      emergency: /emergency|urgent|critical|immediate|crisis|safety|risk/i,
+      technology: /technology|digital|smart|system|innovation|automation|data/i,
+      culture: /culture|heritage|tradition|art|festival|celebration|identity/i,
+      governance:
+        /policy|regulation|compliance|governance|management|decision|planning/i,
+      mobility:
+        /transport|traffic|mobility|commute|vehicle|pedestrian|accessibility/i,
+      security:
+        /security|protection|surveillance|safety|prevention|monitoring|guard/i,
+    };
+
+    // Extract topics based on keyword matches
+    const topics = new Set<string>();
+    Object.entries(topicPatterns).forEach(([topic, pattern]) => {
+      if (pattern.test(content)) {
+        topics.add(topic);
+      }
+    });
+
+    // Add sentiment-based topics
+    const sentiments = await Promise.all(
+      session.messages.map((msg) => this.analyzeSentiment(msg.content))
+    );
+    const avgSentiment = _.mean(sentiments);
+
+    if (avgSentiment < 0.3) topics.add("concerns");
+    if (avgSentiment > 0.7) topics.add("opportunities");
+
+    // Add urgency-based topics
+    const hasUrgentTerms = /urgent|immediate|critical|emergency|asap/i.test(
+      content
+    );
+    if (hasUrgentTerms) topics.add("urgent");
+
+    // Add consensus-based topics
+    const consensusLevel = session.metrics.consensusLevel;
+    if (consensusLevel < 0.3) topics.add("disagreement");
+    if (consensusLevel > 0.7) topics.add("consensus");
+
+    return Array.from(topics);
   }
 
   async recordAgentInteraction(

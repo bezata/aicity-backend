@@ -207,13 +207,39 @@ interface DevelopmentProjectImpact {
 }
 
 // Update District type to include missing properties
-interface ExtendedDistrict extends District {
+interface ExtendedDistrict extends Omit<District, "population" | "area"> {
   agents?: Array<{
     id: string;
     status: string;
+    complexity?: number;
+    interactions?: any[];
+    collaborations?: any[];
+    knowledgeTransfers?: any[];
+    innovations?: any[];
+    adaptabilityScore?: number;
   }>;
   location: {
     coordinates: [number, number];
+  };
+  area?: number;
+  population?: number;
+  buildings?: Array<{
+    type: string;
+    id: string;
+  }>;
+  landUse?: Array<{
+    type: string;
+    id: string;
+  }>;
+  infrastructure?: {
+    computationalCapacity: number;
+    systems: Array<{
+      type: string;
+      metrics: {
+        efficiency: number;
+        utilization: number;
+      };
+    }>;
   };
 }
 
@@ -273,12 +299,21 @@ export class DevelopmentService extends EventEmitter {
     const districts = await this.districtService.getAllDistricts();
 
     for (const district of districts) {
+      const extendedDistrict = district as unknown as ExtendedDistrict;
       const vitals: DistrictVitals = {
-        aiPopulationDensity: await this.calculateAIPopulationDensity(district),
-        computationalLoad: await this.measureComputationalLoad(district),
-        networkUtilization: await this.assessNetworkUtilization(district),
-        eventFrequency: await this.trackEventFrequency(district),
-        communityEngagement: await this.measureCommunityEngagement(district),
+        aiPopulationDensity: await this.calculateAIPopulationDensity(
+          extendedDistrict
+        ),
+        computationalLoad: await this.measureComputationalLoad(
+          extendedDistrict
+        ),
+        networkUtilization: await this.assessNetworkUtilization(
+          extendedDistrict
+        ),
+        eventFrequency: await this.trackEventFrequency(extendedDistrict),
+        communityEngagement: await this.measureCommunityEngagement(
+          extendedDistrict
+        ),
       };
 
       this.districtVitals.set(district.id, vitals);
@@ -290,12 +325,19 @@ export class DevelopmentService extends EventEmitter {
     const districts = await this.districtService.getAllDistricts();
 
     for (const district of districts) {
+      const extendedDistrict = district as unknown as ExtendedDistrict;
       const metrics: EnvironmentalMetrics = {
-        carbonEmissions: await this.measureCarbonEmissions(district),
-        energyEfficiency: await this.calculateEnergyEfficiency(district),
-        wasteManagement: await this.assessWasteManagement(district),
-        resourceUtilization: await this.trackResourceUtilization(district),
-        sustainabilityScore: await this.computeSustainabilityScore(district),
+        carbonEmissions: await this.measureCarbonEmissions(extendedDistrict),
+        energyEfficiency: await this.calculateEnergyEfficiency(
+          extendedDistrict
+        ),
+        wasteManagement: await this.assessWasteManagement(extendedDistrict),
+        resourceUtilization: await this.trackResourceUtilization(
+          extendedDistrict
+        ),
+        sustainabilityScore: await this.computeSustainabilityScore(
+          extendedDistrict
+        ),
       };
 
       this.environmentalMetrics.set(district.id, metrics);
@@ -310,12 +352,15 @@ export class DevelopmentService extends EventEmitter {
     const districts = await this.districtService.getAllDistricts();
 
     for (const district of districts) {
+      const extendedDistrict = district as unknown as ExtendedDistrict;
       const activities: AgentActivityMetrics = {
-        interactionFrequency: await this.measureInteractionFrequency(district),
-        collaborationScore: await this.assessCollaboration(district),
-        knowledgeSharing: await this.trackKnowledgeSharing(district),
-        innovationRate: await this.calculateInnovationRate(district),
-        adaptabilityScore: await this.measureAdaptability(district),
+        interactionFrequency: await this.measureInteractionFrequency(
+          extendedDistrict
+        ),
+        collaborationScore: await this.assessCollaboration(extendedDistrict),
+        knowledgeSharing: await this.trackKnowledgeSharing(extendedDistrict),
+        innovationRate: await this.calculateInnovationRate(extendedDistrict),
+        adaptabilityScore: await this.measureAdaptability(extendedDistrict),
       };
 
       this.agentActivities.set(district.id, activities);
@@ -326,14 +371,16 @@ export class DevelopmentService extends EventEmitter {
     }
   }
 
-  private async calculateAIPopulationDensity(district: any): Promise<number> {
+  private async calculateAIPopulationDensity(
+    district: ExtendedDistrict
+  ): Promise<number> {
     const activeAgents =
-      district.agents?.filter((a: any) => a.status === "active") || [];
+      district.agents?.filter((a) => a.status === "active") || [];
     const computationalCapacity =
       district.infrastructure?.computationalCapacity || 1;
     return (
       (activeAgents.length / computationalCapacity) * 0.7 +
-      (activeAgents.reduce((sum: number, a: any) => sum + a.complexity, 0) /
+      (activeAgents.reduce((sum, a) => sum + (a.complexity || 0), 0) /
         computationalCapacity) *
         0.3
     );
@@ -430,49 +477,57 @@ export class DevelopmentService extends EventEmitter {
     );
   }
 
-  private async measureInteractionFrequency(district: any): Promise<number> {
+  private async measureInteractionFrequency(
+    district: ExtendedDistrict
+  ): Promise<number> {
     const agents = district.agents || [];
     const interactions = agents.reduce(
-      (sum: number, a: any) => sum + (a.interactions?.length || 0),
+      (sum, a) => sum + (a.interactions?.length || 0),
       0
     );
     return interactions / Math.max(agents.length * 24, 1); // Interactions per agent per hour
   }
 
-  private async assessCollaboration(district: any): Promise<number> {
+  private async assessCollaboration(
+    district: ExtendedDistrict
+  ): Promise<number> {
     const agents = district.agents || [];
     const collaborations = agents.reduce(
-      (sum: number, a: any) => sum + (a.collaborations?.length || 0),
+      (sum, a) => sum + (a.collaborations?.length || 0),
       0
     );
     return collaborations / Math.max(agents.length * 24, 1); // Collaborations per agent per hour
   }
 
-  private async trackKnowledgeSharing(district: any): Promise<number> {
+  private async trackKnowledgeSharing(
+    district: ExtendedDistrict
+  ): Promise<number> {
     const agents = district.agents || [];
     const knowledgeTransfers = agents.reduce(
-      (sum: number, a: any) => sum + (a.knowledgeTransfers?.length || 0),
+      (sum, a) => sum + (a.knowledgeTransfers?.length || 0),
       0
     );
     return knowledgeTransfers / Math.max(agents.length * 24, 1); // Knowledge transfers per agent per hour
   }
 
-  private async calculateInnovationRate(district: any): Promise<number> {
+  private async calculateInnovationRate(
+    district: ExtendedDistrict
+  ): Promise<number> {
     const agents = district.agents || [];
     const innovations = agents.reduce(
-      (sum: number, a: any) => sum + (a.innovations?.length || 0),
+      (sum, a) => sum + (a.innovations?.length || 0),
       0
     );
     return innovations / Math.max(agents.length * 24, 1); // Innovations per agent per hour
   }
 
-  private async measureAdaptability(district: any): Promise<number> {
+  private async measureAdaptability(
+    district: ExtendedDistrict
+  ): Promise<number> {
     const agents = district.agents || [];
     return (
-      agents.reduce(
-        (sum: number, a: any) => sum + (a.adaptabilityScore || 0),
-        0
-      ) / Math.max(agents.length, 1)
+      agents.reduce((sum, a) => sum + (a.adaptabilityScore || 0), 0) /
+      Math.max(agents.length, 1)
     );
   }
 
@@ -510,11 +565,12 @@ export class DevelopmentService extends EventEmitter {
     >();
 
     for (const district of districts) {
-      const heritageValue = this.calculateHeritageValue(district);
+      const extendedDistrict = district as unknown as ExtendedDistrict;
+      const heritageValue = this.calculateHeritageValue(extendedDistrict);
       const religiousSignificance =
-        this.calculateReligiousSignificance(district);
+        this.calculateReligiousSignificance(extendedDistrict);
       const communityTraditions = await this.identifyCommunityTraditions(
-        district
+        extendedDistrict
       );
       const developmentSensitivity = this.calculateDevelopmentSensitivity(
         heritageValue,
@@ -586,12 +642,13 @@ export class DevelopmentService extends EventEmitter {
     const districts = await this.districtService.getAllDistricts();
 
     for (const district of districts) {
-      const patterns = await this.identifyDevelopmentPatterns(district);
-      const density = this.calculateDistrictDensity(district);
-      const diversity = this.calculateDistrictDiversity(district);
-      const connectivity = await this.calculateConnectivity(district);
+      const extendedDistrict = district as unknown as ExtendedDistrict;
+      const patterns = await this.identifyDevelopmentPatterns(extendedDistrict);
+      const density = this.calculateDistrictDensity(extendedDistrict);
+      const diversity = this.calculateDistrictDiversity(extendedDistrict);
+      const connectivity = await this.calculateConnectivity(extendedDistrict);
       const culturalIntegration = await this.calculateCulturalIntegration(
-        district
+        extendedDistrict
       );
 
       this.urbanFabrics.set(district.id, {
@@ -713,9 +770,9 @@ export class DevelopmentService extends EventEmitter {
   }
 
   private async evaluateCulturalImpact(project: DevelopmentProject) {
-    const district = await this.districtService.getDistrict(
+    const district = (await this.districtService.getDistrict(
       project.location.districtId
-    );
+    )) as unknown as ExtendedDistrict;
     const culturalContext = (await this.analyzeCulturalContext()).get(
       project.location.districtId
     );
@@ -1312,7 +1369,7 @@ export class DevelopmentService extends EventEmitter {
     return projects;
   }
 
-  private calculateDistrictDensity(district: any): number {
+  private calculateDistrictDensity(district: ExtendedDistrict): number {
     const area = district.area || 1;
     const population = district.population || 0;
     const buildings = district.buildings?.length || 0;
@@ -1320,13 +1377,9 @@ export class DevelopmentService extends EventEmitter {
     return (population / area) * 0.6 + (buildings / area) * 0.4;
   }
 
-  private calculateDistrictDiversity(district: any): number {
-    const buildingTypes = new Set(
-      district.buildings?.map((b: any) => b.type) || []
-    );
-    const landUseTypes = new Set(
-      district.landUse?.map((l: any) => l.type) || []
-    );
+  private calculateDistrictDiversity(district: ExtendedDistrict): number {
+    const buildingTypes = new Set(district.buildings?.map((b) => b.type) || []);
+    const landUseTypes = new Set(district.landUse?.map((l) => l.type) || []);
 
     return (buildingTypes.size * 0.5 + landUseTypes.size * 0.5) / 10;
   }

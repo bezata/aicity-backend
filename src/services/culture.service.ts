@@ -1705,4 +1705,43 @@ export class CultureService extends EventEmitter {
     };
     this.emit("metricsUpdated", this.culturalMetrics);
   }
+
+  async getDistrictCulture(districtId: string) {
+    try {
+      const results = await this.vectorStore.query({
+        vector: await this.vectorStore.createEmbedding(
+          `district ${districtId} cultural data`
+        ),
+        filter: {
+          type: { $eq: "district_culture" },
+          districtId: { $eq: districtId },
+        },
+        topK: 1,
+      });
+
+      if (!results.matches?.length) {
+        return {
+          culturalIndex: 0.5,
+          events: [],
+          heritage: [],
+          traditions: [],
+        };
+      }
+
+      return {
+        culturalIndex: results.matches[0].metadata.culturalIndex || 0.5,
+        events: JSON.parse(results.matches[0].metadata.events || "[]"),
+        heritage: JSON.parse(results.matches[0].metadata.heritage || "[]"),
+        traditions: JSON.parse(results.matches[0].metadata.traditions || "[]"),
+      };
+    } catch (error) {
+      console.error("Error getting district culture:", error);
+      return {
+        culturalIndex: 0.5,
+        events: [],
+        heritage: [],
+        traditions: [],
+      };
+    }
+  }
 }

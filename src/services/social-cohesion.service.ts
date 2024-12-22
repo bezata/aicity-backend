@@ -99,7 +99,7 @@ export class SocialCohesionService extends EventEmitter {
         activityLevel: group.activityLevel,
         location: {
           districtId: district.id,
-          coordinates: district.coordinates,
+          coordinates: this.calculateDistrictCenter(district.boundaries),
         },
       });
     }
@@ -685,6 +685,14 @@ export class SocialCohesionService extends EventEmitter {
   private async launchInclusionProgram(program: any) {
     // Implementation for launching inclusion programs
     this.emit("inclusionProgramLaunched", program);
+  }
+
+  private calculateDistrictCenter(
+    boundaries: Array<[number, number]>
+  ): [number, number] {
+    const sumLat = boundaries.reduce((sum, coord) => sum + coord[0], 0);
+    const sumLng = boundaries.reduce((sum, coord) => sum + coord[1], 0);
+    return [sumLat / boundaries.length, sumLng / boundaries.length];
   }
 }
 

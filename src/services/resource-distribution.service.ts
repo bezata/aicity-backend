@@ -5,17 +5,54 @@ import {
 } from "../types/social-cohesion.types";
 import { DistrictService } from "./district.service";
 import { SmartInfrastructureService } from "./smart-infrastructure.service";
+import { EventBus } from "./event-bus.service";
+import { VectorStoreService } from "./vector-store.service";
 import type { DistrictInfrastructure } from "../types/smart-infrastructure.types";
 
 interface ResourceNode {
   id: string;
-  type: "water" | "power" | "data" | "supplies";
+  type:
+    | "water"
+    | "power"
+    | "data"
+    | "supplies"
+    | "ai_compute"
+    | "neural_bandwidth";
   capacity: number;
   currentLoad: number;
   status: "active" | "maintenance" | "offline";
   location: {
     coordinates: [number, number];
   };
+  aiOptimization: {
+    predictionAccuracy: number;
+    adaptiveRouting: number;
+    loadBalancingEfficiency: number;
+  };
+}
+
+interface AIResourceMetrics {
+  computeUtilization: number;
+  bandwidthAllocation: number;
+  processingLatency: number;
+  resourceEfficiency: number;
+  adaptationScore: number;
+}
+
+interface DistrictResources {
+  water: { consumption: number; capacity: number };
+  power: { consumption: number; capacity: number };
+  data: { usage: number; capacity: number };
+  compute?: { usage: number; capacity: number };
+  bandwidth?: { usage: number; capacity: number };
+}
+
+interface ResourceTransfer {
+  sourceId: string;
+  targetId: string;
+  amount: number;
+  efficiency: number;
+  timestamp: number;
 }
 
 export class ResourceDistributionService extends EventEmitter {
@@ -26,12 +63,15 @@ export class ResourceDistributionService extends EventEmitter {
     efficiency: 1,
     lastOptimized: Date.now(),
   };
+  private readonly eventBus: EventBus;
 
   constructor(
     private districtService: DistrictService,
-    private smartInfrastructure: SmartInfrastructureService
+    private smartInfrastructure: SmartInfrastructureService,
+    private vectorStore: VectorStoreService
   ) {
     super();
+    this.eventBus = EventBus.getInstance();
     this.initializeDistribution();
   }
 
@@ -39,15 +79,82 @@ export class ResourceDistributionService extends EventEmitter {
     setInterval(() => this.optimizeNetwork(), 1000 * 60 * 15); // Every 15 minutes
     setInterval(() => this.monitorResourceUsage(), 1000 * 60 * 5); // Every 5 minutes
     setInterval(() => this.balanceLoads(), 1000 * 60 * 10); // Every 10 minutes
+    setInterval(() => this.optimizeAIResources(), 1000 * 60 * 3); // Every 3 minutes
   }
 
-  private async optimizeNetwork() {
-    const hotspots = await this.identifyDemandHotspots();
-    const supplyChains = await this.calculateOptimalSupplyChains(hotspots);
-    await this.adjustDistributionNetwork(supplyChains);
+  private async optimizeAIResources() {
+    const metrics = await this.calculateAIResourceMetrics();
+    if (metrics.resourceEfficiency < 0.7) {
+      await this.rebalanceAIResources();
+      this.eventBus.emit("aiResourcesOptimized", metrics);
+    }
+  }
 
-    this.distributionNetwork.lastOptimized = Date.now();
-    this.emit("networkOptimized", this.calculateNetworkMetrics());
+  private async calculateAIResourceMetrics(): Promise<AIResourceMetrics> {
+    const aiNodes = Array.from(this.resourceNodes.values()).filter(
+      (node) => node.type === "ai_compute" || node.type === "neural_bandwidth"
+    );
+
+    return {
+      computeUtilization: this.calculateAverageMetric(
+        aiNodes,
+        "currentLoad",
+        "capacity"
+      ),
+      bandwidthAllocation: this.calculateAverageMetric(
+        aiNodes,
+        "currentLoad",
+        "capacity"
+      ),
+      processingLatency: this.calculateAverageLatency(aiNodes),
+      resourceEfficiency: this.calculateResourceEfficiency(aiNodes),
+      adaptationScore: this.calculateAverageMetric(
+        aiNodes,
+        "aiOptimization.adaptiveRouting"
+      ),
+    };
+  }
+
+  private async rebalanceAIResources() {
+    const aiNodes = Array.from(this.resourceNodes.values()).filter(
+      (node) => node.type === "ai_compute" || node.type === "neural_bandwidth"
+    );
+
+    for (const node of aiNodes) {
+      if (node.currentLoad / node.capacity > 0.8) {
+        await this.redistributeAILoad(node);
+      }
+    }
+  }
+
+  private async redistributeAILoad(node: ResourceNode) {
+    const nearbyAINodes = Array.from(this.resourceNodes.values()).filter(
+      (n) =>
+        (n.type === "ai_compute" || n.type === "neural_bandwidth") &&
+        n.id !== node.id &&
+        n.currentLoad / n.capacity < 0.6 &&
+        this.calculateDistance(
+          n.location.coordinates,
+          node.location.coordinates
+        ) < 5
+    );
+
+    if (nearbyAINodes.length > 0) {
+      const targetNode = this.selectOptimalTargetNode(nearbyAINodes);
+      const redistributionAmount = this.calculateRedistributionAmount(
+        node,
+        targetNode
+      );
+
+      await this.transferLoad(node, targetNode, redistributionAmount);
+
+      this.eventBus.emit("aiLoadRedistributed", {
+        sourceId: node.id,
+        targetId: targetNode.id,
+        amount: redistributionAmount,
+        efficiency: targetNode.aiOptimization.loadBalancingEfficiency,
+      });
+    }
   }
 
   private async identifyDemandHotspots(): Promise<
@@ -63,45 +170,178 @@ export class ResourceDistributionService extends EventEmitter {
     for (const district of districts) {
       const infrastructure =
         await this.smartInfrastructure.getDistrictInfrastructure(district.id);
+      const resources = infrastructure.resources as DistrictResources;
+      const boundaries = district.boundaries;
+      const districtCenter: [number, number] =
+        this.calculateDistrictCenter(boundaries);
 
-      // Check water demand
-      if (
-        infrastructure.resources.water.consumption >
-        infrastructure.resources.water.capacity * 0.8
-      ) {
+      // Check traditional resources
+      if (resources.water.consumption > resources.water.capacity * 0.8) {
         hotspots.push({
-          location: district.coordinates,
-          demand: infrastructure.resources.water.consumption,
+          location: districtCenter,
+          demand: resources.water.consumption,
           resourceType: "water" as const,
         });
       }
 
-      // Check power demand
-      if (
-        infrastructure.resources.power.consumption >
-        infrastructure.resources.power.capacity * 0.8
-      ) {
+      if (resources.power.consumption > resources.power.capacity * 0.8) {
         hotspots.push({
-          location: district.coordinates,
-          demand: infrastructure.resources.power.consumption,
+          location: districtCenter,
+          demand: resources.power.consumption,
           resourceType: "power" as const,
         });
       }
 
-      // Check data demand
+      if (resources.data.usage > resources.data.capacity * 0.8) {
+        hotspots.push({
+          location: districtCenter,
+          demand: resources.data.usage,
+          resourceType: "data" as const,
+        });
+      }
+
+      // Check AI-specific resources
       if (
-        infrastructure.resources.data.usage >
-        infrastructure.resources.data.capacity * 0.8
+        resources.compute &&
+        resources.compute.usage > resources.compute.capacity * 0.7
       ) {
         hotspots.push({
-          location: district.coordinates,
-          demand: infrastructure.resources.data.usage,
-          resourceType: "data" as const,
+          location: districtCenter,
+          demand: resources.compute.usage,
+          resourceType: "ai_compute" as const,
+        });
+      }
+
+      if (
+        resources.bandwidth &&
+        resources.bandwidth.usage > resources.bandwidth.capacity * 0.7
+      ) {
+        hotspots.push({
+          location: districtCenter,
+          demand: resources.bandwidth.usage,
+          resourceType: "neural_bandwidth" as const,
         });
       }
     }
 
     return hotspots;
+  }
+
+  private calculateDistrictCenter(
+    boundaries: Array<[number, number]>
+  ): [number, number] {
+    const sumLat = boundaries.reduce((sum, coord) => sum + coord[0], 0);
+    const sumLng = boundaries.reduce((sum, coord) => sum + coord[1], 0);
+    return [sumLat / boundaries.length, sumLng / boundaries.length];
+  }
+
+  private selectOptimalTargetNode(nodes: ResourceNode[]): ResourceNode {
+    return nodes.reduce((best, current) => {
+      const score =
+        (1 - current.currentLoad / current.capacity) * 0.4 +
+        current.aiOptimization.loadBalancingEfficiency * 0.3 +
+        current.aiOptimization.predictionAccuracy * 0.3;
+
+      const bestScore =
+        (1 - best.currentLoad / best.capacity) * 0.4 +
+        best.aiOptimization.loadBalancingEfficiency * 0.3 +
+        best.aiOptimization.predictionAccuracy * 0.3;
+
+      return score > bestScore ? current : best;
+    });
+  }
+
+  private calculateRedistributionAmount(
+    source: ResourceNode,
+    target: ResourceNode
+  ): number {
+    const excessLoad = source.currentLoad - source.capacity * 0.7;
+    const targetCapacity = target.capacity - target.currentLoad;
+    const baseAmount = Math.min(excessLoad, targetCapacity);
+
+    // Adjust based on AI optimization metrics
+    const efficiencyFactor =
+      (source.aiOptimization.loadBalancingEfficiency +
+        target.aiOptimization.loadBalancingEfficiency) /
+      2;
+
+    return baseAmount * efficiencyFactor;
+  }
+
+  private async transferLoad(
+    source: ResourceNode,
+    target: ResourceNode,
+    amount: number
+  ) {
+    source.currentLoad -= amount;
+    target.currentLoad += amount;
+
+    const transfer: ResourceTransfer = {
+      sourceId: source.id,
+      targetId: target.id,
+      amount,
+      efficiency: target.aiOptimization.loadBalancingEfficiency,
+      timestamp: Date.now(),
+    };
+
+    // Store transfer in vector DB for analysis
+    await this.vectorStore.upsert({
+      id: `transfer-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(
+        `Resource transfer from ${source.id} to ${target.id}: ${amount}`
+      ),
+      metadata: {
+        type: "district" as const,
+        transfer: JSON.stringify(transfer),
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  private calculateAverageMetric(
+    nodes: ResourceNode[],
+    ...paths: string[]
+  ): number {
+    return (
+      nodes.reduce((sum, node) => {
+        let value: any = node;
+        for (const path of paths) {
+          value = value[path];
+        }
+        return sum + (typeof value === "number" ? value : 0);
+      }, 0) / Math.max(nodes.length, 1)
+    );
+  }
+
+  private calculateAverageLatency(nodes: ResourceNode[]): number {
+    return (
+      nodes.reduce(
+        (sum, node) => sum + (1 - node.aiOptimization.loadBalancingEfficiency),
+        0
+      ) / nodes.length
+    );
+  }
+
+  private calculateResourceEfficiency(nodes: ResourceNode[]): number {
+    return (
+      nodes.reduce(
+        (sum, node) =>
+          sum +
+          (node.aiOptimization.loadBalancingEfficiency * 0.4 +
+            node.aiOptimization.predictionAccuracy * 0.3 +
+            node.aiOptimization.adaptiveRouting * 0.3),
+        0
+      ) / nodes.length
+    );
+  }
+
+  private async optimizeNetwork() {
+    const hotspots = await this.identifyDemandHotspots();
+    const supplyChains = await this.calculateOptimalSupplyChains(hotspots);
+    await this.adjustDistributionNetwork(supplyChains);
+
+    this.distributionNetwork.lastOptimized = Date.now();
+    this.emit("networkOptimized", this.calculateNetworkMetrics());
   }
 
   private async calculateOptimalSupplyChains(

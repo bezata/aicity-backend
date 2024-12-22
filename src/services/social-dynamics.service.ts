@@ -8,10 +8,19 @@ import { DepartmentService } from "./department.service";
 import { CitizenService } from "./citizen.service";
 import { WeatherService } from "./weather.service";
 import { CityRhythmService } from "./city-rhythm.service";
+import { EventBus } from "./event-bus.service";
+
+// Update the type to include AI-specific activities
+type ExtendedActivityType =
+  | SocialActivityType
+  | "ai_assisted_learning"
+  | "ai_cultural_exchange"
+  | "smart_community_gathering";
 
 export class SocialDynamicsService extends EventEmitter {
   private activities: Map<string, SocialActivity> = new Map();
   private communityMood: Record<string, number> = {}; // by district
+  private readonly eventBus: EventBus;
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -21,6 +30,7 @@ export class SocialDynamicsService extends EventEmitter {
     private cityRhythmService: CityRhythmService
   ) {
     super();
+    this.eventBus = EventBus.getInstance();
     this.initializeSocialSystem();
   }
 
@@ -34,9 +44,126 @@ export class SocialDynamicsService extends EventEmitter {
       "rhythmUpdated",
       this.adjustActivities.bind(this)
     );
+    this.eventBus.on("aiAgentAction", this.handleAIAgentAction.bind(this));
+    this.eventBus.on("culturalEvent", this.handleCulturalEvent.bind(this));
 
-    // Start social simulation cycle
+    // Start social simulation cycles
     setInterval(() => this.simulateSocialDynamics(), 1000 * 60 * 15); // Every 15 minutes
+    setInterval(() => this.analyzeAIHumanInteractions(), 1000 * 60 * 10); // Every 10 minutes
+    setInterval(() => this.updateSocialMetrics(), 1000 * 60 * 5); // Every 5 minutes
+  }
+
+  private async analyzeAIHumanInteractions() {
+    const activities = Array.from(this.activities.values())
+      .filter((a) => a.status === "active")
+      .filter((a) => this.hasAIInteraction(a));
+
+    for (const activity of activities) {
+      const aiImpact = await this.calculateAIImpact(activity);
+      this.eventBus.emit("aiInteractionAnalyzed", {
+        activityId: activity.id,
+        impact: aiImpact,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private hasAIInteraction(activity: SocialActivity): boolean {
+    const type = activity.type as ExtendedActivityType;
+    return (
+      type === "ai_assisted_learning" ||
+      type === "ai_cultural_exchange" ||
+      type === "smart_community_gathering"
+    );
+  }
+
+  private async calculateAIImpact(activity: SocialActivity) {
+    return {
+      socialCohesion: this.calculateSocialCohesionImpact(activity),
+      culturalIntegration: await this.calculateCulturalIntegrationImpact(
+        activity
+      ),
+      communityEngagement: this.calculateCommunityEngagementImpact(activity),
+      aiTrust: await this.calculateAITrustImpact(activity),
+    };
+  }
+
+  private getBaseImpact(type: ExtendedActivityType) {
+    const impacts: Record<ExtendedActivityType, SocialActivity["impact"]> = {
+      community_meeting: { community: 0.7, economy: 0.3, satisfaction: 0.6 },
+      cultural_event: { community: 0.8, economy: 0.6, satisfaction: 0.8 },
+      protest: { community: 0.9, economy: 0.4, satisfaction: 0.5 },
+      celebration: { community: 0.9, economy: 0.7, satisfaction: 0.9 },
+      market: { community: 0.6, economy: 0.9, satisfaction: 0.7 },
+      education: { community: 0.7, economy: 0.5, satisfaction: 0.7 },
+      sports: { community: 0.8, economy: 0.6, satisfaction: 0.8 },
+      entertainment: { community: 0.6, economy: 0.8, satisfaction: 0.8 },
+      ai_assisted_learning: { community: 0.8, economy: 0.7, satisfaction: 0.8 },
+      ai_cultural_exchange: { community: 0.9, economy: 0.6, satisfaction: 0.8 },
+      smart_community_gathering: {
+        community: 0.8,
+        economy: 0.5,
+        satisfaction: 0.9,
+      },
+    };
+    return impacts[type];
+  }
+
+  private async handleAIAgentAction(action: any) {
+    if (action.type === "social_interaction") {
+      const newActivity: SocialActivity = {
+        id: crypto.randomUUID(),
+        type: "cultural_event",
+        title: action.title,
+        description: action.description,
+        location: action.location,
+        schedule: {
+          start: Date.now(),
+          end: Date.now() + 3600000, // 1 hour duration
+        },
+        participants: {
+          expected: 20,
+          current: 0,
+          demographics: {
+            districts: {},
+            satisfaction: 0,
+          },
+        },
+        status: "active",
+        organizer: {
+          departmentId: "AI_SYSTEM",
+        },
+        impact: this.getBaseImpact("cultural_event"),
+        relatedEvents: [],
+      };
+
+      const impact = await this.calculateAIImpact(newActivity);
+      this.eventBus.emit("aiSocialImpactAnalyzed", {
+        actionId: action.id,
+        impact,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private async handleCulturalEvent(event: any) {
+    const aiParticipation = await this.analyzeAIParticipation(event);
+    if (aiParticipation.level > 0.3) {
+      // Significant AI involvement
+      this.eventBus.emit("aiCulturalParticipation", {
+        eventId: event.id,
+        participation: aiParticipation,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private async analyzeAIParticipation(event: any) {
+    return {
+      level: 0.5, // Placeholder for actual AI participation analysis
+      impact: 0.7,
+      engagementQuality: 0.8,
+    };
   }
 
   async createActivity(
@@ -68,20 +195,6 @@ export class SocialDynamicsService extends EventEmitter {
       economy: baseImpact.economy * weatherImpact * timeImpact,
       satisfaction: baseImpact.satisfaction * weatherImpact * timeImpact,
     };
-  }
-
-  private getBaseImpact(type: SocialActivityType) {
-    const impacts: Record<SocialActivityType, SocialActivity["impact"]> = {
-      community_meeting: { community: 0.7, economy: 0.3, satisfaction: 0.6 },
-      cultural_event: { community: 0.8, economy: 0.6, satisfaction: 0.8 },
-      protest: { community: 0.9, economy: 0.4, satisfaction: 0.5 },
-      celebration: { community: 0.9, economy: 0.7, satisfaction: 0.9 },
-      market: { community: 0.6, economy: 0.9, satisfaction: 0.7 },
-      education: { community: 0.7, economy: 0.5, satisfaction: 0.7 },
-      sports: { community: 0.8, economy: 0.6, satisfaction: 0.8 },
-      entertainment: { community: 0.6, economy: 0.8, satisfaction: 0.8 },
-    };
-    return impacts[type];
   }
 
   private async calculateWeatherImpact(
@@ -318,5 +431,73 @@ export class SocialDynamicsService extends EventEmitter {
       positivity: 0.8,
       engagement: 0.7,
     };
+  }
+
+  private async updateSocialMetrics() {
+    const activities = Array.from(this.activities.values());
+    const metrics = {
+      totalParticipants: activities.reduce(
+        (sum, a) => sum + (a.participants.current || 0),
+        0
+      ),
+      activeEvents: activities.filter((a) => a.status === "active").length,
+      averageImpact: this.calculateAverageImpact(activities),
+      aiIntegrationLevel: await this.calculateAIIntegrationLevel(activities),
+    };
+
+    this.eventBus.emit("socialMetricsUpdated", metrics);
+  }
+
+  private calculateAverageImpact(activities: SocialActivity[]): number {
+    return (
+      activities.reduce((sum, a) => sum + a.impact.satisfaction, 0) /
+      activities.length
+    );
+  }
+
+  private async calculateAIIntegrationLevel(
+    activities: SocialActivity[]
+  ): Promise<number> {
+    const aiActivities = activities.filter((a) =>
+      [
+        "ai_assisted_learning",
+        "ai_cultural_exchange",
+        "smart_community_gathering",
+      ].includes(a.type as ExtendedActivityType)
+    );
+    return aiActivities.length / activities.length;
+  }
+
+  private calculateSocialCohesionImpact(activity: SocialActivity): number {
+    return (
+      activity.impact.community *
+      (activity.participants.current / activity.participants.expected)
+    );
+  }
+
+  private async calculateCulturalIntegrationImpact(
+    activity: SocialActivity
+  ): Promise<number> {
+    const baseImpact = activity.impact.satisfaction;
+    const culturalFactor = activity.type === "cultural_event" ? 1.2 : 1.0;
+    return baseImpact * culturalFactor;
+  }
+
+  private calculateCommunityEngagementImpact(activity: SocialActivity): number {
+    return (activity.impact.community + activity.impact.satisfaction) / 2;
+  }
+
+  private async calculateAITrustImpact(
+    activity: SocialActivity
+  ): Promise<number> {
+    const baseImpact = activity.impact.satisfaction;
+    const aiInvolvement = [
+      "ai_assisted_learning",
+      "ai_cultural_exchange",
+      "smart_community_gathering",
+    ].includes(activity.type as string)
+      ? 1.5
+      : 1.0;
+    return baseImpact * aiInvolvement;
   }
 }

@@ -42,6 +42,10 @@ export const DevelopmentController = new Elysia({ prefix: "/development" })
           t.Literal("industrial"),
           t.Literal("infrastructure"),
           t.Literal("greenspace"),
+          t.Literal("cultural"),
+          t.Literal("religious"),
+          t.Literal("heritage"),
+          t.Literal("community"),
         ]),
         location: t.Object({
           districtId: t.String(),
@@ -52,14 +56,45 @@ export const DevelopmentController = new Elysia({ prefix: "/development" })
       }),
     }
   )
-  .get("/analysis", async ({ store }) => {
+  .get("/growth-analysis", async ({ store }) => {
     const appStore = store as AppStore;
     try {
       const analysis =
         await appStore.services.developmentService.getGrowthAnalysis();
       return { success: true, data: analysis };
     } catch (error) {
-      console.error("Failed to get analysis:", error);
+      console.error("Failed to get growth analysis:", error);
       throw error;
     }
-  });
+  })
+  .post("/plan-growth", async ({ store }) => {
+    const appStore = store as AppStore;
+    try {
+      await appStore.services.developmentService.planCityGrowth();
+      return { success: true, message: "City growth plan updated" };
+    } catch (error) {
+      console.error("Failed to plan city growth:", error);
+      throw error;
+    }
+  })
+  .get(
+    "/infrastructure/:districtId",
+    async ({ params, store }) => {
+      const appStore = store as AppStore;
+      try {
+        const evaluation =
+          await appStore.services.developmentService.evaluateInfrastructure(
+            params.districtId
+          );
+        return { success: true, data: evaluation };
+      } catch (error) {
+        console.error("Failed to evaluate infrastructure:", error);
+        throw error;
+      }
+    },
+    {
+      params: t.Object({
+        districtId: t.String(),
+      }),
+    }
+  );

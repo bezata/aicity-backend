@@ -17,7 +17,35 @@ import { EmergencyService } from "./emergency.service";
 import { CityEventsService } from "./city-events.service";
 import { EmergencyType } from "../types/emergency.types";
 
+interface CityConversationContext {
+  location?: {
+    districtId: string;
+    coordinates: [number, number];
+    nearbyLandmarks?: string[];
+    currentActivity?: string;
+  };
+  urgency?: number;
+  topic?: string;
+  collaborationId?: string;
+  cityMetrics?: {
+    activityLevel: number;
+    emergencyStatus: string;
+    weatherConditions: string;
+    culturalEvents: string[];
+  };
+  districtContext?: {
+    population: number;
+    mainActivities: string[];
+    currentIssues: string[];
+    developmentProjects: string[];
+  };
+}
+
 export class ConversationService extends EventEmitter {
+  private readonly CONVERSATION_EXPIRY = 30 * 60 * 1000; // 30 minutes
+  private readonly MAX_HISTORY_LENGTH = 100;
+  private readonly TOPIC_EXHAUSTION_THRESHOLD = 5;
+
   constructor(
     private togetherService: TogetherService,
     private vectorStore: VectorStoreService,
@@ -30,19 +58,168 @@ export class ConversationService extends EventEmitter {
     private cityEvents: CityEventsService
   ) {
     super();
+    this.setupEventHandlers();
+  }
+
+  private setupEventHandlers() {
+    // Listen for emergency events to adjust conversation priorities
+    this.emergencyService.on("emergency", async (emergency) => {
+      const affectedConversations = await this.findConversationsInArea(
+        emergency.location,
+        emergency.affectedArea.radius
+      );
+      for (const conv of affectedConversations) {
+        await this.injectEmergencyContext(conv, emergency);
+      }
+    });
+
+    // Listen for cultural events
+    this.cityEvents.on("eventCreated", async (event) => {
+      const nearbyConversations = await this.findConversationsInArea(
+        event.location,
+        500 // 500m radius
+      );
+      for (const conv of nearbyConversations) {
+        await this.injectCulturalContext(conv, event);
+      }
+    });
+
+    // Monitor city mood changes
+    this.cityService.on("moodUpdate", async (mood) => {
+      await this.adjustConversationStyles(mood);
+    });
+  }
+
+  private async findConversationsInArea(
+    location: any,
+    radius: number
+  ): Promise<string[]> {
+    const result = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding(
+        `location: ${JSON.stringify(location)}`
+      ),
+      filter: {
+        type: { $eq: "conversation" },
+        timestamp: { $gt: Date.now() - this.CONVERSATION_EXPIRY },
+      },
+      topK: 20,
+    });
+
+    return result.matches
+      .filter((match: { metadata: { coordinates: [number, number] } }) =>
+        this.isWithinRadius(match.metadata.coordinates, location, radius)
+      )
+      .map(
+        (match: { metadata: { conversationId: string } }) =>
+          match.metadata.conversationId
+      );
+  }
+
+  private isWithinRadius(
+    point1: [number, number],
+    point2: [number, number],
+    radius: number
+  ): boolean {
+    if (!point1 || !point2) return false;
+    const [lat1, lon1] = point1;
+    const [lat2, lon2] = point2;
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return distance <= radius;
+  }
+
+  private async injectEmergencyContext(conversationId: string, emergency: any) {
+    const systemMessage: Message = {
+      id: crypto.randomUUID(),
+      agentId: "system",
+      content: `⚠️ EMERGENCY ALERT: ${emergency.description}. Please be aware and adjust your activities accordingly.`,
+      timestamp: Date.now(),
+      role: "assistant",
+      metadata: {
+        emergencyId: emergency.id,
+        type: emergency.type,
+        severity: emergency.priority,
+        isEmergency: true,
+      },
+    };
+    await this.addMessage(conversationId, "system", systemMessage.content);
+  }
+
+  private async injectCulturalContext(conversationId: string, event: any) {
+    const systemMessage: Message = {
+      id: crypto.randomUUID(),
+      agentId: "system",
+      content: `🎉 Cultural Event: "${event.title}" is happening nearby. This might be relevant to your conversation.`,
+      timestamp: Date.now(),
+      role: "assistant",
+      metadata: {
+        eventId: event.id,
+        type: event.type,
+        culturalImpact: event.culturalImpact,
+      },
+    };
+    await this.addMessage(conversationId, "system", systemMessage.content);
+  }
+
+  private async adjustConversationStyles(cityMood: any) {
+    const activeConversations = await this.getActiveInteractions();
+    for (const conversation of activeConversations) {
+      const newStyle = this.determineConversationStyle(cityMood, conversation);
+      await this.updateConversationStyle(conversation[0]?.id, newStyle);
+    }
+  }
+
+  private determineConversationStyle(
+    cityMood: any,
+    conversation: Message[]
+  ): ConversationStyle {
+    const moodValue = cityMood.overall;
+    const hasEmergency = conversation.some((m) => m.metadata?.isEmergency);
+
+    if (hasEmergency) return "formal";
+    if (moodValue > 0.7) return "casual";
+    if (moodValue < 0.3) return "supportive";
+    return "formal";
+  }
+
+  private async updateConversationStyle(
+    conversationId: string,
+    style: ConversationStyle
+  ) {
+    await this.vectorStore.upsert({
+      id: `style-${conversationId}`,
+      values: await this.vectorStore.createEmbedding(
+        `conversation style ${style}`
+      ),
+      metadata: {
+        type: "conversation",
+        conversationId,
+        style,
+        timestamp: Date.now(),
+      },
+    });
   }
 
   async generateMessage(
     agent: Agent,
-    context: {
-      location?: { districtId: string; coordinates: [number, number] };
-      urgency?: number;
-      topic?: string;
-      collaborationId?: string;
-    } = {}
+    context: CityConversationContext = {}
   ): Promise<string> {
     // Get city context
     const cityContext = await this.cityService.getContext();
+    const cityMetrics = {
+      activityLevel: await this.cityService.getActivityLevel(),
+      emergencyStatus: await this.cityService.getEmergencyStatus(),
+      weatherConditions: (await this.cityService.getCurrentWeather()).condition,
+      culturalEvents: await this.cityEvents.getCurrentEvents(),
+    };
 
     // Get cultural context if available
     const culturalContext = context.location
@@ -65,9 +242,10 @@ export class ConversationService extends EventEmitter {
     // Check for emergency situations
     const isEmergency = context.urgency && context.urgency > 0.8;
 
-    // Build enhanced prompt
+    // Build enhanced prompt with city-specific context
     const prompt = this.buildEnhancedPrompt(agent, {
       cityContext,
+      cityMetrics,
       culturalContext,
       activeCollaboration,
       relevantMemories,
@@ -86,8 +264,11 @@ export class ConversationService extends EventEmitter {
       },
     ]);
 
-    // Store in vector database
-    await this.storeConversationContext(agent, response, context);
+    // Store in vector database with enhanced metadata
+    await this.storeConversationContext(agent, response, {
+      ...context,
+      cityMetrics,
+    });
 
     // Handle any emergency responses if needed
     if (isEmergency) {
@@ -97,52 +278,12 @@ export class ConversationService extends EventEmitter {
     return response;
   }
 
-  private async storeConversationContext(
-    agent: Agent,
-    response: string,
-    context: any
-  ) {
-    await this.vectorStore.upsert({
-      id: `conv-${Date.now()}`,
-      values: await this.vectorStore.createEmbedding(response),
-      metadata: {
-        type: "conversation",
-        agentId: agent.id,
-        districtId: context.location?.districtId,
-        coordinates: context.location?.coordinates,
-        timestamp: Date.now(),
-      },
-    });
-  }
-
-  private async handleEmergencyResponse(
-    agent: Agent,
-    response: string,
-    context: any
-  ) {
-    if (context.location) {
-      await this.emergencyService.handleEmergency({
-        id: `emergency-${Date.now()}`,
-        type: EmergencyType.MEDICAL,
-        description: response,
-        location: context.location,
-        priority: "high",
-        timestamp: Date.now(),
-        affectedArea: {
-          districtIds: [context.location.districtId],
-          radius: 100,
-        },
-        status: "reported",
-        responseUnits: [],
-      });
-    }
-  }
-
   private buildEnhancedPrompt(agent: Agent, context: any): string {
     return `You are ${agent.name}, ${agent.personality}.
 
 Current City Context:
 ${this.formatCityContext(context.cityContext)}
+${this.formatCityMetrics(context.cityMetrics)}
 
 ${
   context.culturalContext
@@ -160,24 +301,41 @@ ${
     : ""
 }
 
-${context.isEmergency ? "URGENT: Immediate response required." : ""}
+${context.isEmergency ? "🚨 URGENT: Immediate response required." : ""}
 
 Location: ${
       context.location
-        ? `${context.location.districtId} district`
+        ? `${context.location.districtId} district${
+            context.location.nearbyLandmarks
+              ? `, near ${context.location.nearbyLandmarks.join(", ")}`
+              : ""
+          }`
         : "Unspecified"
     }
+Current Activity: ${context.location?.currentActivity || "None specified"}
 Topic: ${context.topic || "General conversation"}
 
 Consider:
 1. Your role and expertise
-2. Current city conditions
-3. Cultural sensitivities
-4. Historical context
-5. Ongoing collaborations
+2. Current city conditions and metrics
+3. Cultural sensitivities and ongoing events
+4. Historical context and district-specific issues
+5. Ongoing collaborations and activities
 6. Emergency protocols if applicable
+7. Local landmarks and spatial context
+8. Current city mood and social dynamics
 
 Respond naturally while maintaining your character and considering all available context.`;
+  }
+
+  private formatCityMetrics(metrics?: any): string {
+    if (!metrics) return "";
+    return `
+City Metrics:
+- Activity Level: ${(metrics.activityLevel * 100).toFixed(1)}%
+- Emergency Status: ${metrics.emergencyStatus}
+- Weather: ${metrics.weatherConditions}
+- Active Cultural Events: ${metrics.culturalEvents.length}`;
   }
 
   private formatCityContext(context: any): string {
@@ -328,9 +486,9 @@ ${memories.memories
     return {
       id: match.id,
       agentId: match.metadata.agentId,
-      content: match.metadata.content,
+      content: match.metadata.content || "",
       timestamp: match.metadata.timestamp,
-      role: match.metadata.role,
+      role: (match.metadata.role as "assistant" | "user") || "assistant",
       sentiment: match.metadata.sentiment
         ? parseFloat(match.metadata.sentiment)
         : undefined,
@@ -524,5 +682,51 @@ ${memories.memories
     return Array.from(conversationMap.values()).map((messages) =>
       messages.sort((a, b) => a.timestamp - b.timestamp)
     );
+  }
+
+  private async storeConversationContext(
+    agent: Agent,
+    response: string,
+    context: CityConversationContext & { cityMetrics?: any }
+  ) {
+    const coordinates = context.location?.coordinates;
+    await this.vectorStore.upsert({
+      id: `conv-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(response),
+      metadata: {
+        type: "conversation",
+        agentId: agent.id,
+        districtId: context.location?.districtId,
+        coordinates: coordinates
+          ? [`${coordinates[0]}`, `${coordinates[1]}`]
+          : undefined,
+        activityLevel: context.cityMetrics?.activityLevel?.toString() || "0",
+        status: context.cityMetrics?.emergencyStatus || "normal",
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  private async handleEmergencyResponse(
+    agent: Agent,
+    response: string,
+    context: CityConversationContext
+  ) {
+    if (context.location) {
+      await this.emergencyService.handleEmergency({
+        id: `emergency-${Date.now()}`,
+        type: EmergencyType.MEDICAL,
+        description: response,
+        location: context.location,
+        priority: "high",
+        timestamp: Date.now(),
+        affectedArea: {
+          districtIds: [context.location.districtId],
+          radius: 100,
+        },
+        status: "reported",
+        responseUnits: [],
+      });
+    }
   }
 }

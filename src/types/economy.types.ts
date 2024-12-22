@@ -16,13 +16,22 @@ export interface EconomicIndicators {
 
 export interface BusinessActivity {
   id: string;
-  type: "retail" | "service" | "manufacturing" | "technology" | "cultural";
+  type:
+    | "retail"
+    | "service"
+    | "manufacturing"
+    | "technology"
+    | "cultural"
+    | "ai_services"
+    | "data_processing";
   districtId: string;
   revenue: number;
   employment: number;
   growth: number;
   stability: number;
   culturalImpact: number;
+  aiIntegration?: number;
+  dataUtilization?: number;
 }
 
 export interface PropertyMarket {

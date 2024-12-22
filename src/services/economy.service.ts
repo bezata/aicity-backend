@@ -8,6 +8,9 @@ interface MarketMetrics {
   propertyValues: number;
   investmentFlow: number;
   consumerConfidence: number;
+  aiEconomicActivity?: number;
+  computationalResources?: number;
+  dataMarketMetrics?: number;
 }
 
 interface EconomicIndicators {
@@ -16,17 +19,29 @@ interface EconomicIndicators {
   unemployment: number;
   economicGrowth: number;
   marketStability: number;
+  aiProductivity?: number;
+  digitalTransformation?: number;
+  innovationIndex?: number;
 }
 
 interface BusinessActivity {
   id: string;
-  type: "retail" | "service" | "manufacturing" | "technology" | "cultural";
+  type:
+    | "retail"
+    | "service"
+    | "manufacturing"
+    | "technology"
+    | "cultural"
+    | "ai_services"
+    | "data_processing";
   districtId: string;
   revenue: number;
   employment: number;
   growth: number;
   stability: number;
   culturalImpact: number;
+  aiIntegration?: number;
+  dataUtilization?: number;
 }
 
 interface PropertyMarket {
@@ -60,11 +75,14 @@ interface Investment {
 export class EconomyService extends EventEmitter {
   private marketMetrics: Map<string, MarketMetrics> = new Map();
   private economicIndicators: EconomicIndicators = {
-    gdp: 100,
-    inflation: 0.02,
-    unemployment: 0.05,
-    economicGrowth: 0.03,
-    marketStability: 0.8,
+    gdp: 0,
+    inflation: 0,
+    unemployment: 0,
+    economicGrowth: 0,
+    marketStability: 0,
+    aiProductivity: 0,
+    digitalTransformation: 0,
+    innovationIndex: 0,
   };
   private businesses: Map<string, BusinessActivity> = new Map();
   private propertyMarkets: Map<string, PropertyMarket> = new Map();
@@ -76,13 +94,104 @@ export class EconomyService extends EventEmitter {
     private districtService: DistrictService
   ) {
     super();
-    this.initializeEconomicSimulation();
+    this.initializeMonitoring();
   }
 
-  private initializeEconomicSimulation() {
-    setInterval(() => this.simulateMarket(), 1000 * 60 * 15); // Every 15 minutes
-    setInterval(() => this.updateEconomicIndicators(), 1000 * 60 * 60); // Hourly
-    setInterval(() => this.processInvestments(), 1000 * 60 * 30); // Every 30 minutes
+  private initializeMonitoring() {
+    setInterval(() => this.updateAIEconomicMetrics(), 1000 * 60 * 5); // Every 5 minutes
+    setInterval(() => this.analyzeDataMarket(), 1000 * 60 * 15); // Every 15 minutes
+    setInterval(() => this.calculateInnovationMetrics(), 1000 * 60 * 30); // Every 30 minutes
+  }
+
+  private async updateAIEconomicMetrics() {
+    const districts = await this.districtService.getAllDistricts();
+
+    for (const district of districts) {
+      const metrics =
+        this.marketMetrics.get(district.id) || ({} as MarketMetrics);
+      const aiBusinesses = Array.from(this.businesses.values()).filter(
+        (b) =>
+          b.districtId === district.id &&
+          (b.type === "ai_services" || b.type === "data_processing")
+      );
+
+      metrics.aiEconomicActivity = this.calculateAIActivity(aiBusinesses);
+      metrics.computationalResources = this.assessComputationalResources(
+        district.id
+      );
+      metrics.dataMarketMetrics = this.evaluateDataMarket(district.id);
+
+      this.marketMetrics.set(district.id, metrics);
+      this.emit("aiMetricsUpdated", { districtId: district.id, metrics });
+    }
+  }
+
+  private async analyzeDataMarket() {
+    const districts = await this.districtService.getAllDistricts();
+
+    for (const district of districts) {
+      const dataMarketValue = await this.calculateDataMarketValue(district.id);
+      const dataTrading = await this.assessDataTrading(district.id);
+      const dataUtilization = await this.measureDataUtilization(district.id);
+
+      this.emit("dataMarketUpdated", {
+        districtId: district.id,
+        metrics: { dataMarketValue, dataTrading, dataUtilization },
+      });
+    }
+  }
+
+  private async calculateInnovationMetrics() {
+    const aiBusinesses = Array.from(this.businesses.values()).filter(
+      (b) => b.type === "ai_services" || b.type === "data_processing"
+    );
+
+    const innovationIndex = this.calculateInnovationIndex(aiBusinesses);
+    const digitalTransformation = this.assessDigitalTransformation();
+
+    this.economicIndicators.innovationIndex = innovationIndex;
+    this.economicIndicators.digitalTransformation = digitalTransformation;
+
+    this.emit("innovationMetricsUpdated", {
+      innovationIndex,
+      digitalTransformation,
+    });
+  }
+
+  private calculateAIActivity(aiBusinesses: BusinessActivity[]): number {
+    if (!aiBusinesses.length) return 0;
+    return (
+      aiBusinesses.reduce(
+        (sum, business) =>
+          sum +
+          (business.revenue * 0.4 +
+            business.growth * 0.3 +
+            (business.aiIntegration || 0) * 0.3),
+        0
+      ) / aiBusinesses.length
+    );
+  }
+
+  private assessComputationalResources(districtId: string): number {
+    const businesses = Array.from(this.businesses.values()).filter(
+      (b) => b.districtId === districtId
+    );
+
+    return (
+      businesses.reduce((sum, b) => sum + (b.dataUtilization || 0), 0) /
+      Math.max(businesses.length, 1)
+    );
+  }
+
+  private evaluateDataMarket(districtId: string): number {
+    const dataBusinesses = Array.from(this.businesses.values()).filter(
+      (b) => b.districtId === districtId && b.type === "data_processing"
+    );
+
+    return (
+      dataBusinesses.reduce((sum, b) => sum + b.revenue, 0) /
+      Math.max(dataBusinesses.length, 1)
+    );
   }
 
   async simulateMarket() {
@@ -282,15 +391,91 @@ export class EconomyService extends EventEmitter {
     const marketMetrics = this.marketMetrics.get(investment.districtId);
     if (!marketMetrics) return 0;
 
+    const aiBonus = (marketMetrics.aiEconomicActivity || 0) * 0.2;
+
     return (
-      investment.expectedReturn * 0.4 +
-      marketMetrics.businessActivity * 0.3 +
-      marketMetrics.consumerConfidence * 0.3
+      investment.expectedReturn * 0.3 +
+      marketMetrics.businessActivity * 0.2 +
+      marketMetrics.consumerConfidence * 0.2 +
+      aiBonus +
+      (marketMetrics.dataMarketMetrics || 0) * 0.1
     );
   }
 
   private calculateCulturalImpact(investment: Investment): number {
-    return investment.culturalValue * 0.6 + investment.socialImpact * 0.4;
+    const aiEnhancement = investment.type === "technology" ? 0.2 : 0;
+    return (
+      investment.culturalValue * 0.5 +
+      investment.socialImpact * 0.3 +
+      aiEnhancement
+    );
+  }
+
+  private async calculateDataMarketValue(districtId: string): Promise<number> {
+    const dataBusinesses = Array.from(this.businesses.values()).filter(
+      (b) => b.districtId === districtId && b.type === "data_processing"
+    );
+
+    const baseValue = dataBusinesses.reduce((sum, b) => sum + b.revenue, 0);
+    const growthFactor =
+      dataBusinesses.reduce((sum, b) => sum + b.growth, 0) /
+      Math.max(dataBusinesses.length, 1);
+
+    return baseValue * (1 + growthFactor);
+  }
+
+  private async assessDataTrading(districtId: string): Promise<number> {
+    const businesses = Array.from(this.businesses.values()).filter(
+      (b) => b.districtId === districtId
+    );
+
+    return (
+      businesses.reduce((sum, b) => sum + (b.dataUtilization || 0), 0) /
+      Math.max(businesses.length, 1)
+    );
+  }
+
+  private async measureDataUtilization(districtId: string): Promise<number> {
+    const businesses = Array.from(this.businesses.values()).filter(
+      (b) => b.districtId === districtId
+    );
+
+    const totalUtilization = businesses.reduce(
+      (sum, b) => sum + (b.dataUtilization || 0),
+      0
+    );
+    const efficiency =
+      businesses.reduce((sum, b) => sum + b.stability, 0) /
+      Math.max(businesses.length, 1);
+
+    return totalUtilization * efficiency;
+  }
+
+  private calculateInnovationIndex(aiBusinesses: BusinessActivity[]): number {
+    if (!aiBusinesses.length) return 0;
+
+    return (
+      aiBusinesses.reduce(
+        (sum, business) =>
+          sum +
+          (business.growth * 0.3 +
+            (business.aiIntegration || 0) * 0.4 +
+            business.stability * 0.3),
+        0
+      ) / aiBusinesses.length
+    );
+  }
+
+  private assessDigitalTransformation(): number {
+    const allBusinesses = Array.from(this.businesses.values());
+    const aiBusinesses = allBusinesses.filter(
+      (b) => b.type === "ai_services" || b.type === "data_processing"
+    );
+
+    const aiRevenue = aiBusinesses.reduce((sum, b) => sum + b.revenue, 0);
+    const totalRevenue = allBusinesses.reduce((sum, b) => sum + b.revenue, 0);
+
+    return aiRevenue / Math.max(totalRevenue, 1);
   }
 
   // Public API methods
@@ -298,6 +483,44 @@ export class EconomyService extends EventEmitter {
     districtId: string
   ): Promise<MarketMetrics | undefined> {
     return this.marketMetrics.get(districtId);
+  }
+
+  async getAIEconomicMetrics(districtId: string) {
+    const metrics = this.marketMetrics.get(districtId);
+    return {
+      aiEconomicActivity: metrics?.aiEconomicActivity || 0,
+      computationalResources: metrics?.computationalResources || 0,
+      dataMarketMetrics: metrics?.dataMarketMetrics || 0,
+    };
+  }
+
+  async getDataMarketMetrics(districtId: string) {
+    const dataMarketValue = await this.calculateDataMarketValue(districtId);
+    const dataTrading = await this.assessDataTrading(districtId);
+    const dataUtilization = await this.measureDataUtilization(districtId);
+    return { dataMarketValue, dataTrading, dataUtilization };
+  }
+
+  async getInnovationMetrics() {
+    return {
+      innovationIndex: this.economicIndicators.innovationIndex,
+      digitalTransformation: this.economicIndicators.digitalTransformation,
+    };
+  }
+
+  async getDigitalTransformationMetrics() {
+    const allBusinesses = Array.from(this.businesses.values());
+    const aiBusinesses = allBusinesses.filter(
+      (b) => b.type === "ai_services" || b.type === "data_processing"
+    );
+
+    return {
+      transformationRate: this.economicIndicators.digitalTransformation,
+      aiBusinessCount: aiBusinesses.length,
+      totalBusinessCount: allBusinesses.length,
+      aiRevenue: aiBusinesses.reduce((sum, b) => sum + b.revenue, 0),
+      totalRevenue: allBusinesses.reduce((sum, b) => sum + b.revenue, 0),
+    };
   }
 
   async getEconomicIndicators(): Promise<EconomicIndicators> {

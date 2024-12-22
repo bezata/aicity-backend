@@ -4,6 +4,7 @@ import { MetricsService } from "./metrics.service";
 import { AgentCollaborationService } from "./agent-collaboration.service";
 import { VectorStoreService } from "./vector-store.service";
 import { DistrictService } from "./district.service";
+import { AnalyticsService } from "./analytics.service";
 
 interface MetricImpact {
   category: keyof CityMetrics;
@@ -103,10 +104,57 @@ export class CityEventsService extends EventEmitter {
     private metricsService: MetricsService,
     private collaborationService: AgentCollaborationService,
     private vectorStore: VectorStoreService,
-    private districtService: DistrictService
+    private districtService: DistrictService,
+    private analyticsService: AnalyticsService
   ) {
     super();
+    this.initializeService();
+  }
+
+  private initializeService() {
     this.startRandomEventGenerator();
+
+    // Track new events
+    this.on("eventCreated", (event) => {
+      this.analyticsService.trackInteraction(
+        { id: event.id, type: "city_event" } as any,
+        {
+          type: "event",
+          content: event.description,
+          sentiment: event.impact > 0 ? 0.7 : 0.3,
+          topics: ["city_event", event.category, event.type],
+        } as any
+      );
+    });
+
+    // Track event resolutions
+    this.on("eventResolved", (event) => {
+      this.analyticsService.trackInteraction(
+        { id: event.id, type: "city_event" } as any,
+        {
+          type: "resolution",
+          content: `Event resolved: ${event.description}`,
+          sentiment: 0.8,
+          topics: ["resolution", event.category, "success"],
+        } as any
+      );
+    });
+
+    // Track event impacts
+    this.on("eventImpactAssessed", (assessment) => {
+      this.analyticsService.trackInteraction(
+        { id: assessment.eventId, type: "city_event" } as any,
+        {
+          type: "impact",
+          content: `Impact assessment: ${assessment.description}`,
+          sentiment: assessment.score,
+          topics: ["impact", assessment.category, "assessment"],
+        } as any
+      );
+
+      // Track city mood based on event impact
+      this.analyticsService.trackMood(assessment.score);
+    });
   }
 
   private async startRandomEventGenerator() {
@@ -432,5 +480,15 @@ export class CityEventsService extends EventEmitter {
     };
 
     return baseEvent;
+  }
+
+  async getActiveEvents(): Promise<any[]> {
+    // Implementation
+    return [];
+  }
+
+  async getCurrentEvents(): Promise<string[]> {
+    const activeEvents = await this.getActiveEvents();
+    return activeEvents.map((event) => event.title);
   }
 }

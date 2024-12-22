@@ -1,8 +1,8 @@
 import { EventEmitter } from "events";
 import { CultureService } from "./culture.service";
-import { DistrictService } from "./district.service";
+import { DistrictMetrics, DistrictService } from "./district.service";
 import { VectorStoreService } from "./vector-store.service";
-import { District, DistrictMetrics } from "../types/district.types";
+import { District } from "../types/district.types";
 
 interface ReligiousZone {
   id: string;
@@ -334,7 +334,7 @@ export class DistrictCultureService extends EventEmitter {
     );
   }
 
-  async updateDistrictCulture(district: any) {
+  async updateDistrictCulture(district: District) {
     const culturalDistrict = this.culturalDistricts.get(district.id);
     if (culturalDistrict) {
       await this.updateDistrictMetrics(district.id);

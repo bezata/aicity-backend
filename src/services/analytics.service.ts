@@ -30,6 +30,8 @@ export class AnalyticsService extends EventEmitter {
   private topicTrends: Map<string, TopicTrend> = new Map();
   private interactionStats: Map<string, InteractionStats> = new Map();
   private moodHistory: Array<{ timestamp: number; mood: number }> = [];
+  private activeAgentTimestamps: Map<string, number> = new Map();
+  private readonly ACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
   private performanceMetrics: PerformanceMetrics = {
     averageResponseTime: 0,
     peakLoadTimestamp: 0,
@@ -37,25 +39,39 @@ export class AnalyticsService extends EventEmitter {
     resourceUtilization: 0,
   };
 
-  async getTopicTrends(): Promise<TopicTrend[]> {
-    return Array.from(this.topicTrends.values())
-      .sort((a, b) => b.frequency - a.frequency)
-      .slice(0, 10);
+  constructor() {
+    super();
+    this.startActivityMonitoring();
   }
 
-  async getInteractionStats(): Promise<InteractionStats[]> {
-    return Array.from(this.interactionStats.values());
+  private startActivityMonitoring() {
+    setInterval(() => this.updateActiveAgents(), 60 * 1000); // Check every minute
   }
 
-  async getMoodHistory(): Promise<Array<{ timestamp: number; mood: number }>> {
-    return this.moodHistory.slice(-100); // Return last 100 mood records
+  private updateActiveAgents() {
+    const now = Date.now();
+    let activeCount = 0;
+
+    this.activeAgentTimestamps.forEach((timestamp, agentId) => {
+      if (now - timestamp <= this.ACTIVITY_TIMEOUT) {
+        activeCount++;
+      } else {
+        this.activeAgentTimestamps.delete(agentId);
+      }
+    });
+
+    this.performanceMetrics.activeAgents = activeCount;
+    this.emit("activeAgentsUpdated", activeCount);
   }
 
-  async getPerformanceMetrics(): Promise<PerformanceMetrics> {
-    return this.performanceMetrics;
+  trackAgentActivity(agentId: string) {
+    this.activeAgentTimestamps.set(agentId, Date.now());
+    this.updateActiveAgents();
   }
 
   trackInteraction(agent: Agent, message: Message) {
+    this.trackAgentActivity(agent.id);
+
     const startTime = Date.now();
     const stats = this.interactionStats.get(agent.id) || {
       agentId: agent.id,
@@ -67,7 +83,7 @@ export class AnalyticsService extends EventEmitter {
     };
 
     stats.totalInteractions++;
-    if (message.sentiment) {
+    if (message.sentiment !== undefined) {
       stats.averageSentiment =
         (stats.averageSentiment * (stats.totalInteractions - 1) +
           message.sentiment) /
@@ -93,6 +109,24 @@ export class AnalyticsService extends EventEmitter {
 
     this.interactionStats.set(agent.id, stats);
     this.updatePerformanceMetrics(responseTime);
+  }
+
+  async getTopicTrends(): Promise<TopicTrend[]> {
+    return Array.from(this.topicTrends.values())
+      .sort((a, b) => b.frequency - a.frequency)
+      .slice(0, 10);
+  }
+
+  async getInteractionStats(): Promise<InteractionStats[]> {
+    return Array.from(this.interactionStats.values());
+  }
+
+  async getMoodHistory(): Promise<Array<{ timestamp: number; mood: number }>> {
+    return this.moodHistory.slice(-100); // Return last 100 mood records
+  }
+
+  async getPerformanceMetrics(): Promise<PerformanceMetrics> {
+    return this.performanceMetrics;
   }
 
   private updateTopicTrends(topics: string[], sentiment?: number) {

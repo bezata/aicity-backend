@@ -132,41 +132,111 @@ export class AgentCollaborationService extends EventEmitter {
 
     // Track collaboration sessions
     this.on("collaborationStarted", (session) => {
-      this.analyticsService.trackInteraction(
-        { id: session.id, type: "collaboration" } as any,
-        {
-          type: "collaboration",
-          content: `Collaboration session started with ${session.participants.length} participants`,
-          sentiment: 0.7,
-          topics: ["collaboration", "session", "start"],
-        } as any
-      );
+      // Track activity for all participating agents
+      session.agents.forEach((agentId: string) => {
+        this.analyticsService.trackAgentActivity(agentId);
+      });
+
+      const agent: Agent = {
+        id: session.id,
+        name: "Collaboration System",
+        personality: "Systematic",
+        systemPrompt: "Manage collaboration sessions",
+        interests: ["collaboration", "coordination"],
+        preferredStyle: "instructional",
+        traits: {
+          analyticalThinking: 1,
+          creativity: 0.5,
+          empathy: 0.7,
+          curiosity: 0.6,
+          enthusiasm: 0.5,
+        },
+        memoryWindowSize: 10,
+        emotionalRange: { min: 0.3, max: 0.8 },
+      };
+
+      const message: Message = {
+        id: crypto.randomUUID(),
+        agentId: agent.id,
+        content: `Collaboration session started with ${session.agents.length} participants`,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: 0.7,
+        topics: ["collaboration", "session", "start"],
+      };
+
+      this.analyticsService.trackInteraction(agent, message);
     });
 
     // Track collaboration outcomes
     this.on("collaborationEnded", (session) => {
-      this.analyticsService.trackInteraction(
-        { id: session.id, type: "collaboration" } as any,
-        {
-          type: "collaboration",
-          content: `Collaboration session ended with consensus level: ${session.consensusLevel}`,
-          sentiment: session.consensusLevel,
-          topics: ["collaboration", "session", "end", "consensus"],
-        } as any
-      );
+      // Track final activity for all participating agents
+      session.agents.forEach((agentId: string) => {
+        this.analyticsService.trackAgentActivity(agentId);
+      });
+
+      const agent: Agent = {
+        id: session.id,
+        name: "Collaboration System",
+        personality: "Systematic",
+        systemPrompt: "Manage collaboration sessions",
+        interests: ["collaboration", "coordination"],
+        preferredStyle: "instructional",
+        traits: {
+          analyticalThinking: 1,
+          creativity: 0.5,
+          empathy: 0.7,
+          curiosity: 0.6,
+          enthusiasm: 0.5,
+        },
+        memoryWindowSize: 10,
+        emotionalRange: { min: 0.3, max: 0.8 },
+      };
+
+      const message: Message = {
+        id: crypto.randomUUID(),
+        agentId: agent.id,
+        content: `Collaboration session ended with consensus level: ${session.metrics.consensusLevel}`,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: session.metrics.consensusLevel,
+        topics: ["collaboration", "session", "end", "consensus"],
+      };
+
+      this.analyticsService.trackInteraction(agent, message);
     });
 
     // Track significant decisions
     this.on("decisionMade", (decision) => {
-      this.analyticsService.trackInteraction(
-        { id: decision.sessionId, type: "collaboration" } as any,
-        {
-          type: "decision",
-          content: decision.description,
-          sentiment: decision.confidence,
-          topics: ["decision", decision.category, "collaboration"],
-        } as any
-      );
+      const agent: Agent = {
+        id: decision.sessionId,
+        name: "Collaboration System",
+        personality: "Systematic",
+        systemPrompt: "Manage collaboration sessions",
+        interests: ["collaboration", "coordination"],
+        preferredStyle: "instructional",
+        traits: {
+          analyticalThinking: 1,
+          creativity: 0.5,
+          empathy: 0.7,
+          curiosity: 0.6,
+          enthusiasm: 0.5,
+        },
+        memoryWindowSize: 10,
+        emotionalRange: { min: 0.3, max: 0.8 },
+      };
+
+      const message: Message = {
+        id: crypto.randomUUID(),
+        agentId: agent.id,
+        content: decision.description,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: decision.confidence,
+        topics: ["decision", decision.category, "collaboration"],
+      };
+
+      this.analyticsService.trackInteraction(agent, message);
     });
   }
 
@@ -1588,6 +1658,7 @@ Please provide these details to continue the discussion.`;
 
   private async recordAgentActivity(agentId: string) {
     await this.aiIntegrationService.recordAgentActivity(agentId);
+    this.analyticsService.trackAgentActivity(agentId);
   }
 
   private async recordMultipleAgentActivity(agentIds: string[]) {

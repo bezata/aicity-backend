@@ -928,4 +928,45 @@ export class AgentCultureService extends EventEmitter {
       interest.toLowerCase().includes(keyword)
     );
   }
+
+  async updateAgentInteractions(
+    agentId: string,
+    data: {
+      type: string;
+      partnerId?: string;
+      context?: any;
+    }
+  ): Promise<void> {
+    try {
+      // Record the interaction in the culture service
+      await this.cultureService.recordAgentInteraction({
+        agentId,
+        interactionType: data.type,
+        partnerId: data.partnerId,
+        timestamp: Date.now(),
+        context: data.context,
+      });
+
+      // Store interaction data in vector store for pattern analysis
+      if (data.context) {
+        await this.vectorStore.upsert({
+          id: `interaction-${Date.now()}-${agentId}`,
+          values: await this.vectorStore.createEmbedding(
+            JSON.stringify(data.context)
+          ),
+          metadata: {
+            type: "agent_interaction",
+            agentId,
+            partnerId: data.partnerId,
+            interactionType: data.type,
+            timestamp: Date.now(),
+          },
+        });
+      }
+
+      console.log(`🤖 Recorded interaction for agent ${agentId}: ${data.type}`);
+    } catch (error) {
+      console.error("Error updating agent interactions:", error);
+    }
+  }
 }

@@ -329,13 +329,72 @@ const conversationService = new ConversationService(
 );
 
 // Register city agents for autonomous conversations
-const registerCityAgents = () => {
+const registerCityAgents = async () => {
+  // Initialize AI system first
+  await initializeAISystem();
+
+  // Register agents and store them in the conversation service
   for (const agent of allCityAgents) {
-    agentConversationService.registerAgent(agent).catch(console.error);
+    await agentConversationService.registerAgent(agent);
+    console.log(`🤖 Registered agent: ${agent.name}`);
   }
+
+  // Start initial conversations between agents
+  const startInitialConversations = async () => {
+    const availableAgents = [...allCityAgents];
+
+    // Create initial pairs of agents based on interests
+    while (availableAgents.length >= 2) {
+      const agent1 = availableAgents.shift()!;
+      const agent2 = availableAgents.find((a) =>
+        a.interests.some((interest) => agent1.interests.includes(interest))
+      );
+
+      if (agent2) {
+        availableAgents.splice(availableAgents.indexOf(agent2), 1);
+        await agentConversationService.initiateAgentActivity(agent1);
+        console.log(
+          `🤖 Started conversation between ${agent1.name} and ${agent2.name}`
+        );
+      }
+    }
+  };
+
+  // Start initial conversations
+  await startInitialConversations();
+  console.log("🤖 Started initial agent conversations");
+
+  // Start periodic agent activities
+  startAgentActivities();
+  console.log("🤖 Started periodic agent activities");
 };
 
-registerCityAgents();
+// Start periodic agent activities
+const startAgentActivities = () => {
+  // Check for new conversation opportunities every minute
+  setInterval(async () => {
+    const activeConversations =
+      await agentConversationService.getActiveConversations();
+    console.log(`🤖 Active conversations: ${activeConversations.length}`);
+
+    // Find agents not in conversations
+    const busyAgents = new Set(
+      activeConversations.flatMap((conv) => conv.participants.map((p) => p.id))
+    );
+
+    const availableAgents = allCityAgents.filter(
+      (agent) => !busyAgents.has(agent.id)
+    );
+
+    // Start new conversations for available agents
+    for (const agent of availableAgents) {
+      await agentConversationService.initiateAgentActivity(agent);
+    }
+  }, 60 * 1000); // Every minute
+};
+
+// Call registration asynchronously
+registerCityAgents().catch(console.error);
 
 const culturalDonation = new CulturalDonationService(
   cultureService,

@@ -56,12 +56,46 @@ export class AIIntegrationService {
     }
   }
 
-  async recordAgentActivity(agentId: string) {
-    if (!this.activeAgents.has(agentId)) {
-      this.activeAgents.add(agentId);
+  async recordAgentActivity(
+    agentId: string,
+    activity?: {
+      type: string;
+      partnerId?: string;
+      context?: any;
     }
-    this.lastHeartbeat.set(agentId, Date.now());
-    this.updateNetworkStatus();
+  ): Promise<void> {
+    try {
+      const activityData = {
+        agentId,
+        timestamp: Date.now(),
+        ...activity,
+      };
+
+      // Store activity in vector store
+      await this.vectorStore.upsert({
+        id: `agent-activity-${Date.now()}`,
+        values: await this.vectorStore.createEmbedding(
+          JSON.stringify(activityData)
+        ),
+        metadata: {
+          type: "agent_activity",
+          agentId,
+          activityType: activity?.type || "registration",
+          timestamp: Date.now(),
+        },
+      });
+
+      // Update agent state in culture service if needed
+      if (activity?.type === "conversation_start") {
+        await this.agentCultureService.updateAgentInteractions(agentId, {
+          type: activity.partnerId || "solo_activity",
+          partnerId: activity.partnerId,
+          context: activity,
+        });
+      }
+    } catch (error) {
+      console.error(`Error recording agent activity for ${agentId}:`, error);
+    }
   }
 
   async initializeSystem(

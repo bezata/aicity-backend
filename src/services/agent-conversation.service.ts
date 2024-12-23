@@ -202,7 +202,7 @@ export class AgentConversationService extends EventEmitter {
   private async startConversation(agentIds: string[], suggestedTopic?: string) {
     const conversationId = `conv-${Date.now()}`;
     const topic = suggestedTopic || this.findCommonTopic(agentIds);
-    const districtId = this.selectRandomLocation();
+    const districtId = await this.selectRandomLocation();
 
     // Get district context from city coordinator
     const districtContext = await this.cityCoordinator.getDistrictContext(
@@ -509,13 +509,17 @@ export class AgentConversationService extends EventEmitter {
     );
   }
 
-  private selectRandomLocation(): string {
+  private async selectRandomLocation(): Promise<string> {
     // Get list of active districts from city coordinator
     const districts = this.cityCoordinator.getActiveDistricts();
     if (!districts || districts.length === 0) {
       return "central-district"; // Fallback to central district
     }
-    return districts[Math.floor(Math.random() * districts.length)].id;
+
+    // Select a random district
+    const randomDistrict =
+      districts[Math.floor(Math.random() * districts.length)];
+    return randomDistrict.id;
   }
 
   private isAgentBusy(agentId: string): boolean {
@@ -590,5 +594,69 @@ export class AgentConversationService extends EventEmitter {
     const recentMessages = conversation.messages.slice(-3);
     const sentiments = recentMessages.map((m) => m.sentiment || 0.5);
     return sentiments.reduce((a, b) => a + b, 0) / sentiments.length;
+  }
+
+  async initiateAgentActivity(agent: Agent): Promise<void> {
+    try {
+      if (this.isAgentBusy(agent.id)) {
+        console.log(`🤖 Agent ${agent.name} is busy, skipping activity`);
+        return;
+      }
+
+      // Find potential conversation partners based on interests
+      const potentialPartners = await this.findPotentialConversationPartners(
+        agent
+      );
+
+      if (potentialPartners.length > 0) {
+        // Select a random partner
+        const partner =
+          potentialPartners[
+            Math.floor(Math.random() * potentialPartners.length)
+          ];
+
+        // Get a district for the conversation
+        const districtId = await this.selectRandomLocation();
+        const districtContext = await this.cityCoordinator.getDistrictContext(
+          districtId
+        );
+
+        if (districtContext) {
+          console.log(
+            `🤖 Agent ${agent.name} initiating conversation with ${partner.name} in district ${districtId}`
+          );
+
+          // Start a conversation with district context
+          await this.startConversation([agent.id, partner.id], undefined);
+        }
+      } else {
+        console.log(
+          `🤖 No suitable conversation partners found for ${agent.name}`
+        );
+      }
+    } catch (error) {
+      console.error(`Error initiating activity for agent ${agent.id}:`, error);
+    }
+  }
+
+  private async findPotentialConversationPartners(
+    agent: Agent
+  ): Promise<Agent[]> {
+    // Get all registered agents except the initiator
+    const potentialPartners = Array.from(this.agentInterests.entries())
+      .filter(([id, _]) => id !== agent.id)
+      .filter(([id, _]) => !this.isAgentBusy(id))
+      .filter(([id, interests]) => {
+        // Check for common interests
+        const agentInterests = this.agentInterests.get(agent.id);
+        if (!agentInterests) return false;
+        return Array.from(interests).some((interest) =>
+          agentInterests.has(interest)
+        );
+      })
+      .map(([id, _]) => this.getAgent(id))
+      .filter((a): a is Agent => !!a);
+
+    return potentialPartners;
   }
 }

@@ -72,6 +72,13 @@ interface DistrictContext {
   developmentProjects: string[];
 }
 
+interface CityEvent {
+  id: string;
+  type: string;
+  timestamp: number;
+  data?: any;
+}
+
 export class CityCoordinatorService extends EventEmitter {
   private readonly coordinatorAgent: Agent = {
     id: "city-coordinator",
@@ -107,6 +114,7 @@ export class CityCoordinatorService extends EventEmitter {
   private activeProposals: Map<string, AgentProposal> = new Map();
   private implementationQueue: AgentProposal[] = [];
   private districts: Map<string, District> = new Map();
+  private eventHistory: CityEvent[] = [];
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -1023,5 +1031,16 @@ export class CityCoordinatorService extends EventEmitter {
     defaultDistricts.forEach((district) => {
       this.districts.set(district.id, district);
     });
+  }
+
+  async getEvents(): Promise<
+    Array<{ id: string; type: string; timestamp: number }>
+  > {
+    // Return recent city events
+    return this.eventHistory.slice(-50).map((event: CityEvent) => ({
+      id: event.id,
+      type: event.type,
+      timestamp: event.timestamp,
+    }));
   }
 }

@@ -1,13 +1,19 @@
+export interface SystemProtocol {
+  name: string;
+  version: string;
+  rules: string[];
+}
+
 export interface SystemInitializationConfig {
   agents: string[];
-  protocol: string;
+  protocol: SystemProtocol;
   initialState?: Record<string, any>;
 }
 
 export interface NetworkStatus {
   isActive: boolean;
   connectedAgents: number;
-  protocol: string;
+  protocol: SystemProtocol;
   timestamp: number;
 }
 

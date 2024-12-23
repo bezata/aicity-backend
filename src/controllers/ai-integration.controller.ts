@@ -7,7 +7,11 @@ const InitializeRequestSchema = t.Object({
   systemKey: t.String(),
   config: t.Object({
     agents: t.Array(t.String()),
-    protocol: t.String(),
+    protocol: t.Object({
+      name: t.String(),
+      version: t.String(),
+      rules: t.Array(t.String()),
+    }),
     initialState: t.Optional(t.Record(t.String(), t.Any())),
   }),
 });

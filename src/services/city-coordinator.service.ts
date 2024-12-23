@@ -5,6 +5,7 @@ import {
   AgentProposal,
   CoordinationEvent,
 } from "../types/city-coordinator.types";
+import { MetricsUpdate } from "../types/city-metrics.types";
 import {
   VectorStoreService,
   CulturalHotspotMetadata,
@@ -20,6 +21,7 @@ import { Agent } from "../types/agent.types";
 import { Message } from "../types/conversation.types";
 import { CityMemoryService } from "./city-memory.service";
 import type { RecordMetadata } from "@pinecone-database/pinecone";
+import { EconomyService } from "./economy.service";
 
 // Add these interfaces for type safety
 interface MetricsData {
@@ -96,7 +98,8 @@ export class CityCoordinatorService extends EventEmitter {
     private transportService: TransportService,
     private socialDynamicsService: SocialDynamicsService,
     private analyticsService: AnalyticsService,
-    private cityMemoryService: CityMemoryService
+    private cityMemoryService: CityMemoryService,
+    private economyService: EconomyService
   ) {
     super();
     this.currentMetrics = {
@@ -603,12 +606,23 @@ export class CityCoordinatorService extends EventEmitter {
   }
 
   private async getEconomyMetrics(): Promise<CityMetrics["economy"]> {
+    // Get economic indicators from the economy service
+    const indicators = await this.economyService.getEconomicIndicators();
+    const jobMarkets = await Promise.all(
+      Array.from(this.economyService["jobMarkets"].values())
+    );
+
+    // Calculate aggregate employment rate
+    const avgEmploymentRate =
+      jobMarkets.reduce((sum, market) => sum + market.employmentRate, 0) /
+      Math.max(jobMarkets.length, 1);
+
     return {
-      employmentRate: 0.92, // To be implemented with real data
-      jobGrowth: 2.5,
-      giniCoefficient: 0.35,
-      businessFormationRate: 12.5,
-      affordabilityIndex: 0.65,
+      employmentRate: avgEmploymentRate,
+      jobGrowth: indicators.economicGrowth,
+      giniCoefficient: 0.35, // To be implemented with real data
+      businessFormationRate: 12.5, // To be implemented with real data
+      affordabilityIndex: 0.65, // To be implemented with real data
     };
   }
 
@@ -841,5 +855,100 @@ export class CityCoordinatorService extends EventEmitter {
       );
       return [];
     }
+  }
+
+  private initializeMetricsMonitoring() {
+    // Update metrics every 5 minutes
+    setInterval(async () => {
+      await this.updateMetrics();
+    }, 5 * 60 * 1000);
+
+    // Listen to economy service events
+    this.economyService.on("economicIndicatorsUpdated", async (indicators) => {
+      await this.updateEconomicMetrics();
+    });
+  }
+
+  private async updateMetrics() {
+    const [carbonEmissions, energyRatio, economyMetrics] = await Promise.all([
+      this.calculateCarbonEmissions(),
+      this.calculateEnergyRatio(),
+      this.getEconomyMetrics(),
+    ]);
+
+    this.currentMetrics = {
+      sustainability: {
+        carbonEmissions,
+        renewableEnergyRatio: energyRatio,
+        greenSpaceIndex: 0,
+        airQualityScore: 0,
+        waterQualityScore: 0,
+      },
+      economy: economyMetrics,
+      social: {
+        healthcareAccess: 0,
+        educationQuality: 0,
+        culturalEngagement: 0,
+        civicParticipation: 0,
+        communityWellbeing: 0,
+      },
+      infrastructure: {
+        trafficCongestion: 0,
+        publicTransitReliability: 0,
+        wasteRecyclingRate: 0,
+        infrastructureHealth: 0,
+        housingAvailability: 0,
+      },
+    };
+
+    // Emit the metrics update
+    const update: MetricsUpdate = {
+      type: "full",
+      metrics: this.currentMetrics,
+      source: "city-coordinator",
+    };
+
+    this.emit("metricsUpdated", update);
+  }
+
+  private async updateEconomicMetrics() {
+    const economyMetrics = await this.getEconomyMetrics();
+
+    this.currentMetrics = {
+      ...this.currentMetrics,
+      economy: economyMetrics,
+      sustainability: {
+        carbonEmissions: 0,
+        renewableEnergyRatio: 0,
+        greenSpaceIndex: 0,
+        airQualityScore: 0,
+        waterQualityScore: 0,
+      },
+      infrastructure: {
+        trafficCongestion: 0,
+        publicTransitReliability: 0,
+        wasteRecyclingRate: 0,
+        infrastructureHealth: 0,
+        housingAvailability: 0,
+      },
+    };
+
+    // Emit the economic metrics update
+    const update: MetricsUpdate = {
+      type: "economy",
+      metrics: { economy: economyMetrics },
+      source: "city-coordinator",
+    };
+
+    this.emit("metricsUpdated", update);
+  }
+
+  public getCurrentMetrics(): CityMetrics {
+    return { ...this.currentMetrics };
+  }
+
+  public async requestMetricsUpdate(): Promise<CityMetrics> {
+    await this.updateMetrics();
+    return this.getCurrentMetrics();
   }
 }

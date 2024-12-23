@@ -72,7 +72,7 @@ export class AIIntegrationService {
       // Store protocol with flat metadata
       const protocolMetadata: Partial<AISystemMetadata> = {
         record_type: "protocol",
-        protocol_name: config.protocol,
+        protocol_name: config.protocol.name,
         timestamp: Date.now(),
         system_id: this.systemId,
       };

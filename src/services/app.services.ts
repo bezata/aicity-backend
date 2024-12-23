@@ -33,6 +33,7 @@ import { CulturalDonationService } from "./cultural-donation.service";
 import { CulturalTransportService } from "./cultural-transport.service";
 import { AIIntegrationService } from "./ai-integration.service";
 import { DonationService } from "./donation.service";
+import { DistrictCultureService } from "./district-culture.service";
 
 // Define store type
 export type AppStore = {
@@ -100,11 +101,17 @@ const emergencyService = new EmergencyService(
   departmentService,
   citizenService
 );
+const initialDistrictCultureService = new DistrictCultureService(
+  undefined as unknown as CultureService,
+  undefined as unknown as DistrictService, // Will be updated after DistrictService initialization
+  vectorStore
+);
 const initialDistrictService = new DistrictService(
   cityService,
   vectorStore,
   togetherService,
-  analyticsService
+  analyticsService,
+  initialDistrictCultureService
 );
 // Create initial instances with undefined instead of null
 const initialCityRhythm = new CityRhythmService(
@@ -175,15 +182,27 @@ const cultureService = new CultureService(
 );
 const landmarkService = new LandmarkService(vectorStore, analyticsService);
 
-// Initialize remaining services
+// Initialize agent culture service
 const agentCulture = new AgentCultureService(cultureService, vectorStore);
 
+// Initialize district culture service first
+const districtCultureService = new DistrictCultureService(
+  cultureService,
+  undefined as unknown as DistrictService, // Will be updated after DistrictService initialization
+  vectorStore
+);
+
+// Initialize district service with all dependencies including district culture service
 const districtService = new DistrictService(
   cityService,
   vectorStore,
   togetherService,
-  analyticsService
+  analyticsService,
+  districtCultureService
 );
+
+// Update district culture service with district service reference
+(districtCultureService as any).districtService = districtService;
 
 // Initialize AI Integration service first since other services depend on it
 const aiIntegration = new AIIntegrationService(vectorStore);
@@ -227,7 +246,7 @@ const environmentService = new EnvironmentService(
   smartInfrastructureService,
   analyticsService
 );
-
+const initialEconomyService = new EconomyService(vectorStore, districtService);
 // Initialize city coordinator service
 const cityCoordinator = new CityCoordinatorService(
   vectorStore,
@@ -236,7 +255,8 @@ const cityCoordinator = new CityCoordinatorService(
   transportService,
   socialDynamicsService,
   analyticsService,
-  cityMemory
+  cityMemory,
+  initialEconomyService
 );
 
 const departmentAgentService = new DepartmentAgentService(

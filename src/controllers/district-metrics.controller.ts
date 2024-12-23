@@ -341,10 +341,33 @@ export const DistrictMetricsController = new Elysia({
           ws as any,
           districtId
         );
+
+        // Send initial heartbeat
+        ws.send(JSON.stringify({ type: "heartbeat", timestamp: Date.now() }));
       } catch (error) {
         console.error("Error in WebSocket connection:", error);
         ws.close();
       }
+    },
+
+    // Add message handler
+    message(ws, message) {
+      try {
+        const data =
+          typeof message === "string" ? JSON.parse(message) : message;
+        if (data.type === "heartbeat") {
+          // Respond to heartbeat
+          ws.send(JSON.stringify({ type: "heartbeat", timestamp: Date.now() }));
+        }
+      } catch (error) {
+        console.error("Error handling WebSocket message:", error);
+      }
+    },
+
+    // Add close handler
+    close(ws) {
+      const districtId = ws.data.params.id;
+      console.log(`WebSocket connection closed for district: ${districtId}`);
     },
   })
 

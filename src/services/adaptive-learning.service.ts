@@ -2,8 +2,29 @@ import { EventEmitter } from "events";
 import { VectorStoreService } from "./vector-store.service";
 import { MetricsService } from "./metrics.service";
 import { CityService } from "./city.service";
+import { DistrictService } from "./district.service";
+import { AgentConversationService } from "./agent-conversation.service";
+import { SocialDynamicsService } from "./social-dynamics.service";
 import _ from "lodash";
 import { CityMetrics } from "../types/city-metrics";
+import { ConversationEvent } from "../types/conversation.types";
+import { DistrictEvent } from "../types/district.types";
+import { SocialPattern } from "../types/social-dynamics.types";
+
+interface DistrictLearningData {
+  districtId: string;
+  patterns: Array<{
+    type: string;
+    success: boolean;
+    impact: number;
+  }>;
+  adaptations: AdaptationPlan;
+  metrics: {
+    socialCohesion: number;
+    economicActivity: number;
+    environmentalHealth: number;
+  };
+}
 
 interface CityLearningData {
   successPatterns: Array<{
@@ -21,6 +42,12 @@ interface CityLearningData {
     area: string;
     potential: number;
     cost: number;
+  }>;
+  districtLearning: Map<string, DistrictLearningData>;
+  socialPatterns: Array<{
+    pattern: SocialPattern;
+    frequency: number;
+    impact: number;
   }>;
 }
 
@@ -62,17 +89,41 @@ export class AdaptiveLearningService extends EventEmitter {
   };
 
   private learningHistory: Map<string, any[]> = new Map();
+  private districtLearning: Map<string, DistrictLearningData> = new Map();
+  private socialPatterns: Map<string, SocialPattern[]> = new Map();
 
   constructor(
     private vectorStore: VectorStoreService,
     private metricsService: MetricsService,
-    private cityService: CityService
+    private cityService: CityService,
+    private districtService: DistrictService,
+    private agentConversationService: AgentConversationService,
+    private socialDynamicsService: SocialDynamicsService
   ) {
     super();
     this.initializeService();
   }
 
   private async initializeService() {
+    // Initialize district learning data
+    const districts = await this.districtService.getAllDistricts();
+    districts.forEach((district) => {
+      this.districtLearning.set(district.id, {
+        districtId: district.id,
+        patterns: [],
+        adaptations: {
+          infrastructureChanges: [],
+          serviceImprovements: [],
+          newFeatures: [],
+        },
+        metrics: {
+          socialCohesion: 0,
+          economicActivity: 0,
+          environmentalHealth: 0,
+        },
+      });
+    });
+
     // Start the learning cycle
     setInterval(() => this.evolveCity(), 24 * 60 * 60 * 1000); // Daily adaptation cycle
     this.setupEventListeners();
@@ -81,339 +132,390 @@ export class AdaptiveLearningService extends EventEmitter {
   private setupEventListeners() {
     this.cityService.on("metricsUpdated", this.handleMetricsUpdate.bind(this));
     this.metricsService.on("alert", this.handleMetricsAlert.bind(this));
+    this.districtService.on(
+      "districtEvent",
+      this.handleDistrictEvent.bind(this)
+    );
+    this.agentConversationService.on(
+      "conversationEnded",
+      this.handleConversation.bind(this)
+    );
+    this.socialDynamicsService.on(
+      "socialPatternDetected",
+      this.handleSocialPattern.bind(this)
+    );
   }
 
-  async evolveCity() {
+  private async handleMetricsUpdate(metrics: CityMetrics) {
     try {
-      const learningData = await this.collectCityData();
-      const adaptations = await this.generateAdaptations(learningData);
-      await this.implementAdaptations(adaptations);
+      // Process metrics into learning patterns
+      const patterns = this.extractPatternsFromMetrics(metrics);
 
-      this.emit("cityEvolved", {
-        timestamp: Date.now(),
-        adaptations,
-        metrics: await this.metricsService.getMetricsAnalysis(),
+      // Update learning history
+      patterns.forEach((pattern) => {
+        const domain = this.identifyEventDomain(pattern);
+        if (!this.learningHistory.has(domain)) {
+          this.learningHistory.set(domain, []);
+        }
+        this.learningHistory.get(domain)?.push({
+          timestamp: Date.now(),
+          pattern,
+          metrics: _.cloneDeep(metrics),
+        });
       });
+
+      // Trigger adaptations if needed
+      if (this.shouldTriggerAdaptation(patterns)) {
+        await this.evolveCity();
+      }
+
+      this.emit("learningUpdated", { patterns, timestamp: Date.now() });
     } catch (error) {
-      console.error("Error in city evolution cycle:", error);
-      this.emit("evolutionError", error);
+      console.error("Error handling metrics update:", error);
     }
   }
 
-  private async collectCityData(): Promise<CityLearningData> {
-    const [
-      successPatterns,
-      failurePoints,
-      emergingNeeds,
-      adaptationOpportunities,
-    ] = await Promise.all([
-      this.analyzeSuccessfulInteractions(),
-      this.identifySystemWeaknesses(),
-      this.predictFutureNeeds(),
-      this.findAdaptationOpportunities(),
-    ]);
+  private async handleMetricsAlert(alert: any) {
+    try {
+      // Process alert into adaptation opportunity
+      const opportunity = this.convertAlertToOpportunity(alert);
 
-    return {
-      successPatterns,
-      failurePoints,
-      emergingNeeds,
-      adaptationOpportunities,
-    };
-  }
-
-  private async analyzeSuccessfulInteractions(): Promise<
-    Array<{ pattern: string; impact: number; replicability: number }>
-  > {
-    const recentInteractions = await this.vectorStore.query({
-      vector: await this.vectorStore.createEmbedding(
-        "successful city interactions"
-      ),
-      filter: {
-        timestamp: { $gt: Date.now() - this.config.analysisWindow },
-      },
-      topK: 100,
-    });
-
-    const patterns = recentInteractions.matches.reduce(
-      (
-        acc: Array<{ pattern: string; impact: number; replicability: number }>,
-        interaction: any
-      ) => {
-        const pattern = this.extractInteractionPattern(interaction);
-        if (pattern) {
-          const existing = acc.find((p) => p.pattern === pattern.pattern);
-          if (existing) {
-            existing.impact = (existing.impact + pattern.impact) / 2;
-            existing.replicability += 0.1;
-          } else {
-            acc.push(pattern);
-          }
+      // Update affected districts
+      if (alert.districtId) {
+        const districtData = this.districtLearning.get(alert.districtId);
+        if (districtData) {
+          districtData.patterns.push({
+            type: alert.type,
+            success: false,
+            impact: alert.severity || 0.5,
+          });
         }
-        return acc;
-      },
-      []
-    );
+      }
 
-    return patterns.filter(
-      (p: { impact: number }) => p.impact >= this.config.impactThreshold
-    );
+      // Trigger immediate adaptation if severe
+      if (alert.severity > 0.8) {
+        const adaptation = await this.generateEmergencyAdaptation(alert);
+        await this.implementAdaptations(adaptation);
+      }
+
+      this.emit("alertProcessed", {
+        alert,
+        opportunity,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Error handling metrics alert:", error);
+    }
   }
 
-  private async identifySystemWeaknesses(): Promise<
-    Array<{ issue: string; frequency: number; severity: number }>
-  > {
-    const metricsAnalysis =
-      (await this.metricsService.getMetricsAnalysis()) as {
-        current: CityMetrics;
-        trends: { improving: string[]; declining: string[]; stable: string[] };
-        recommendations: string[];
-      };
-    const weaknesses: Array<{
-      issue: string;
-      frequency: number;
-      severity: number;
-    }> = [];
+  private async handleDistrictEvent(event: DistrictEvent) {
+    try {
+      const districtData = this.districtLearning.get(event.districtId);
+      if (!districtData) return;
 
-    // Analyze various metric categories
-    for (const [category, categoryMetrics] of Object.entries(
-      metricsAnalysis.current
-    )) {
-      for (const [metric, value] of Object.entries(categoryMetrics)) {
-        if (typeof value === "number" && value < 0.6) {
-          weaknesses.push({
-            issue: `${category}.${metric}`,
-            frequency: this.calculateIssueFrequency(`${category}.${metric}`),
-            severity: 1 - value,
+      // Update district learning patterns
+      districtData.patterns.push({
+        type: event.type,
+        success: event.success || true,
+        impact: event.impact || 0.5,
+      });
+
+      // Update district metrics
+      if (event.metrics) {
+        districtData.metrics = {
+          ...districtData.metrics,
+          ...event.metrics,
+        };
+      }
+
+      // Generate district-specific adaptations if needed
+      if (this.shouldAdaptDistrict(districtData)) {
+        const adaptations = await this.generateDistrictAdaptations(
+          event.districtId
+        );
+        await this.implementDistrictAdaptations(event.districtId, adaptations);
+      }
+
+      this.emit("districtLearningUpdated", {
+        districtId: event.districtId,
+        patterns: districtData.patterns,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Error handling district event:", error);
+    }
+  }
+
+  private async handleConversation(event: ConversationEvent) {
+    try {
+      // Extract learning patterns from conversation
+      const patterns = this.extractConversationPatterns(event);
+
+      // Update district learning if conversation is district-specific
+      if (event.districtId) {
+        const districtData = this.districtLearning.get(event.districtId);
+        if (districtData) {
+          patterns.forEach((pattern) => {
+            districtData.patterns.push({
+              type: "conversation",
+              success: pattern.success,
+              impact: pattern.impact,
+            });
+          });
+        }
+      }
+
+      // Update social patterns
+      this.updateSocialPatterns(event);
+
+      this.emit("conversationLearningUpdated", {
+        patterns,
+        districtId: event.districtId,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Error handling conversation:", error);
+    }
+  }
+
+  private async handleSocialPattern(pattern: SocialPattern) {
+    try {
+      // Store social pattern
+      const patternKey = pattern.type;
+      if (!this.socialPatterns.has(patternKey)) {
+        this.socialPatterns.set(patternKey, []);
+      }
+      this.socialPatterns.get(patternKey)?.push(pattern);
+
+      // Update affected districts
+      if (pattern.districtId) {
+        const districtData = this.districtLearning.get(pattern.districtId);
+        if (districtData) {
+          districtData.patterns.push({
+            type: "social",
+            success: pattern.impact > 0,
+            impact: Math.abs(pattern.impact),
+          });
+        }
+      }
+
+      // Generate social adaptations if needed
+      if (this.shouldAdaptSocialPatterns(patternKey)) {
+        const adaptations = await this.generateSocialAdaptations(pattern);
+        await this.implementSocialAdaptations(adaptations);
+      }
+
+      this.emit("socialPatternLearningUpdated", {
+        pattern,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Error handling social pattern:", error);
+    }
+  }
+
+  private extractPatternsFromMetrics(metrics: CityMetrics): any[] {
+    // Implementation of pattern extraction from metrics
+    const patterns = [];
+    for (const [domain, values] of Object.entries(metrics)) {
+      for (const [metric, value] of Object.entries(values)) {
+        if (typeof value === "number") {
+          patterns.push({
+            domain,
+            metric,
+            value,
+            timestamp: Date.now(),
           });
         }
       }
     }
-
-    return _.orderBy(weaknesses, ["severity", "frequency"], ["desc", "desc"]);
+    return patterns;
   }
 
-  private async predictFutureNeeds(): Promise<string[]> {
-    const cityContext = this.cityService.getContext();
-    const trendAnalysis = await this.analyzeTrends(cityContext);
-    const projectedNeeds = new Set<string>();
-
-    // Population-based needs
-    if (trendAnalysis.populationGrowth > 0.05) {
-      projectedNeeds.add("infrastructure_expansion");
-      projectedNeeds.add("housing_development");
-    }
-
-    // Resource utilization needs
-    if (trendAnalysis.resourceUtilization > 0.8) {
-      projectedNeeds.add("resource_optimization");
-      projectedNeeds.add("sustainable_alternatives");
-    }
-
-    // Social needs
-    if (trendAnalysis.socialCohesion < 0.6) {
-      projectedNeeds.add("community_programs");
-      projectedNeeds.add("cultural_initiatives");
-    }
-
-    return Array.from(projectedNeeds);
+  private shouldTriggerAdaptation(patterns: any[]): boolean {
+    return patterns.some((p) => Math.abs(p.value - 0.5) > 0.3);
   }
 
-  private async findAdaptationOpportunities(): Promise<
-    Array<{ area: string; potential: number; cost: number }>
-  > {
-    const currentMetrics = await this.metricsService.getMetricsAnalysis();
-    const opportunities: Array<{
-      area: string;
-      potential: number;
-      cost: number;
-    }> = [];
-
-    // Analyze each metric category for improvement opportunities
-    for (const [category, metrics] of Object.entries(currentMetrics.current)) {
-      for (const [metric, value] of Object.entries(metrics)) {
-        if (typeof value === "number") {
-          const improvement = 1 - value;
-          if (improvement > 0.3) {
-            // Significant room for improvement
-            opportunities.push({
-              area: `${category}.${metric}`,
-              potential: improvement,
-              cost: this.estimateImprovementCost(category, metric, improvement),
-            });
-          }
-        }
-      }
-    }
-
-    return _.orderBy(opportunities, ["potential"], ["desc"]);
-  }
-
-  private async generateAdaptations(
-    data: CityLearningData
-  ): Promise<AdaptationPlan> {
+  private convertAlertToOpportunity(alert: any) {
     return {
-      infrastructureChanges: await this.suggestInfrastructureUpdates(data),
-      serviceImprovements: await this.recommendServiceEnhancements(data),
-      newFeatures: await this.proposeNewFeatures(data),
+      area: alert.type,
+      potential: alert.severity,
+      cost: this.estimateImprovementCost(alert.type, "alert", alert.severity),
     };
   }
 
-  private async suggestInfrastructureUpdates(data: CityLearningData) {
-    const updates: Array<{
-      type: "upgrade" | "new" | "remove";
-      target: string;
-      priority: number;
-      estimatedImpact: number;
-      cost: number;
-    }> = [];
-
-    // Analyze failure points for infrastructure-related issues
-    for (const failure of data.failurePoints) {
-      if (failure.issue.includes("infrastructure")) {
-        updates.push({
+  private async generateEmergencyAdaptation(
+    alert: any
+  ): Promise<AdaptationPlan> {
+    return {
+      infrastructureChanges: [
+        {
           type: "upgrade",
-          target: failure.issue,
-          priority: failure.severity * failure.frequency,
-          estimatedImpact: 0.8,
-          cost: this.estimateUpgradeCost(failure.issue),
-        });
-      }
-    }
-
-    // Consider emerging needs for new infrastructure
-    for (const need of data.emergingNeeds) {
-      if (need.includes("infrastructure")) {
-        updates.push({
-          type: "new",
-          target: need,
-          priority: 0.7,
+          target: alert.type,
+          priority: 1,
           estimatedImpact: 0.9,
-          cost: this.estimateNewInfrastructureCost(need),
-        });
-      }
-    }
-
-    return _.orderBy(updates, ["priority"], ["desc"]);
-  }
-
-  private async recommendServiceEnhancements(data: CityLearningData) {
-    const improvements: Array<{
-      service: string;
-      changes: string[];
-      expectedBenefit: number;
-      implementation: string;
-    }> = [];
-
-    // Analyze success patterns for service improvements
-    for (const pattern of data.successPatterns) {
-      if (pattern.impact > this.config.impactThreshold) {
-        improvements.push({
-          service: this.extractServiceFromPattern(pattern.pattern),
-          changes: [pattern.pattern],
-          expectedBenefit: pattern.impact * pattern.replicability,
-          implementation: `Replicate success pattern: ${pattern.pattern}`,
-        });
-      }
-    }
-
-    // Address failure points in services
-    for (const failure of data.failurePoints) {
-      if (this.isServiceRelated(failure.issue)) {
-        improvements.push({
-          service: this.extractServiceFromIssue(failure.issue),
-          changes: [`Fix: ${failure.issue}`],
-          expectedBenefit: failure.severity,
-          implementation: `Address service failure: ${failure.issue}`,
-        });
-      }
-    }
-
-    return _.orderBy(improvements, ["expectedBenefit"], ["desc"]);
-  }
-
-  private async proposeNewFeatures(data: CityLearningData) {
-    const features: Array<{
-      name: string;
-      description: string;
-      requirements: string[];
-      impact: number;
-    }> = [];
-
-    // Convert emerging needs to features
-    for (const need of data.emergingNeeds) {
-      features.push({
-        name: this.generateFeatureName(need),
-        description: this.generateFeatureDescription(need),
-        requirements: this.identifyFeatureRequirements(need),
-        impact: this.estimateFeatureImpact(need),
-      });
-    }
-
-    // Generate features from adaptation opportunities
-    for (const opportunity of data.adaptationOpportunities) {
-      if (opportunity.potential > 0.7) {
-        features.push({
-          name: this.generateFeatureName(opportunity.area),
-          description: `New feature to address ${opportunity.area}`,
-          requirements: this.identifyFeatureRequirements(opportunity.area),
-          impact: opportunity.potential,
-        });
-      }
-    }
-
-    return _.orderBy(features, ["impact"], ["desc"]);
-  }
-
-  private async implementAdaptations(adaptations: AdaptationPlan) {
-    try {
-      // Implement infrastructure changes
-      for (const change of adaptations.infrastructureChanges) {
-        await this.vectorStore.upsert({
-          id: `adaptation-${Date.now()}`,
-          values: await this.vectorStore.createEmbedding(
-            `Infrastructure adaptation: ${change.type} - ${change.target}`
-          ),
-          metadata: {
-            type: "district",
-            subtype: "adaptation",
-            impact: change.estimatedImpact,
-            cost: change.cost,
-            timestamp: Date.now(),
-          },
-        });
-      }
-
-      // Implement service improvements
-      for (const improvement of adaptations.serviceImprovements) {
-        this.emit("serviceImprovement", {
-          service: improvement.service,
-          changes: improvement.changes,
-          timestamp: Date.now(),
-        });
-      }
-
-      // Implement new features
-      for (const feature of adaptations.newFeatures) {
-        this.emit("newFeature", {
-          name: feature.name,
-          description: feature.description,
-          impact: feature.impact,
-          timestamp: Date.now(),
-        });
-      }
-
-      this.emit("adaptationsImplemented", {
-        timestamp: Date.now(),
-        summary: {
-          infrastructureChanges: adaptations.infrastructureChanges.length,
-          serviceImprovements: adaptations.serviceImprovements.length,
-          newFeatures: adaptations.newFeatures.length,
+          cost: this.estimateUpgradeCost(alert.type),
         },
-      });
-    } catch (error) {
-      console.error("Error implementing adaptations:", error);
-      this.emit("adaptationError", error);
-    }
+      ],
+      serviceImprovements: [],
+      newFeatures: [],
+    };
+  }
+
+  private shouldAdaptDistrict(data: DistrictLearningData): boolean {
+    const recentPatterns = data.patterns.filter(
+      (p) => p.impact > this.config.impactThreshold
+    );
+    return recentPatterns.length >= 3;
+  }
+
+  private async generateDistrictAdaptations(
+    districtId: string
+  ): Promise<AdaptationPlan> {
+    const districtData = this.districtLearning.get(districtId);
+    if (!districtData)
+      throw new Error(`No learning data for district ${districtId}`);
+
+    return {
+      infrastructureChanges:
+        this.generateDistrictInfrastructureChanges(districtData),
+      serviceImprovements:
+        this.generateDistrictServiceImprovements(districtData),
+      newFeatures: this.generateDistrictFeatures(districtData),
+    };
+  }
+
+  private generateDistrictInfrastructureChanges(data: DistrictLearningData) {
+    return data.patterns
+      .filter((p) => p.impact > this.config.impactThreshold)
+      .map((p) => ({
+        type: "upgrade" as const,
+        target: p.type,
+        priority: p.impact,
+        estimatedImpact: p.impact,
+        cost: this.estimateUpgradeCost(p.type),
+      }));
+  }
+
+  private generateDistrictServiceImprovements(data: DistrictLearningData) {
+    return data.patterns
+      .filter((p) => p.type.includes("service"))
+      .map((p) => ({
+        service: p.type,
+        changes: [`Improve ${p.type} based on pattern`],
+        expectedBenefit: p.impact,
+        implementation: `Implement improvements for ${p.type}`,
+      }));
+  }
+
+  private generateDistrictFeatures(data: DistrictLearningData) {
+    return data.patterns
+      .filter((p) => p.success && p.impact > 0.8)
+      .map((p) => ({
+        name: `Enhanced ${p.type}`,
+        description: `New feature based on successful pattern in ${p.type}`,
+        requirements: this.identifyFeatureRequirements(p.type),
+        impact: p.impact,
+      }));
+  }
+
+  private extractConversationPatterns(event: ConversationEvent) {
+    return [
+      {
+        success: event.sentiment > 0.5,
+        impact: Math.abs(event.sentiment - 0.5) * 2,
+        type: event.topic || "general",
+      },
+    ];
+  }
+
+  private updateSocialPatterns(event: ConversationEvent) {
+    if (!event.topic) return;
+
+    const patterns = this.socialPatterns.get(event.topic) || [];
+    patterns.push({
+      type: event.topic,
+      impact: event.sentiment,
+      timestamp: Date.now(),
+      districtId: event.districtId,
+    });
+    this.socialPatterns.set(event.topic, patterns);
+  }
+
+  private shouldAdaptSocialPatterns(patternKey: string): boolean {
+    const patterns = this.socialPatterns.get(patternKey) || [];
+    const recentPatterns = patterns.filter(
+      (p) => p.timestamp > Date.now() - this.config.analysisWindow
+    );
+    return recentPatterns.length >= 5;
+  }
+
+  private async generateSocialAdaptations(
+    pattern: SocialPattern
+  ): Promise<AdaptationPlan> {
+    return {
+      infrastructureChanges: [],
+      serviceImprovements: [
+        {
+          service: "social",
+          changes: [`Adapt to ${pattern.type} pattern`],
+          expectedBenefit: Math.abs(pattern.impact),
+          implementation: `Implement social adaptations for ${pattern.type}`,
+        },
+      ],
+      newFeatures: [],
+    };
+  }
+
+  private async implementDistrictAdaptations(
+    districtId: string,
+    adaptations: AdaptationPlan
+  ) {
+    const districtData = this.districtLearning.get(districtId);
+    if (!districtData) return;
+
+    // Update district adaptations
+    districtData.adaptations = adaptations;
+
+    // Store in vector store
+    await this.vectorStore.upsert({
+      id: `district-adaptation-${districtId}-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(
+        `District ${districtId} adaptations: ${JSON.stringify(adaptations)}`
+      ),
+      metadata: {
+        type: "district",
+        subtype: "adaptation",
+        districtId,
+        timestamp: Date.now(),
+      },
+    });
+
+    this.emit("districtAdaptationsImplemented", {
+      districtId,
+      adaptations,
+      timestamp: Date.now(),
+    });
+  }
+
+  private async implementSocialAdaptations(adaptations: AdaptationPlan) {
+    // Store in vector store
+    await this.vectorStore.upsert({
+      id: `social-adaptation-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(
+        `Social adaptations: ${JSON.stringify(adaptations)}`
+      ),
+      metadata: {
+        type: "social",
+        subtype: "adaptation",
+        timestamp: Date.now(),
+      },
+    });
+
+    this.emit("socialAdaptationsImplemented", {
+      adaptations,
+      timestamp: Date.now(),
+    });
   }
 
   // Helper methods
@@ -493,14 +595,6 @@ export class AdaptiveLearningService extends EventEmitter {
 
   private estimateFeatureImpact(input: string): number {
     return 0.8; // Default impact score
-  }
-
-  private handleMetricsUpdate(metrics: Record<string, any>) {
-    console.log("Metrics updated:", metrics);
-  }
-
-  private handleMetricsAlert(alert: Record<string, any>) {
-    console.log("Metrics alert:", alert);
   }
 
   async getCityLearningData(): Promise<CityLearningData> {
@@ -633,5 +727,179 @@ export class AdaptiveLearningService extends EventEmitter {
     }
 
     return recommendations;
+  }
+
+  private async evolveCity(): Promise<void> {
+    const cityData = await this.collectCityData();
+    const adaptations = await this.generateAdaptations(cityData);
+    await this.implementAdaptations(adaptations);
+    this.lastEvolutionTimestamp = Date.now();
+    this.emit("cityEvolved", { timestamp: Date.now() });
+  }
+
+  private async collectCityData(): Promise<CityLearningData> {
+    return {
+      successPatterns: await this.analyzeSuccessfulInteractions(),
+      failurePoints: this.analyzeFailurePoints(),
+      emergingNeeds: this.identifyEmergingNeeds(),
+      adaptationOpportunities: this.identifyAdaptationOpportunities(),
+      districtLearning: this.districtLearning,
+      socialPatterns: Array.from(this.socialPatterns.entries()).map(
+        ([type, patterns]) => ({
+          pattern: patterns[patterns.length - 1],
+          frequency: patterns.length,
+          impact:
+            patterns.reduce((sum, p) => sum + p.impact, 0) / patterns.length,
+        })
+      ),
+    };
+  }
+
+  private async analyzeSuccessfulInteractions(): Promise<
+    Array<{ pattern: string; impact: number; replicability: number }>
+  > {
+    const patterns: Array<{
+      pattern: string;
+      impact: number;
+      replicability: number;
+    }> = [];
+    for (const [domain, events] of this.learningHistory.entries()) {
+      const successfulEvents = events.filter((e) => e.success);
+      if (successfulEvents.length > 0) {
+        patterns.push({
+          pattern: domain,
+          impact:
+            successfulEvents.reduce((sum, e) => sum + (e.impact || 0), 0) /
+            successfulEvents.length,
+          replicability: successfulEvents.length / events.length,
+        });
+      }
+    }
+    return patterns;
+  }
+
+  private analyzeFailurePoints(): Array<{
+    issue: string;
+    frequency: number;
+    severity: number;
+  }> {
+    const failures: Array<{
+      issue: string;
+      frequency: number;
+      severity: number;
+    }> = [];
+    for (const [domain, events] of this.learningHistory.entries()) {
+      const failedEvents = events.filter((e) => !e.success);
+      if (failedEvents.length > 0) {
+        failures.push({
+          issue: domain,
+          frequency: this.calculateIssueFrequency(domain),
+          severity:
+            failedEvents.reduce((sum, e) => sum + (e.severity || 0), 0) /
+            failedEvents.length,
+        });
+      }
+    }
+    return failures;
+  }
+
+  private identifyEmergingNeeds(): string[] {
+    const needs: string[] = [];
+    for (const [domain, events] of this.learningHistory.entries()) {
+      const recentEvents = events.filter(
+        (e) => e.timestamp > Date.now() - this.config.analysisWindow
+      );
+      if (recentEvents.length >= 5) {
+        needs.push(domain);
+      }
+    }
+    return needs;
+  }
+
+  private identifyAdaptationOpportunities(): Array<{
+    area: string;
+    potential: number;
+    cost: number;
+  }> {
+    const opportunities: Array<{
+      area: string;
+      potential: number;
+      cost: number;
+    }> = [];
+    for (const [domain, events] of this.learningHistory.entries()) {
+      const recentEvents = events.filter(
+        (e) => e.timestamp > Date.now() - this.config.analysisWindow
+      );
+      if (recentEvents.length > 0) {
+        const potential =
+          recentEvents.reduce((sum, e) => sum + (e.impact || 0), 0) /
+          recentEvents.length;
+        opportunities.push({
+          area: domain,
+          potential,
+          cost: this.estimateImprovementCost(domain, "adaptation", potential),
+        });
+      }
+    }
+    return opportunities;
+  }
+
+  private async generateAdaptations(
+    data: CityLearningData
+  ): Promise<AdaptationPlan> {
+    return {
+      infrastructureChanges: this.generateInfrastructureChanges(data),
+      serviceImprovements: this.generateServiceImprovements(data),
+      newFeatures: this.generateNewFeatures(data),
+    };
+  }
+
+  private generateInfrastructureChanges(data: CityLearningData) {
+    return data.adaptationOpportunities
+      .filter((opp) => opp.potential > this.config.impactThreshold)
+      .map((opp) => ({
+        type: "upgrade" as const,
+        target: opp.area,
+        priority: opp.potential,
+        estimatedImpact: opp.potential,
+        cost: opp.cost,
+      }));
+  }
+
+  private generateServiceImprovements(data: CityLearningData) {
+    return data.failurePoints
+      .filter((point) => point.severity > this.config.impactThreshold)
+      .map((point) => ({
+        service: this.extractServiceFromIssue(point.issue),
+        changes: [`Address ${point.issue}`],
+        expectedBenefit: 1 - point.severity,
+        implementation: `Implement fixes for ${point.issue}`,
+      }));
+  }
+
+  private generateNewFeatures(data: CityLearningData) {
+    return data.emergingNeeds.map((need) => ({
+      name: this.generateFeatureName(need),
+      description: this.generateFeatureDescription(need),
+      requirements: this.identifyFeatureRequirements(need),
+      impact: this.estimateFeatureImpact(need),
+    }));
+  }
+
+  private async implementAdaptations(plan: AdaptationPlan): Promise<void> {
+    // Store in vector store
+    await this.vectorStore.upsert({
+      id: `adaptation-${Date.now()}`,
+      values: await this.vectorStore.createEmbedding(JSON.stringify(plan)),
+      metadata: {
+        type: "adaptation",
+        timestamp: Date.now(),
+      },
+    });
+
+    this.emit("adaptationsImplemented", {
+      plan,
+      timestamp: Date.now(),
+    });
   }
 }

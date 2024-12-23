@@ -77,7 +77,26 @@ export class AIIntegrationController {
 
   private async initializeReadySystem() {
     try {
+      // Initialize agent cultural profiles first
+      await Promise.all(
+        allCityAgents.map(async (agent: Agent) => {
+          await this.agentCultureService.initializeAgentCulture(agent);
+        })
+      );
+
       const allAgentIds = allCityAgents.map((agent: Agent) => agent.id);
+
+      // Get cultural compatibility data
+      const culturalCompatibility = await Promise.all(
+        allCityAgents.map(async (agent: Agent) => {
+          const compatibility =
+            await this.agentCultureService.getAgentCulturalCompatibility(agent);
+          return {
+            agentId: agent.id,
+            ...compatibility,
+          };
+        })
+      );
 
       // Create Pinecone-compatible metadata
       const residentAgentIds = residentAgents
@@ -171,8 +190,14 @@ export class AIIntegrationController {
               focus_areas: ["fundraising", "project management", "development"],
             },
           },
+          cultural_compatibility: culturalCompatibility,
         },
       });
+
+      // Initialize cultural interactions
+      await this.agentCultureService.initializeCulturalInteractions(
+        allCityAgents
+      );
 
       console.log("🤖 AI System initialized with", {
         total_agents: allAgentIds.length,
@@ -182,6 +207,7 @@ export class AIIntegrationController {
         environmental: environmentalAgents.length,
         cultural: culturalAgents.length,
         donation: donationAgents.length,
+        cultural_profiles: culturalCompatibility.length,
       });
 
       return result;

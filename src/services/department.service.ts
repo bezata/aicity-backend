@@ -35,6 +35,7 @@ export class DepartmentService extends EventEmitter {
     super();
     this.initializeHealthMonitoring();
     this.initializePerformanceMonitoring();
+    this.initializeDefaultDepartments();
   }
 
   private initializeHealthMonitoring() {
@@ -194,7 +195,12 @@ export class DepartmentService extends EventEmitter {
     const department = this.departments.get(departmentId);
     if (!department) throw new Error("Department not found");
 
-    department.assignedAgents.push(agentId);
+    // Add agent to department's assignedAgents array if not already present
+    if (!department.assignedAgents.includes(agentId)) {
+      department.assignedAgents.push(agentId);
+      // Update the department in the map
+      this.departments.set(departmentId, department);
+    }
 
     // Initialize agent health and mood
     const newAgent: DepartmentAgent = {
@@ -587,23 +593,26 @@ export class DepartmentService extends EventEmitter {
     await this.metricsService.updateMetrics({
       social: {
         healthcareAccessScore: avgHealth,
-        educationQualityIndex: 0.8, // Default value
-        culturalEngagement: 3.5, // Default value
-        civicParticipation: 0.65, // Default value
+        educationQualityIndex: 0.8,
         communityWellbeing: avgMood,
       },
       infrastructure: {
-        trafficCongestion: 0.4, // Default value
-        publicTransitReliability: 0.85, // Default value
-        wasteRecyclingRate: 0.6, // Default value
-        infrastructureHealth: department.metrics.efficiency,
-        smartGridEfficiency: 0.8, // Default value
+        maintenanceRequests: 23,
+        serviceUptime: 0.99,
+        healthScore: department.metrics.efficiency,
+        developmentProgress: 0.8,
+        wasteRecyclingRate: 0.6,
+        smartGridEfficiency: 0.8,
       },
       safety: {
-        crimeRate: 2.1, // Default value
+        overallScore: 0.9,
+        recentIncidents: 3,
+        responseTime: "2.5 min",
+        serviceAvailability: 0.98,
+        crimeRate: 2.1,
         emergencyResponseTime: department.metrics.responseTime,
         publicTrustIndex: department.metrics.collaborationScore,
-        disasterReadiness: 0.8, // Default value
+        disasterReadiness: 0.8,
       },
     });
   }
@@ -641,5 +650,311 @@ export class DepartmentService extends EventEmitter {
 
   async getDepartment(id: string): Promise<Department | undefined> {
     return this.departments.get(id);
+  }
+
+  private async initializeDefaultDepartments() {
+    const defaultDepartments = [
+      {
+        id: "economy-dept",
+        name: "Economy Department",
+        type: "economy" as const,
+        description:
+          "Manages economic development, financial planning, and business relations",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.89,
+          responseTime: 0.83,
+          successRate: 0.87,
+          collaborationScore: 0.86,
+        },
+        budget: {
+          total: 2800000,
+          allocated: 2300000,
+          spent: 1200000,
+          donations: 500000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "emergency-response-dept",
+        name: "Emergency Response Department",
+        type: "emergency_response" as const,
+        description: "Handles emergency situations and crisis management",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.9,
+          responseTime: 0.95,
+          successRate: 0.85,
+          collaborationScore: 0.8,
+        },
+        budget: {
+          total: 1000000,
+          allocated: 800000,
+          spent: 400000,
+          donations: 200000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "police-dept",
+        name: "Police Department",
+        type: "law_enforcement" as const,
+        description:
+          "Maintains law and order, investigates crimes, and ensures public safety",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.92,
+          responseTime: 0.94,
+          successRate: 0.88,
+          collaborationScore: 0.85,
+        },
+        budget: {
+          total: 2500000,
+          allocated: 2000000,
+          spent: 1200000,
+          donations: 500000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "fire-dept",
+        name: "Fire Department",
+        type: "fire_services" as const,
+        description:
+          "Provides fire prevention, firefighting, and rescue services",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.93,
+          responseTime: 0.96,
+          successRate: 0.91,
+          collaborationScore: 0.87,
+        },
+        budget: {
+          total: 1800000,
+          allocated: 1500000,
+          spent: 900000,
+          donations: 300000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "healthcare-dept",
+        name: "Healthcare Department",
+        type: "healthcare" as const,
+        description: "Manages public health services and healthcare facilities",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.87,
+          responseTime: 0.85,
+          successRate: 0.89,
+          collaborationScore: 0.86,
+        },
+        budget: {
+          total: 2200000,
+          allocated: 1800000,
+          spent: 1100000,
+          donations: 400000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "urban-planning-dept",
+        name: "Urban Planning Department",
+        type: "urban_planning" as const,
+        description: "Responsible for city planning and development",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.85,
+          responseTime: 0.75,
+          successRate: 0.9,
+          collaborationScore: 0.85,
+        },
+        budget: {
+          total: 2000000,
+          allocated: 1500000,
+          spent: 1000000,
+          donations: 500000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "public-safety-dept",
+        name: "Public Safety Department",
+        type: "public_safety" as const,
+        description: "Ensures public safety and security",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.88,
+          responseTime: 0.92,
+          successRate: 0.87,
+          collaborationScore: 0.83,
+        },
+        budget: {
+          total: 1500000,
+          allocated: 1200000,
+          spent: 800000,
+          donations: 300000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "environmental-dept",
+        name: "Environmental Department",
+        type: "environmental" as const,
+        description: "Manages environmental protection and sustainability",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.82,
+          responseTime: 0.78,
+          successRate: 0.85,
+          collaborationScore: 0.88,
+        },
+        budget: {
+          total: 1200000,
+          allocated: 1000000,
+          spent: 600000,
+          donations: 200000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "transportation-dept",
+        name: "Transportation Department",
+        type: "transportation" as const,
+        description: "Manages public transportation and traffic infrastructure",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.84,
+          responseTime: 0.82,
+          successRate: 0.86,
+          collaborationScore: 0.85,
+        },
+        budget: {
+          total: 1800000,
+          allocated: 1500000,
+          spent: 900000,
+          donations: 300000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "education-dept",
+        name: "Education Department",
+        type: "education" as const,
+        description: "Oversees educational institutions and programs",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.86,
+          responseTime: 0.8,
+          successRate: 0.88,
+          collaborationScore: 0.9,
+        },
+        budget: {
+          total: 2000000,
+          allocated: 1700000,
+          spent: 1000000,
+          donations: 300000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+      {
+        id: "social-services-dept",
+        name: "Social Services Department",
+        type: "social_services" as const,
+        description: "Provides social welfare and community support services",
+        assignedAgents: [],
+        activeChats: [],
+        currentProjects: [],
+        metrics: {
+          efficiency: 0.83,
+          responseTime: 0.81,
+          successRate: 0.85,
+          collaborationScore: 0.89,
+        },
+        budget: {
+          total: 1600000,
+          allocated: 1300000,
+          spent: 800000,
+          donations: 300000,
+          expenses: [],
+          donations_history: [],
+        },
+      },
+    ];
+
+    for (const dept of defaultDepartments) {
+      if (!this.departments.has(dept.id)) {
+        await this.createDepartment(dept);
+        // Create and assign some default agents
+        await this.createDefaultAgentsForDepartment(dept.id);
+      }
+    }
+
+    console.log(`Initialized ${defaultDepartments.length} default departments`);
+  }
+
+  private async createDefaultAgentsForDepartment(departmentId: string) {
+    const department = await this.getDepartment(departmentId);
+    if (!department) return;
+
+    const numAgents = Math.floor(Math.random() * 5) + 5; // 5-10 agents per department
+    const roles = [
+      "field_agent",
+      "supervisor",
+      "specialist",
+      "coordinator",
+      "analyst",
+    ];
+
+    for (let i = 0; i < numAgents; i++) {
+      const agentId = crypto.randomUUID();
+      await this.assignAgent(departmentId, agentId);
+
+      // Update the agent with more specific details
+      const agents = await this.getDepartmentAgents(departmentId);
+      const agent = agents.find((a) => a.id === agentId);
+      if (agent) {
+        agent.name = `${department.name.split(" ")[0]}-Agent-${i + 1}`;
+        agent.role = roles[Math.floor(Math.random() * roles.length)];
+
+        // Randomize performance metrics slightly
+        agent.performance = {
+          responseTime: 0.7 + Math.random() * 0.3,
+          resolutionRate: 0.7 + Math.random() * 0.3,
+          efficiency: 0.7 + Math.random() * 0.3,
+          citizenSatisfaction: 0.7 + Math.random() * 0.3,
+        };
+      }
+    }
   }
 }

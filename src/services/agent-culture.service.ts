@@ -56,6 +56,25 @@ interface CulturalInteraction {
   details: Record<string, any>;
 }
 
+interface CulturalProfile {
+  interests: string[];
+  culturalAffinity: number;
+  interactionStyle: string;
+  traits: Record<string, number>;
+  timestamp: number;
+}
+
+interface VectorStoreMatch {
+  id: string;
+  score: number;
+  metadata: {
+    type: string;
+    agentId: string;
+    profile?: CulturalProfile;
+    [key: string]: any;
+  };
+}
+
 export class AgentCultureService extends EventEmitter {
   private culturalInteractions: Map<string, CulturalInteraction[]> = new Map();
   private districtContextCache: Map<
@@ -573,5 +592,340 @@ export class AgentCultureService extends EventEmitter {
     }
 
     return contributions;
+  }
+
+  async initializeAgentCulture(agent: Agent): Promise<void> {
+    try {
+      // Create cultural profile embedding
+      const culturalProfile = await this.createCulturalProfile(agent);
+      const profileString = JSON.stringify(culturalProfile);
+
+      // Store in vector database
+      await this.vectorStore.upsert({
+        id: `agent-culture-${agent.id}`,
+        values: await this.vectorStore.createEmbedding(profileString),
+        metadata: {
+          type: "agent-culture",
+          agentId: agent.id,
+          profile: profileString,
+        },
+      });
+
+      this.emit("agentCultureInitialized", {
+        agentId: agent.id,
+        profile: culturalProfile,
+      });
+    } catch (error) {
+      console.error(
+        `Failed to initialize culture for agent ${agent.id}:`,
+        error
+      );
+      throw error;
+    }
+  }
+
+  async getAgentCulturalCompatibility(agent: Agent): Promise<{
+    compatibility: number;
+    commonInterests: string[];
+    culturalAlignment: number;
+  }> {
+    try {
+      const agentProfile = await this.getCulturalProfile(agent.id);
+      if (!agentProfile) {
+        throw new Error(`Cultural profile not found for agent ${agent.id}`);
+      }
+
+      const otherAgents = await this.getAllAgentProfiles();
+
+      const compatibility = this.calculateCompatibilityScore(
+        agentProfile,
+        otherAgents
+      );
+      const commonInterests = this.findCommonInterests(agent, otherAgents);
+      const culturalAlignment = this.calculateCulturalAlignment(
+        agentProfile,
+        otherAgents
+      );
+
+      return {
+        compatibility,
+        commonInterests,
+        culturalAlignment,
+      };
+    } catch (error) {
+      console.error(
+        `Failed to get cultural compatibility for agent ${agent.id}:`,
+        error
+      );
+      throw error;
+    }
+  }
+
+  async initializeCulturalInteractions(agents: Agent[]): Promise<void> {
+    try {
+      // Initialize interaction tracking for each agent
+      agents.forEach((agent) => {
+        if (!this.culturalInteractions.has(agent.id)) {
+          this.culturalInteractions.set(agent.id, []);
+        }
+      });
+
+      // Create initial interaction patterns
+      const initialInteractions = await this.generateInitialInteractions(
+        agents
+      );
+
+      // Store interactions
+      await Promise.all(
+        initialInteractions.map((interaction) => {
+          const agentInteractions =
+            this.culturalInteractions.get(interaction.agentId) || [];
+          agentInteractions.push(interaction);
+          this.culturalInteractions.set(interaction.agentId, agentInteractions);
+        })
+      );
+
+      this.emit("culturalInteractionsInitialized", {
+        agentCount: agents.length,
+      });
+    } catch (error) {
+      console.error("Failed to initialize cultural interactions:", error);
+      throw error;
+    }
+  }
+
+  private async createCulturalProfile(agent: Agent): Promise<CulturalProfile> {
+    return {
+      interests: agent.interests,
+      culturalAffinity: this.calculateCulturalAffinity(agent),
+      interactionStyle: agent.preferredStyle,
+      traits: agent.traits as unknown as Record<string, number>,
+      timestamp: Date.now(),
+    };
+  }
+
+  private async getCulturalProfile(
+    agentId: string
+  ): Promise<CulturalProfile | null> {
+    const results = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding(
+        `agent ${agentId} cultural profile`
+      ),
+      filter: {
+        type: { $eq: "agent-culture" },
+        agentId: { $eq: agentId },
+      },
+      topK: 1,
+    });
+
+    if (results.matches?.[0]?.metadata?.profile) {
+      return JSON.parse(
+        results.matches[0].metadata.profile as string
+      ) as CulturalProfile;
+    }
+    return null;
+  }
+
+  private async getAllAgentProfiles(): Promise<CulturalProfile[]> {
+    const results = await this.vectorStore.query({
+      vector: await this.vectorStore.createEmbedding(
+        "all agent cultural profiles"
+      ),
+      filter: {
+        type: { $eq: "agent-culture" },
+      },
+      topK: 100,
+    });
+
+    return results.matches
+      .map((match: VectorStoreMatch) => {
+        try {
+          if (typeof match.metadata.profile === "string") {
+            return JSON.parse(match.metadata.profile) as CulturalProfile;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (profile: CulturalProfile | null): profile is CulturalProfile =>
+          profile !== null
+      );
+  }
+
+  private calculateCompatibilityScore(
+    profile: CulturalProfile,
+    otherProfiles: CulturalProfile[]
+  ): number {
+    // Calculate average compatibility with other agents
+    const scores = otherProfiles.map((otherProfile) => {
+      const interestOverlap = this.calculateInterestOverlap(
+        profile.interests,
+        otherProfile.interests
+      );
+      const styleCompatibility = this.calculateStyleCompatibility(
+        profile.interactionStyle,
+        otherProfile.interactionStyle
+      );
+      const traitCompatibility = this.calculateTraitCompatibility(
+        profile.traits,
+        otherProfile.traits
+      );
+
+      return (interestOverlap + styleCompatibility + traitCompatibility) / 3;
+    });
+
+    return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  }
+
+  private findCommonInterests(
+    agent: Agent,
+    otherProfiles: CulturalProfile[]
+  ): string[] {
+    const allInterests = new Set<string>();
+
+    otherProfiles.forEach((profile) => {
+      profile.interests.forEach((interest: string) => {
+        if (agent.interests.includes(interest)) {
+          allInterests.add(interest);
+        }
+      });
+    });
+
+    return Array.from(allInterests);
+  }
+
+  private calculateCulturalAlignment(
+    profile: CulturalProfile,
+    otherProfiles: CulturalProfile[]
+  ): number {
+    const alignmentScores = otherProfiles.map((otherProfile) => {
+      const affinityDiff = Math.abs(
+        profile.culturalAffinity - otherProfile.culturalAffinity
+      );
+      const traitAlignment = this.calculateTraitCompatibility(
+        profile.traits,
+        otherProfile.traits
+      );
+      return 1 - (affinityDiff * 0.5 + (1 - traitAlignment) * 0.5);
+    });
+
+    return (
+      alignmentScores.reduce((sum, score) => sum + score, 0) /
+      alignmentScores.length
+    );
+  }
+
+  private async generateInitialInteractions(
+    agents: Agent[]
+  ): Promise<CulturalInteraction[]> {
+    const interactions: CulturalInteraction[] = [];
+    const timestamp = Date.now();
+
+    // Generate some initial interactions between agents
+    for (const agent of agents) {
+      const compatibleAgents = agents.filter(
+        (other) =>
+          other.id !== agent.id && this.areAgentsCompatible(agent, other)
+      );
+
+      if (compatibleAgents.length > 0) {
+        const randomAgent =
+          compatibleAgents[Math.floor(Math.random() * compatibleAgents.length)];
+
+        interactions.push({
+          agentId: agent.id,
+          districtId: "main", // Default district
+          type: "observation",
+          impact: 0.5,
+          timestamp,
+          details: {
+            interactionWith: randomAgent.id,
+            type: "initial_contact",
+          },
+        });
+      }
+    }
+
+    return interactions;
+  }
+
+  private calculateCulturalAffinity(agent: Agent): number {
+    // Calculate based on interests and traits
+    const culturalInterests = agent.interests.filter((interest) =>
+      this.isCulturalInterest(interest)
+    ).length;
+    const culturalTraitScore =
+      (agent.traits.empathy + agent.traits.curiosity) / 2;
+
+    return (
+      (culturalInterests / agent.interests.length + culturalTraitScore) / 2
+    );
+  }
+
+  private calculateInterestOverlap(
+    interests1: string[],
+    interests2: string[]
+  ): number {
+    const overlap = interests1.filter((interest) =>
+      interests2.includes(interest)
+    ).length;
+    return overlap / Math.max(interests1.length, interests2.length);
+  }
+
+  private calculateStyleCompatibility(style1: string, style2: string): number {
+    const compatibilityMatrix: { [key: string]: { [key: string]: number } } = {
+      analytical: { analytical: 0.8, technical: 0.9, creative: 0.6 },
+      technical: { analytical: 0.9, technical: 0.8, creative: 0.5 },
+      creative: { analytical: 0.6, technical: 0.5, creative: 0.9 },
+    };
+
+    return compatibilityMatrix[style1]?.[style2] || 0.5;
+  }
+
+  private calculateTraitCompatibility(
+    traits1: Record<string, number>,
+    traits2: Record<string, number>
+  ): number {
+    const traitKeys = Object.keys(traits1);
+    const differences = traitKeys.map((key) =>
+      Math.abs(traits1[key] - (traits2[key] || 0))
+    );
+    return (
+      1 - differences.reduce((sum, diff) => sum + diff, 0) / traitKeys.length
+    );
+  }
+
+  private areAgentsCompatible(agent1: Agent, agent2: Agent): boolean {
+    const interestOverlap = this.calculateInterestOverlap(
+      agent1.interests,
+      agent2.interests
+    );
+    const styleCompatibility = this.calculateStyleCompatibility(
+      agent1.preferredStyle,
+      agent2.preferredStyle
+    );
+
+    return interestOverlap > 0.3 && styleCompatibility > 0.6;
+  }
+
+  private isCulturalInterest(interest: string): boolean {
+    const culturalKeywords = [
+      "culture",
+      "tradition",
+      "heritage",
+      "art",
+      "music",
+      "religion",
+      "community",
+      "festival",
+      "ceremony",
+      "ritual",
+      "custom",
+    ];
+    return culturalKeywords.some((keyword) =>
+      interest.toLowerCase().includes(keyword)
+    );
   }
 }

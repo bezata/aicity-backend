@@ -123,14 +123,16 @@ export class CityService extends EventEmitter {
         communityWellbeing: this.cityMood.factors.community,
         healthcareAccessScore: 0.75,
         educationQualityIndex: 0.8,
-        culturalEngagement: 3.5,
-        civicParticipation: this.cityMood.factors.energy,
       },
       safety: {
         crimeRate: this.emergencyStatus === "crisis" ? 4.2 : 2.1,
         emergencyResponseTime: this.emergencyStatus === "alert" ? 12 : 8.5,
         publicTrustIndex: this.cityMood.factors.happiness,
         disasterReadiness: this.emergencyStatus === "normal" ? 0.8 : 0.6,
+        overallScore: 0.7,
+        recentIncidents: 0.5,
+        responseTime: "10 minutes",
+        serviceAvailability: 0.9,
       },
     });
 

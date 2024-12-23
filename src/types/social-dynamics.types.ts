@@ -42,3 +42,11 @@ export interface SocialActivity {
   status: "planned" | "active" | "completed" | "cancelled";
   relatedEvents: string[];
 }
+
+export interface SocialPattern {
+  type: string;
+  impact: number;
+  timestamp: number;
+  districtId?: string;
+  metadata?: Record<string, any>;
+}

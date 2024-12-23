@@ -5,7 +5,12 @@ export type DepartmentType =
   | "environmental"
   | "infrastructure"
   | "social_services"
-  | "transportation";
+  | "transportation"
+  | "law_enforcement"
+  | "fire_services"
+  | "healthcare"
+  | "education"
+  | "economy";
 
 export interface DepartmentBudget {
   total: number;

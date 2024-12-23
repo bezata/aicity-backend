@@ -64,3 +64,11 @@ export interface ChatMetadata {
   coordinates?: string[];
   style?: string;
 }
+
+export interface ConversationEvent {
+  sentiment: number;
+  topic?: string;
+  districtId?: string;
+  timestamp?: number;
+  metadata?: Record<string, any>;
+}

@@ -38,6 +38,8 @@ import { DistrictWebSocketService } from "./district-websocket.service";
 import { agents, residentAgents } from "../config/agents";
 import { cityManagementAgents, allCityAgents } from "../config/city-agents";
 import type { Agent } from "../types/agent.types";
+import { SocialCohesionService } from "./social-cohesion.service";
+import { AgentConversationService } from "./agent-conversation.service";
 
 // Define store type
 export type AppStore = {
@@ -72,6 +74,8 @@ export type AppStore = {
     cultureService: CultureService;
     districtCultureService: DistrictCultureService;
     agentCultureService: AgentCultureService;
+    socialCohesionService: SocialCohesionService;
+    agentConversationService: AgentConversationService;
   };
   conversations: Map<string, any[]>;
 };
@@ -197,6 +201,12 @@ socialDynamicsService = new SocialDynamicsService(
   cityRhythmService
 );
 
+// Initialize social cohesion service
+const socialCohesionService = new SocialCohesionService(
+  vectorStore,
+  initialDistrictService
+);
+
 // Initialize culture-related services
 const cultureService = new CultureService(
   vectorStore,
@@ -256,6 +266,7 @@ const cityMemory = new CityMemoryService(
 // Initialize economic and development services
 const economyService = new EconomyService(vectorStore, initialDistrictService);
 
+// Initialize city coordinator service first
 const cityCoordinator = new CityCoordinatorService(
   vectorStore,
   departmentService,
@@ -265,6 +276,23 @@ const cityCoordinator = new CityCoordinatorService(
   analyticsService,
   cityMemory,
   economyService
+);
+
+// Initialize agent conversation service
+const agentConversationService = new AgentConversationService(
+  vectorStore,
+  cityCoordinator,
+  aiIntegration
+);
+
+// Initialize adaptive learning service
+const adaptiveLearning = new AdaptiveLearningService(
+  vectorStore,
+  metricsService,
+  cityService,
+  initialDistrictService,
+  agentConversationService,
+  socialDynamicsService
 );
 
 const departmentAgentService = new DepartmentAgentService(
@@ -300,11 +328,14 @@ const conversationService = new ConversationService(
   cityEventsService
 );
 
-const adaptiveLearning = new AdaptiveLearningService(
-  vectorStore,
-  metricsService,
-  cityService
-);
+// Register city agents for autonomous conversations
+const registerCityAgents = () => {
+  for (const agent of allCityAgents) {
+    agentConversationService.registerAgent(agent).catch(console.error);
+  }
+};
+
+registerCityAgents();
 
 const culturalDonation = new CulturalDonationService(
   cultureService,
@@ -401,6 +432,8 @@ export function createStore(): AppStore {
       cultureService,
       districtCultureService,
       agentCultureService: agentCulture,
+      socialCohesionService,
+      agentConversationService,
     },
     conversations: new Map(),
   };

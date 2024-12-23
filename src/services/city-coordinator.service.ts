@@ -56,6 +56,22 @@ interface PineconeQueryResponse {
   namespace: string;
 }
 
+interface District {
+  id: string;
+  name: string;
+  population: number;
+  mainActivities: string[];
+  currentIssues: string[];
+  developmentProjects: string[];
+}
+
+interface DistrictContext {
+  population: number;
+  mainActivities: string[];
+  currentIssues: string[];
+  developmentProjects: string[];
+}
+
 export class CityCoordinatorService extends EventEmitter {
   private readonly coordinatorAgent: Agent = {
     id: "city-coordinator",
@@ -90,6 +106,7 @@ export class CityCoordinatorService extends EventEmitter {
   private currentMetrics: CityMetrics;
   private activeProposals: Map<string, AgentProposal> = new Map();
   private implementationQueue: AgentProposal[] = [];
+  private districts: Map<string, District> = new Map();
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -133,6 +150,7 @@ export class CityCoordinatorService extends EventEmitter {
       },
     };
     this.initializeCoordinator();
+    this.initializeDistricts();
   }
 
   private async initializeCoordinator() {
@@ -950,5 +968,60 @@ export class CityCoordinatorService extends EventEmitter {
   public async requestMetricsUpdate(): Promise<CityMetrics> {
     await this.updateMetrics();
     return this.getCurrentMetrics();
+  }
+
+  getActiveDistricts(): { id: string; name: string }[] {
+    return Array.from(this.districts.values()).map((district) => ({
+      id: district.id,
+      name: district.name,
+    }));
+  }
+
+  async getDistrictContext(
+    districtId: string
+  ): Promise<DistrictContext | null> {
+    const district = this.districts.get(districtId);
+    if (!district) return null;
+
+    return {
+      population: district.population,
+      mainActivities: district.mainActivities,
+      currentIssues: district.currentIssues,
+      developmentProjects: district.developmentProjects,
+    };
+  }
+
+  private async initializeDistricts() {
+    // Initialize with some default districts
+    const defaultDistricts: District[] = [
+      {
+        id: "central-district",
+        name: "Central District",
+        population: 50000,
+        mainActivities: ["commerce", "administration"],
+        currentIssues: ["traffic congestion"],
+        developmentProjects: ["smart traffic management"],
+      },
+      {
+        id: "innovation-district",
+        name: "Innovation District",
+        population: 30000,
+        mainActivities: ["technology", "research"],
+        currentIssues: ["housing costs"],
+        developmentProjects: ["startup hub expansion"],
+      },
+      {
+        id: "residential-district",
+        name: "Residential District",
+        population: 70000,
+        mainActivities: ["housing", "education"],
+        currentIssues: ["public transport access"],
+        developmentProjects: ["new metro line"],
+      },
+    ];
+
+    defaultDistricts.forEach((district) => {
+      this.districts.set(district.id, district);
+    });
   }
 }

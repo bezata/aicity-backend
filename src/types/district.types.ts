@@ -230,3 +230,16 @@ export interface DistrictTransportHub {
     holidays: string[];
   };
 }
+
+export interface DistrictEvent {
+  districtId: string;
+  type: string;
+  success?: boolean;
+  impact?: number;
+  metrics?: {
+    socialCohesion?: number;
+    economicActivity?: number;
+    environmentalHealth?: number;
+  };
+  timestamp?: number;
+}

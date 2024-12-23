@@ -40,6 +40,7 @@ export class EnvironmentService extends EventEmitter {
   ) {
     super();
     this.initializeService();
+    this.initializeDefaultEnvironment();
   }
 
   private initializeService() {
@@ -882,5 +883,99 @@ export class EnvironmentService extends EventEmitter {
       default:
         return {};
     }
+  }
+
+  private async initializeDefaultEnvironment() {
+    // Initialize environmental zones
+    const defaultZones = [
+      {
+        id: "green-zone-1",
+        type: "protection" as const,
+        districtId: "main",
+        boundaries: [[0, 0] as [number, number], [1, 1] as [number, number]],
+        restrictions: {
+          maxEmissions: 50,
+          noiseLimit: 60,
+          greenSpaceRatio: 0.3,
+        },
+        status: "active" as const,
+      },
+      {
+        id: "conservation-zone-1",
+        type: "conservation" as const,
+        districtId: "main",
+        boundaries: [[2, 2] as [number, number], [3, 3] as [number, number]],
+        restrictions: {
+          maxEmissions: 30,
+          noiseLimit: 50,
+          greenSpaceRatio: 0.5,
+        },
+        status: "active" as const,
+      },
+    ];
+
+    // Initialize smart sensors
+    const defaultSensors = [
+      {
+        id: "air-sensor-1",
+        type: "air_quality" as const,
+        location: {
+          districtId: "main",
+          coordinates: [0, 0] as [number, number],
+        },
+        value: 0.8,
+        lastUpdate: Date.now(),
+        status: "active" as const,
+      },
+      {
+        id: "water-sensor-1",
+        type: "water_quality" as const,
+        location: {
+          districtId: "main",
+          coordinates: [1, 1] as [number, number],
+        },
+        value: 0.9,
+        lastUpdate: Date.now(),
+        status: "active" as const,
+      },
+      {
+        id: "noise-sensor-1",
+        type: "noise" as const,
+        location: {
+          districtId: "main",
+          coordinates: [2, 2] as [number, number],
+        },
+        value: 0.7,
+        lastUpdate: Date.now(),
+        status: "active" as const,
+      },
+      {
+        id: "emissions-sensor-1",
+        type: "emissions" as const,
+        location: {
+          districtId: "main",
+          coordinates: [3, 3] as [number, number],
+        },
+        value: 0.85,
+        lastUpdate: Date.now(),
+        status: "active" as const,
+      },
+    ];
+
+    // Add zones and sensors to their respective maps
+    for (const zone of defaultZones) {
+      this.environmentalZones.set(zone.id, zone);
+    }
+
+    for (const sensor of defaultSensors) {
+      this.smartSensors.set(sensor.id, sensor);
+    }
+
+    console.log(
+      `Initialized ${defaultZones.length} environmental zones and ${defaultSensors.length} smart sensors`
+    );
+
+    // Start monitoring sensors
+    this.monitorSensors();
   }
 }

@@ -15,11 +15,16 @@ interface AgentConversation {
   participants: Agent[];
   messages: Message[];
   topic: string;
-  location: string;
+  districtId: string;
   startTime: number;
   lastUpdateTime: number;
   status: "active" | "completed";
   sentiment: number;
+  districtContext?: {
+    population: number;
+    mainActivities: string[];
+    currentIssues: string[];
+  };
   environmentalContext?: {
     carbonEmissions: number;
     energyRatio: number;
@@ -197,7 +202,12 @@ export class AgentConversationService extends EventEmitter {
   private async startConversation(agentIds: string[], suggestedTopic?: string) {
     const conversationId = `conv-${Date.now()}`;
     const topic = suggestedTopic || this.findCommonTopic(agentIds);
-    const location = this.selectRandomLocation();
+    const districtId = this.selectRandomLocation();
+
+    // Get district context from city coordinator
+    const districtContext = await this.cityCoordinator.getDistrictContext(
+      districtId
+    );
 
     const conversation: AgentConversation = {
       id: conversationId,
@@ -206,11 +216,18 @@ export class AgentConversationService extends EventEmitter {
         .filter((a): a is Agent => !!a),
       messages: [],
       topic,
-      location,
+      districtId,
       startTime: Date.now(),
       lastUpdateTime: Date.now(),
       status: "active",
       sentiment: 0.5,
+      districtContext: districtContext
+        ? {
+            population: districtContext.population,
+            mainActivities: districtContext.mainActivities,
+            currentIssues: districtContext.currentIssues,
+          }
+        : undefined,
       environmentalContext: this.currentMetrics
         ? {
             carbonEmissions: this.currentMetrics.carbonEmissions,
@@ -493,15 +510,12 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private selectRandomLocation(): string {
-    const locations = [
-      "Virtual Plaza",
-      "Innovation Hub",
-      "Knowledge Exchange",
-      "Community Center",
-      "Digital Garden",
-      "Collaboration Space",
-    ];
-    return locations[Math.floor(Math.random() * locations.length)];
+    // Get list of active districts from city coordinator
+    const districts = this.cityCoordinator.getActiveDistricts();
+    if (!districts || districts.length === 0) {
+      return "central-district"; // Fallback to central district
+    }
+    return districts[Math.floor(Math.random() * districts.length)].id;
   }
 
   private isAgentBusy(agentId: string): boolean {

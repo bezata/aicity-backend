@@ -20,6 +20,7 @@ export class SmartInfrastructureService extends EventEmitter {
     super();
     this.initializeMetricsTracking();
     this.setupEventListeners();
+    this.initializeDefaultSystems();
   }
 
   private setupEventListeners() {
@@ -52,7 +53,6 @@ export class SmartInfrastructureService extends EventEmitter {
         waterSystems.length
       : 0.8;
 
-    // Use transport metrics if provided, otherwise calculate from systems
     const transportSystems = Array.from(this.systems.values()).filter(
       (s) => s.type === "transportation"
     );
@@ -63,16 +63,13 @@ export class SmartInfrastructureService extends EventEmitter {
 
     await this.metricsService.updateMetrics({
       infrastructure: {
-        trafficCongestion: transportMetrics
-          ? transportMetrics.congestion
-          : 1 - avgTransportEfficiency,
-        publicTransitReliability: transportMetrics
-          ? transportMetrics.reliability
-          : avgTransportEfficiency,
-        wasteRecyclingRate: 0.6,
-        infrastructureHealth:
+        maintenanceRequests: 23,
+        serviceUptime: 0.99,
+        healthScore:
           (avgTransportEfficiency + avgPowerEfficiency + avgWaterEfficiency) /
           3,
+        developmentProgress: 0.8,
+        wasteRecyclingRate: 0.6,
         smartGridEfficiency: avgPowerEfficiency,
       },
     });
@@ -183,5 +180,83 @@ export class SmartInfrastructureService extends EventEmitter {
       console.error("Error getting nearby infrastructure:", error);
       return null;
     }
+  }
+
+  private async initializeDefaultSystems() {
+    // Initialize power systems
+    this.systems.set("power-grid-1", {
+      id: "power-grid-1",
+      type: "power",
+      status: "active",
+      location: { districtId: "main", coordinates: [0, 0] },
+      consumption: 0.6,
+      generation: 100,
+      metrics: {
+        utilization: 0.6,
+        efficiency: 0.85,
+      },
+    });
+
+    // Initialize water systems
+    this.systems.set("water-system-1", {
+      id: "water-system-1",
+      type: "water",
+      status: "active",
+      location: { districtId: "main", coordinates: [0, 0] },
+      consumption: 0.5,
+      generation: 100,
+      metrics: {
+        utilization: 0.5,
+        efficiency: 0.9,
+      },
+    });
+
+    // Initialize digital systems
+    this.systems.set("digital-network-1", {
+      id: "digital-network-1",
+      type: "digital",
+      status: "active",
+      location: { districtId: "main", coordinates: [0, 0] },
+      consumption: 0.4,
+      generation: 100,
+      metrics: {
+        utilization: 0.4,
+        efficiency: 0.88,
+        connectivity: 0.92,
+      },
+    });
+
+    // Initialize transportation systems
+    this.systems.set("transport-system-1", {
+      id: "transport-system-1",
+      type: "transportation",
+      status: "active",
+      location: { districtId: "main", coordinates: [0, 0] },
+      consumption: 0.55,
+      generation: 100,
+      metrics: {
+        utilization: 0.55,
+        efficiency: 0.82,
+        accessibility: 0.85,
+      },
+    });
+
+    // Initialize waste management systems
+    this.systems.set("waste-system-1", {
+      id: "waste-system-1",
+      type: "waste",
+      status: "active",
+      location: { districtId: "main", coordinates: [0, 0] },
+      consumption: 0.3,
+      generation: 100,
+      metrics: {
+        utilization: 0.3,
+        efficiency: 0.75,
+      },
+    });
+
+    console.log(
+      `Initialized ${this.systems.size} smart infrastructure systems`
+    );
   }
 }

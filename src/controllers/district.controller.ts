@@ -35,12 +35,27 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
           population: body.population,
           density: 0,
           economicActivity: 0,
-          coordinates: [0, 0],
+          boundaries: [
+            [0, 0],
+            [0, 1],
+            [1, 1],
+            [1, 0],
+          ] as Array<[number, number]>,
+          area: 0,
           currentEvents: [],
           transportHubs: [],
           residentAgents: [],
           visitorAgents: [],
+          amenities: {
+            schools: 0,
+            hospitals: 0,
+            parks: 0,
+            shops: 0,
+          },
           metrics: {
+            education: 0.8,
+            healthcare: 0.7,
+            environment: 0.6,
             safety: 0.8,
             cleanliness: 0.7,
             noise: 0.3,
@@ -59,7 +74,20 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
             greenSpaceCoverage: 0.6,
             environmentalHealth: 0.7,
           },
-          schedules: [],
+          socialMetrics: {
+            communityEngagement: 0.7,
+            culturalDiversity: 0.8,
+            socialCohesion: 0.75,
+            publicServices: 0.7,
+            index: 0.75,
+          },
+          economicMetrics: {
+            employmentRate: 0.85,
+            averageIncome: 65000,
+            businessActivity: 0.8,
+            employment: 0.85,
+            index: 0.8,
+          },
         };
 
         await appStore.services.districtService.addDistrict(district);

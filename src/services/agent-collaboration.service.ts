@@ -19,6 +19,7 @@ type VectorMetadataType =
   | "transport";
 
 interface CollaborationSession {
+  id: string;
   eventId: string;
   agents: string[];
   status:
@@ -60,6 +61,9 @@ interface CollaborationSession {
     effectiveness: number;
     culturalAlignment?: number;
     participationScore: Record<string, number>;
+    topicsAnalyzed?: number;
+    consensusLevels?: number[];
+    averageConsensus?: number;
   };
   history: Array<{
     action: string;
@@ -105,6 +109,40 @@ interface VectorMetadata extends Record<string, any> {
 interface ConsensusPoint {
   count: number;
   supporters: string[];
+}
+
+interface TopicAnalysis {
+  topic: string;
+  sentiment: number;
+  consensusLevel: number;
+  priority: number;
+  confidence: number;
+  participantEngagement: number;
+}
+
+interface VectorQueryFilter {
+  $eq?: string | number | boolean;
+  $ne?: string | number | boolean;
+  $gt?: number;
+  $gte?: number;
+  $lt?: number;
+  $lte?: number;
+  $in?: (string | number)[];
+  $nin?: (string | number)[];
+  $exists?: boolean;
+}
+
+interface VectorQueryMatch {
+  id: string;
+  score: number;
+  metadata: {
+    agentId?: string;
+    sessionId?: string;
+    topic?: string;
+    description?: string;
+    impact?: number;
+    [key: string]: any;
+  };
 }
 
 export class AgentCollaborationService extends EventEmitter {
@@ -255,6 +293,7 @@ export class AgentCollaborationService extends EventEmitter {
     }
 
     const session: CollaborationSession = {
+      id: sessionId,
       eventId: event.id,
       agents: await this.optimizeAgentSelection(event),
       status: "planning",
@@ -265,6 +304,9 @@ export class AgentCollaborationService extends EventEmitter {
         progressRate: 0,
         effectiveness: 0,
         participationScore: {},
+        topicsAnalyzed: 0,
+        consensusLevels: [],
+        averageConsensus: 0,
       },
       history: [
         {
@@ -884,11 +926,14 @@ Respond in a professional but conversational tone, addressing other agents by na
   ) {
     const notification = this.formatDecisionNotification(decisions);
     for (const agentId of session.agents) {
-      await this.addMessage(
-        session.eventId,
-        "system",
-        `@${agentId} ${notification}`
-      );
+      const agent = getAgent(agentId);
+      if (agent) {
+        await this.addMessage(
+          session.eventId,
+          "system",
+          `@${agent.name} ${notification}`
+        );
+      }
     }
   }
 
@@ -1213,12 +1258,13 @@ Respond in a professional but conversational tone, addressing other agents by na
       vector: embedding,
       filter: {
         type: { $eq: "collaboration_context" },
-        timestamp: { $gt: Date.now() - 24 * 60 * 60 * 1000 }, // Last 24 hours
+        timestamp: { $gt: Date.now() - 24 * 60 * 60 * 1000 },
       },
       topK: 1,
     });
 
     if (
+      similarSessions.matches &&
       similarSessions.matches.length > 0 &&
       similarSessions.matches[0].score > 0.85
     ) {
@@ -1438,114 +1484,250 @@ Please provide these details to continue the discussion.`;
   private async handleConflictPoints(points: string[]): Promise<string[]> {
     const resolvedPoints = await Promise.all(
       points.map(async (point: string): Promise<string> => {
-        // Implementation
-        return point;
+        // Find relevant past decisions and patterns
+        const [similarDecisions, similarPatterns] = await Promise.all([
+          this.aiIntegrationService.findSimilarDecisions(point, 3),
+          this.aiIntegrationService.findSimilarPatterns(point, 3),
+        ]);
+
+        // Analyze historical resolutions
+        const historicalResolution = this.findBestResolution(
+          similarDecisions,
+          similarPatterns
+        );
+
+        // If we have a good historical resolution, use it
+        if (historicalResolution && historicalResolution.confidence > 0.7) {
+          return historicalResolution.resolution;
+        }
+
+        // Otherwise, generate a compromise solution
+        const compromise = await this.generateCompromise(
+          point,
+          similarPatterns
+        );
+
+        // Store the new resolution for future reference
+        await this.aiIntegrationService.storePattern(
+          compromise,
+          {
+            type: "conflict_resolution",
+            originalPoint: point,
+            context: {
+              similarDecisions: similarDecisions.map((d) => d.decision),
+              similarPatterns: similarPatterns.map((p) => p.pattern),
+            },
+          },
+          0.8
+        );
+
+        return compromise;
       })
     );
     return resolvedPoints;
   }
 
+  private findBestResolution(
+    decisions: any[],
+    patterns: any[]
+  ): { resolution: string; confidence: number } | null {
+    // Combine historical decisions and patterns
+    const allSolutions = [
+      ...decisions.map((d) => ({
+        text: d.decision,
+        confidence: d.context?.confidence || 0.5,
+      })),
+      ...patterns.map((p) => ({ text: p.pattern, confidence: p.confidence })),
+    ];
+
+    // Find the solution with highest confidence
+    const bestSolution = allSolutions.reduce(
+      (best, current) => {
+        return current.confidence > best.confidence ? current : best;
+      },
+      { text: "", confidence: 0 }
+    );
+
+    return bestSolution.confidence > 0
+      ? { resolution: bestSolution.text, confidence: bestSolution.confidence }
+      : null;
+  }
+
+  private async generateCompromise(
+    point: string,
+    patterns: any[]
+  ): Promise<string> {
+    // Extract common elements from successful patterns
+    const commonElements = patterns
+      .filter((p) => p.confidence > 0.6)
+      .map((p) => p.pattern)
+      .join(" ");
+
+    // Generate a new compromise based on historical patterns
+    return `Based on successful resolutions, we propose: ${
+      commonElements || "a collaborative approach focusing on mutual benefits"
+    }`;
+  }
+
   private async analyzeDiscussionTopics(session: CollaborationSession) {
     const resolvedTopics = await this.identifyTopics(session);
+
     for (const topic of resolvedTopics) {
-      // Process topics
+      // Store topic analysis
+      const analysis = await this.analyzeTopic(topic, session);
+
+      // Record the analysis
+      await this.aiIntegrationService.storePattern(
+        topic,
+        {
+          type: "topic_analysis",
+          sessionId: session.id,
+          analysis: analysis,
+          participants: session.agents,
+          context: {
+            sentiment: analysis.sentiment,
+            priority: analysis.priority,
+            consensus: analysis.consensusLevel,
+          },
+        },
+        analysis.confidence
+      );
+
+      // If high priority topic, trigger relevant actions
+      if (analysis.priority > 0.8) {
+        await this.handleHighPriorityTopic(topic, analysis, session);
+      }
+
+      // Update session metrics
+      session.metrics = {
+        ...session.metrics,
+        topicsAnalyzed: (session.metrics.topicsAnalyzed || 0) + 1,
+        averageConsensus: this.calculateAverageConsensus([
+          ...(session.metrics.consensusLevels || []),
+          analysis.consensusLevel,
+        ]),
+      };
     }
   }
 
-  private calculateProgressRate(session: CollaborationSession): number {
-    return (
-      session.decisions.filter((d) => d.status === "completed").length /
-      session.decisions.length
-    );
-  }
-
-  private calculateEffectiveness(session: CollaborationSession): number {
-    return (
-      session.decisions.reduce((acc, d) => {
-        const overall =
-          (d.impact.environmental + d.impact.social + d.impact.economic) / 3;
-        return acc + overall;
-      }, 0) / session.decisions.length
-    );
-  }
-
-  private calculateParticipationScores(
+  private async analyzeTopic(
+    topic: string,
     session: CollaborationSession
-  ): Record<string, number> {
-    const scores: Record<string, number> = {};
-    session.agents.forEach((agentId) => {
-      scores[agentId] = this.calculateAgentParticipation(session, agentId);
+  ): Promise<TopicAnalysis> {
+    // Analyze participant messages related to this topic
+    const relevantMessages = session.messages.filter((m) =>
+      m.content.toLowerCase().includes(topic.toLowerCase())
+    );
+
+    // Create consensus map for messages
+    const consensusMap = new Map<string, ConsensusPoint>();
+    relevantMessages.forEach((msg) => {
+      const point = consensusMap.get(msg.content) || {
+        count: 0,
+        supporters: [],
+      };
+      point.count++;
+      point.supporters.push(msg.agentId);
+      consensusMap.set(msg.content, point);
     });
-    return scores;
-  }
 
-  private async createFollowupTasks(
-    session: CollaborationSession
-  ): Promise<string[]> {
-    return session.decisions.map((d) => `Follow up on: ${d.description}`);
-  }
+    // Calculate metrics
+    const sentiment = this.calculateMessagesSentiment(relevantMessages);
+    const consensusLevel = this.calculateConsensusLevel(
+      consensusMap,
+      session.agents.length
+    );
+    const priority = this.assessTopicPriority(topic, relevantMessages);
 
-  private calculateAgentParticipation(
-    session: CollaborationSession,
-    agentId: string
-  ): number {
-    const agentMessages = session.messages.filter((m) => m.agentId === agentId);
-    return agentMessages.length / session.messages.length;
-  }
-
-  private async identifyTopics(
-    session: CollaborationSession
-  ): Promise<string[]> {
-    const content = session.messages.map((m) => m.content).join(" ");
-
-    // Define topic categories and their associated keywords
-    const topicPatterns: Record<string, RegExp> = {
-      infrastructure:
-        /infrastructure|building|construction|maintenance|facility|road|bridge/i,
-      environment:
-        /environment|sustainability|green|pollution|climate|energy|waste/i,
-      social: /community|social|public|citizens|welfare|education|healthcare/i,
-      economic: /economic|financial|budget|cost|investment|funding|resources/i,
-      emergency: /emergency|urgent|critical|immediate|crisis|safety|risk/i,
-      technology: /technology|digital|smart|system|innovation|automation|data/i,
-      culture: /culture|heritage|tradition|art|festival|celebration|identity/i,
-      governance:
-        /policy|regulation|compliance|governance|management|decision|planning/i,
-      mobility:
-        /transport|traffic|mobility|commute|vehicle|pedestrian|accessibility/i,
-      security:
-        /security|protection|surveillance|safety|prevention|monitoring|guard/i,
+    return {
+      topic,
+      sentiment,
+      consensusLevel,
+      priority,
+      confidence: 0.8,
+      participantEngagement: this.calculateParticipantEngagement(
+        relevantMessages,
+        session.agents
+      ),
     };
+  }
 
-    // Extract topics based on keyword matches
-    const topics = new Set<string>();
-    Object.entries(topicPatterns).forEach(([topic, pattern]) => {
-      if (pattern.test(content)) {
-        topics.add(topic);
-      }
+  private async handleHighPriorityTopic(
+    topic: string,
+    analysis: TopicAnalysis,
+    session: CollaborationSession
+  ) {
+    // Notify relevant agents
+    const interestedAgents = await this.findRelevantAgents(topic);
+
+    // Create focused discussion group if needed
+    if (interestedAgents.length >= 2) {
+      await this.createFocusedDiscussion(topic, interestedAgents, analysis);
+    }
+
+    // Record high-priority topic for future reference
+    await this.aiIntegrationService.storePattern(
+      topic,
+      {
+        type: "high_priority_topic",
+        analysis: analysis,
+        interestedAgents: interestedAgents.map((a) => a.id),
+        timestamp: Date.now(),
+      },
+      0.9
+    );
+  }
+
+  private calculateMessagesSentiment(messages: any[]): number {
+    return (
+      messages.reduce((acc, msg) => acc + (msg.sentiment || 0.5), 0) /
+      Math.max(messages.length, 1)
+    );
+  }
+
+  private calculateParticipantEngagement(
+    messages: any[],
+    participants: any[]
+  ): number {
+    const participantMessages = new Map<string, number>();
+    messages.forEach((m) => {
+      participantMessages.set(
+        m.agentId,
+        (participantMessages.get(m.agentId) || 0) + 1
+      );
     });
 
-    // Add sentiment-based topics
-    const sentiments = await Promise.all(
-      session.messages.map((msg) => this.analyzeSentiment(msg.content))
+    // Calculate engagement as ratio of active participants
+    return participantMessages.size / participants.length;
+  }
+
+  private assessTopicPriority(topic: string, messages: any[]): number {
+    // Priority factors:
+    // 1. Message frequency
+    const messageFrequency = messages.length / 10; // Normalize to 0-1
+
+    // 2. Recent activity
+    const recentMessages = messages.filter(
+      (m) => Date.now() - m.timestamp < 30 * 60 * 1000 // Last 30 minutes
+    ).length;
+    const recency = recentMessages / messages.length;
+
+    // 3. Average sentiment intensity
+    const sentimentIntensity =
+      messages.reduce(
+        (acc, msg) => acc + Math.abs((msg.sentiment || 0.5) - 0.5) * 2,
+        0
+      ) / messages.length;
+
+    // Combine factors
+    return messageFrequency * 0.4 + recency * 0.3 + sentimentIntensity * 0.3;
+  }
+
+  private calculateAverageConsensus(consensusLevels: number[]): number {
+    return (
+      consensusLevels.reduce((a, b) => a + b, 0) /
+      Math.max(consensusLevels.length, 1)
     );
-    const avgSentiment = _.mean(sentiments);
-
-    if (avgSentiment < 0.3) topics.add("concerns");
-    if (avgSentiment > 0.7) topics.add("opportunities");
-
-    // Add urgency-based topics
-    const hasUrgentTerms = /urgent|immediate|critical|emergency|asap/i.test(
-      content
-    );
-    if (hasUrgentTerms) topics.add("urgent");
-
-    // Add consensus-based topics
-    const consensusLevel = session.metrics.consensusLevel;
-    if (consensusLevel < 0.3) topics.add("disagreement");
-    if (consensusLevel > 0.7) topics.add("consensus");
-
-    return Array.from(topics);
   }
 
   async recordAgentInteraction(
@@ -1663,5 +1845,145 @@ Please provide these details to continue the discussion.`;
 
   private async recordMultipleAgentActivity(agentIds: string[]) {
     await Promise.all(agentIds.map((id) => this.recordAgentActivity(id)));
+  }
+
+  private calculateProgressRate(session: CollaborationSession): number {
+    const totalMessages = session.messages.length;
+    const uniqueParticipants = new Set(session.messages.map((m) => m.agentId))
+      .size;
+    return Math.min(
+      1,
+      (uniqueParticipants / session.agents.length) * (totalMessages / 10)
+    );
+  }
+
+  private calculateEffectiveness(session: CollaborationSession): number {
+    if (!session.messages.length) return 0;
+
+    const sentiments = session.messages
+      .map((m) => m.sentiment || 0.5)
+      .filter((s) => s !== undefined);
+
+    const avgSentiment =
+      sentiments.reduce((a, b) => a + b, 0) / sentiments.length;
+    const consensusLevel = session.metrics.consensusLevel;
+
+    return avgSentiment * 0.4 + consensusLevel * 0.6;
+  }
+
+  private calculateParticipationScores(
+    session: CollaborationSession
+  ): Record<string, number> {
+    const scores: Record<string, number> = {};
+    const messagesByAgent = new Map<string, number>();
+
+    // Count messages per agent
+    session.messages.forEach((m) => {
+      messagesByAgent.set(m.agentId, (messagesByAgent.get(m.agentId) || 0) + 1);
+    });
+
+    // Calculate participation scores
+    session.agents.forEach((agentId) => {
+      const messageCount = messagesByAgent.get(agentId) || 0;
+      scores[agentId] = messageCount / Math.max(session.messages.length, 1);
+    });
+
+    return scores;
+  }
+
+  private async createFollowupTasks(
+    session: CollaborationSession
+  ): Promise<Array<{ id: string; title: string; priority: number }>> {
+    const unfinishedDecisions = session.decisions.filter(
+      (d) => d.status !== "completed"
+    );
+
+    return unfinishedDecisions.map((decision) => ({
+      id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      title: `Follow up on: ${decision.description}`,
+      priority: decision.priority,
+    }));
+  }
+
+  private async createFocusedDiscussion(
+    topic: string,
+    agents: Array<{ id: string }>,
+    analysis: TopicAnalysis
+  ): Promise<void> {
+    const sessionId = `focused-${Date.now()}`;
+    const session: CollaborationSession = {
+      id: sessionId,
+      eventId: `event-${Date.now()}`,
+      agents: agents.map((a: { id: string }) => a.id),
+      status: "planning",
+      messages: [],
+      decisions: [],
+      metrics: {
+        consensusLevel: 0,
+        progressRate: 0,
+        effectiveness: 0,
+        participationScore: {},
+        topicsAnalyzed: 0,
+        consensusLevels: [],
+        averageConsensus: 0,
+      },
+      history: [
+        {
+          action: "session_created",
+          timestamp: Date.now(),
+          details: { topic, agents: agents.map((a: { id: string }) => a.id) },
+        },
+      ],
+    };
+
+    this.activeSessions.set(sessionId, session);
+
+    await this.aiIntegrationService.storePattern(
+      `Focused discussion on ${topic}`,
+      {
+        type: "focused_discussion",
+        sessionId: session.id,
+        topic,
+        agents: agents.map((a: { id: string }) => a.id),
+        priority: analysis.priority,
+      },
+      0.9
+    );
+  }
+
+  private async findRelevantAgents(
+    topic: string
+  ): Promise<Array<{ id: string }>> {
+    const embedding = await this.vectorStore.createEmbedding(topic);
+    const results = await this.vectorStore.query({
+      vector: embedding,
+      filter: { type: { $eq: "agent" } as VectorQueryFilter },
+      topK: 5,
+    });
+
+    return (
+      (results.matches as VectorQueryMatch[])?.map((match) => ({
+        id: match.metadata.agentId || "",
+      })) || []
+    );
+  }
+
+  private async identifyTopics(
+    session: CollaborationSession
+  ): Promise<string[]> {
+    const content = session.messages.map((m) => m.content).join(" ");
+    const embedding = await this.vectorStore.createEmbedding(content);
+
+    const results = await this.vectorStore.query({
+      vector: embedding,
+      filter: { type: { $eq: "topic" } as VectorQueryFilter },
+      topK: 5,
+    });
+
+    return (
+      (results.matches as VectorQueryMatch[])?.map(
+        (match) => match.metadata.topic as string
+      ) || []
+    );
   }
 }

@@ -1,11 +1,7 @@
 import { Elysia, t } from "elysia";
 import type { AppStore } from "../services/app.services";
 import { CityEvent, CityEventCategory } from "../types/city-events";
-import {
-  CulturalEvent,
-  CulturalEventType,
-  CulturalEventStatus,
-} from "../types/culture.types";
+import { CulturalEvent } from "../types/culture.types";
 
 export const CollaborationController = new Elysia({
   prefix: "/collaborate",
@@ -128,7 +124,7 @@ export const CollaborationController = new Elysia({
     message(ws, message) {
       const store = ws.data.store as AppStore;
       const sessionId = ws.data.params.sessionId;
-      store.services.socketManager.handleConnection(ws, sessionId);
+      store.services.socketManager.handleConnection(ws as any, sessionId);
       console.log("Received message:", message);
     },
   })

@@ -94,7 +94,7 @@ export const ConversationController = new Elysia({ prefix: "/conversations" })
           content: body.content,
           timestamp: Date.now(),
           role: "user",
-          style: body.style,
+
           topics: body.topics,
           sentiment: body.sentiment ? Number(body.sentiment) : undefined,
         };
@@ -115,7 +115,7 @@ export const ConversationController = new Elysia({ prefix: "/conversations" })
             timestamp: message.timestamp,
             role: message.role,
             topics: message.topics,
-            style: message.style,
+
             sentiment: message.sentiment?.toString(),
           },
         });

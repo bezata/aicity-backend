@@ -287,7 +287,7 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
     const records = await appStore.services.vectorStore.query(vectorQuery);
 
     // Parse and format performance history
-    const history = records
+    const history = (records.matches || [])
       .map((record: VectorRecord<PerformanceMetadata>) => ({
         timestamp: record.metadata.timestamp,
         metrics: JSON.parse(record.metadata.metrics) as PerformanceMetrics,

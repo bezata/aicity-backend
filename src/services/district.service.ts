@@ -3,6 +3,12 @@ import {
   District,
   LocalEvent,
   DistrictTransportHub,
+  DistrictType,
+  ReligiousZoneType,
+  CulturalDistrictType,
+  ZoneStatus,
+  ReligiousZone,
+  CulturalDistrict,
 } from "../types/district.types";
 import { CityService } from "./city.service";
 import { VectorStoreService } from "./vector-store.service";
@@ -11,6 +17,7 @@ import { TransportHub, TransportSchedule } from "../types/transport.types";
 import { TogetherService } from "./together.service";
 import { VectorStoreType } from "../types/vector-store.types";
 import { AnalyticsService } from "./analytics.service";
+import { DistrictCultureService } from "./district-culture.service";
 
 export interface DistrictAnalytics {
   totalEvents: number;
@@ -34,13 +41,14 @@ export class DistrictService extends EventEmitter {
     private cityService: CityService,
     private vectorStore: VectorStoreService,
     private togetherService: TogetherService,
-    private analyticsService: AnalyticsService
+    private analyticsService: AnalyticsService,
+    private districtCultureService: DistrictCultureService
   ) {
     super();
     this.initializeService();
   }
 
-  initializeService() {
+  async initializeService() {
     // Track district mood changes
     this.on("moodChanged", (district) => {
       this.analyticsService.trackMood(district.metrics.ambiance);
@@ -58,6 +66,468 @@ export class DistrictService extends EventEmitter {
         } as any
       );
     });
+
+    // Initialize default districts if none exist
+    const districts = await this.getAllDistricts();
+    if (districts.length === 0) {
+      await this.initializeDefaultDistricts();
+    }
+  }
+
+  private async initializeDefaultDistricts() {
+    const defaultDistricts = [
+      {
+        name: "Downtown District",
+        type: "mixed" as DistrictType,
+        population: 50000,
+        boundaries: [
+          [0, 0] as [number, number],
+          [1, 0] as [number, number],
+          [1, 1] as [number, number],
+          [0, 1] as [number, number],
+        ],
+        area: 10,
+        density: 5000,
+        economicActivity: 0.8,
+      },
+      {
+        name: "Cultural Heritage District",
+        type: "mixed" as DistrictType,
+        population: 30000,
+        boundaries: [
+          [1, 0] as [number, number],
+          [2, 0] as [number, number],
+          [2, 1] as [number, number],
+          [1, 1] as [number, number],
+        ],
+        area: 8,
+        density: 3750,
+        economicActivity: 0.7,
+      },
+      {
+        name: "Innovation Hub",
+        type: "commercial" as DistrictType,
+        population: 20000,
+        boundaries: [
+          [2, 0] as [number, number],
+          [3, 0] as [number, number],
+          [3, 1] as [number, number],
+          [2, 1] as [number, number],
+        ],
+        area: 6,
+        density: 3333,
+        economicActivity: 0.9,
+      },
+      {
+        name: "Garden District",
+        type: "residential" as DistrictType,
+        population: 35000,
+        boundaries: [
+          [0, 1] as [number, number],
+          [1, 1] as [number, number],
+          [1, 2] as [number, number],
+          [0, 2] as [number, number],
+        ],
+        area: 12,
+        density: 2916,
+        economicActivity: 0.6,
+      },
+      {
+        name: "Industrial Park",
+        type: "industrial" as DistrictType,
+        population: 15000,
+        boundaries: [
+          [1, 1] as [number, number],
+          [2, 1] as [number, number],
+          [2, 2] as [number, number],
+          [1, 2] as [number, number],
+        ],
+        area: 15,
+        density: 1000,
+        economicActivity: 0.85,
+      },
+      {
+        name: "University District",
+        type: "mixed" as DistrictType,
+        population: 40000,
+        boundaries: [
+          [2, 1] as [number, number],
+          [3, 1] as [number, number],
+          [3, 2] as [number, number],
+          [2, 2] as [number, number],
+        ],
+        area: 9,
+        density: 4444,
+        economicActivity: 0.75,
+      },
+      {
+        name: "Waterfront District",
+        type: "mixed" as DistrictType,
+        population: 25000,
+        boundaries: [
+          [0, 2] as [number, number],
+          [1, 2] as [number, number],
+          [1, 3] as [number, number],
+          [0, 3] as [number, number],
+        ],
+        area: 7,
+        density: 3571,
+        economicActivity: 0.8,
+      },
+      {
+        name: "Arts District",
+        type: "mixed" as DistrictType,
+        population: 28000,
+        boundaries: [
+          [1, 2] as [number, number],
+          [2, 2] as [number, number],
+          [2, 3] as [number, number],
+          [1, 3] as [number, number],
+        ],
+        area: 8,
+        density: 3500,
+        economicActivity: 0.7,
+      },
+    ];
+
+    for (const districtData of defaultDistricts) {
+      const district: District = {
+        id: crypto.randomUUID(),
+        ...districtData,
+        currentEvents: [],
+        transportHubs: [],
+        residentAgents: [],
+        visitorAgents: [],
+        amenities: {
+          schools: Math.floor(Math.random() * 5) + 1,
+          hospitals: Math.floor(Math.random() * 3) + 1,
+          parks: Math.floor(Math.random() * 6) + 2,
+          shops: Math.floor(Math.random() * 50) + 20,
+        },
+        metrics: {
+          safety: 0.8,
+          cleanliness: 0.7,
+          noise: 0.3,
+          crowding: 0.4,
+          ambiance: 0.7,
+          education: 0.75,
+          healthcare: 0.8,
+          environment: 0.7,
+          economicGrowth: 0.6,
+          propertyValues: 0.7,
+          businessActivity: 0.6,
+          infrastructureQuality: 0.7,
+          publicServiceAccess: 0.6,
+          transportEfficiency: 0.7,
+          culturalVibrancy: 0.8,
+          communityWellbeing: 0.7,
+          socialCohesion: 0.8,
+          energyEfficiency: 0.7,
+          greenSpaceCoverage: 0.6,
+          environmentalHealth: 0.7,
+        },
+        socialMetrics: {
+          communityEngagement: 0.7,
+          culturalDiversity: 0.8,
+          socialCohesion: 0.75,
+          publicServices: 0.7,
+          index: 0.75,
+        },
+        economicMetrics: {
+          employmentRate: 0.85,
+          averageIncome: 65000,
+          businessActivity: 0.8,
+          employment: 0.85,
+          index: 0.8,
+        },
+      };
+
+      await this.addDistrict(district);
+    }
+
+    // Initialize religious and cultural sites
+    const religiousSites = [
+      {
+        districtId: "Downtown District",
+        sites: [
+          {
+            name: "Central Cathedral",
+            type: "church" as ReligiousZoneType,
+            capacity: 1000,
+          },
+          {
+            name: "Grand Mosque",
+            type: "mosque" as ReligiousZoneType,
+            capacity: 800,
+          },
+        ],
+      },
+      {
+        districtId: "Cultural Heritage District",
+        sites: [
+          {
+            name: "Historic Temple",
+            type: "temple" as ReligiousZoneType,
+            capacity: 500,
+          },
+          {
+            name: "Heritage Synagogue",
+            type: "synagogue" as ReligiousZoneType,
+            capacity: 400,
+          },
+        ],
+      },
+      {
+        districtId: "Garden District",
+        sites: [
+          {
+            name: "Garden Temple",
+            type: "temple" as ReligiousZoneType,
+            capacity: 600,
+          },
+          {
+            name: "Nature Shrine",
+            type: "temple" as ReligiousZoneType,
+            capacity: 300,
+          },
+        ],
+      },
+      {
+        districtId: "University District",
+        sites: [
+          {
+            name: "Interfaith Center",
+            type: "interfaith_center" as ReligiousZoneType,
+            capacity: 1200,
+          },
+          {
+            name: "Campus Chapel",
+            type: "interfaith_center" as ReligiousZoneType,
+            capacity: 400,
+          },
+        ],
+      },
+    ];
+
+    for (const location of religiousSites) {
+      const district = (await this.getAllDistricts()).find(
+        (d) => d.name === location.districtId
+      );
+      if (district) {
+        for (const site of location.sites) {
+          const coordinates = this.calculateDistrictCenter(district.boundaries);
+          const religiousZone: Omit<ReligiousZone, "id"> = {
+            name: site.name,
+            type: site.type,
+            districtId: district.id,
+            capacity: site.capacity,
+            status: "active" as ZoneStatus,
+            coordinates,
+            location: {
+              coordinates,
+              area: Math.floor(Math.random() * 1000) + 500, // Square meters
+            },
+            facilities: [
+              {
+                type: "prayer_hall",
+                name: "Main Prayer Hall",
+                purpose: "Primary worship space",
+              },
+              {
+                type: "community_room",
+                name: "Community Center",
+                purpose: "Social gatherings and events",
+              },
+              {
+                type: "education_room",
+                name: "Study Room",
+                purpose: "Religious education and study",
+              },
+            ],
+            activities: [
+              {
+                name: "Weekly Service",
+                schedule: "Every Sunday 10:00 AM",
+                participation: 0.8,
+              },
+              {
+                name: "Community Gathering",
+                schedule: "Every Wednesday 6:00 PM",
+                participation: 0.6,
+              },
+              {
+                name: "Religious Education",
+                schedule: "Every Saturday 2:00 PM",
+                participation: 0.5,
+              },
+            ],
+            metrics: {
+              attendance: 0.7,
+              communityEngagement: 0.8,
+              culturalImpact: 0.75,
+              socialHarmony: 0.9,
+            },
+            culturalMetrics: {
+              communityEngagement: 0.85,
+              interfaithDialogue: 0.8,
+              culturalPreservation: 0.75,
+              socialImpact: 0.9,
+            },
+          };
+          await this.districtCultureService.createReligiousZone(religiousZone);
+        }
+      }
+    }
+
+    // Initialize cultural districts
+    const culturalSites = [
+      {
+        districtId: "Arts District",
+        type: "artistic" as CulturalDistrictType,
+        sites: [
+          { name: "Contemporary Art Museum", type: "Museum" },
+          { name: "Performing Arts Center", type: "Theater" },
+          { name: "Artists' Colony", type: "Cultural Center" },
+        ],
+      },
+      {
+        districtId: "Cultural Heritage District",
+        type: "historical" as CulturalDistrictType,
+        sites: [
+          { name: "Heritage Museum", type: "Museum" },
+          { name: "Traditional Arts Center", type: "Cultural Center" },
+          { name: "Folk Music Hall", type: "Performance Venue" },
+        ],
+      },
+      {
+        districtId: "Downtown District",
+        type: "mixed" as CulturalDistrictType,
+        sites: [
+          { name: "City Museum", type: "Museum" },
+          { name: "Opera House", type: "Theater" },
+          { name: "Cultural Exchange Center", type: "Cultural Center" },
+        ],
+      },
+      {
+        districtId: "Waterfront District",
+        type: "mixed" as CulturalDistrictType,
+        sites: [
+          { name: "Maritime Museum", type: "Museum" },
+          { name: "Waterfront Amphitheater", type: "Performance Venue" },
+          { name: "Cultural Festival Plaza", type: "Cultural Center" },
+        ],
+      },
+    ];
+
+    for (const location of culturalSites) {
+      const district = (await this.getAllDistricts()).find(
+        (d) => d.name === location.districtId
+      );
+      if (district) {
+        const coordinates = this.calculateDistrictCenter(district.boundaries);
+
+        // Create religious zones for the cultural district
+        const religiousZones: ReligiousZone[] = [
+          {
+            id: crypto.randomUUID(),
+            name: "Cultural District Prayer Room",
+            type: "interfaith_center",
+            districtId: district.id,
+            capacity: 100,
+            status: "active",
+            coordinates,
+            location: {
+              coordinates,
+              area: Math.floor(Math.random() * 500) + 200,
+            },
+            facilities: [
+              {
+                type: "prayer_room",
+                name: "Interfaith Prayer Room",
+                purpose: "Multi-faith worship space",
+              },
+              {
+                type: "meditation_room",
+                name: "Meditation Room",
+                purpose: "Quiet reflection and meditation",
+              },
+            ],
+            activities: [
+              {
+                name: "Interfaith Prayer",
+                schedule: "Daily 12:00 PM",
+                participation: 0.5,
+              },
+              {
+                name: "Meditation Session",
+                schedule: "Every Tuesday 5:00 PM",
+                participation: 0.4,
+              },
+            ],
+            metrics: {
+              attendance: 0.6,
+              communityEngagement: 0.7,
+              culturalImpact: 0.65,
+              socialHarmony: 0.8,
+            },
+            culturalMetrics: {
+              communityEngagement: 0.75,
+              interfaithDialogue: 0.8,
+              culturalPreservation: 0.7,
+              socialImpact: 0.75,
+            },
+          },
+        ];
+
+        const culturalDistrict: Omit<CulturalDistrict, "id"> = {
+          name: `${district.name} Cultural Zone`,
+          type: location.type,
+          districtId: district.id,
+          zones: religiousZones,
+          culturalSites: location.sites.map((site) => ({
+            id: crypto.randomUUID(),
+            name: site.name,
+            type: site.type,
+            status: "active" as ZoneStatus,
+            coordinates,
+            metrics: {
+              visitorCount: Math.floor(Math.random() * 1000) + 500,
+              eventFrequency: Math.floor(Math.random() * 10) + 5,
+              culturalImpact: Math.random() * 0.3 + 0.7,
+              communityEngagement: Math.random() * 0.3 + 0.7,
+            },
+          })),
+          culturalEvents: [],
+          demographics: {
+            youth_population: Math.random() * 0.3 + 0.2,
+            adult_population: Math.random() * 0.3 + 0.4,
+            senior_population: Math.random() * 0.2 + 0.1,
+            local_visitors: Math.random() * 0.4 + 0.4,
+            domestic_visitors: Math.random() * 0.3 + 0.2,
+            international_visitors: Math.random() * 0.2 + 0.1,
+          },
+          metrics: {
+            diversity: 0.8,
+            preservation: 0.75,
+            engagement: 0.8,
+            harmony: 0.85,
+          },
+        };
+        await this.districtCultureService.createCulturalDistrict(
+          culturalDistrict
+        );
+      }
+    }
+  }
+
+  private calculateDistrictCenter(
+    boundaries: Array<[number, number]>
+  ): [number, number] {
+    const x =
+      boundaries.reduce((sum, coord) => sum + coord[0], 0) / boundaries.length;
+    const y =
+      boundaries.reduce((sum, coord) => sum + coord[1], 0) / boundaries.length;
+    return [x, y];
   }
 
   async getAllDistricts(): Promise<District[]> {

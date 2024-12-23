@@ -557,8 +557,24 @@ export class AgentConversationService extends EventEmitter {
 
   // Public methods
   async registerAgent(agent: Agent) {
+    // Store agent's interests as a Set for efficient lookups
     this.agentInterests.set(agent.id, new Set(agent.interests));
     this.lastInteractionTime.set(agent.id, Date.now());
+
+    // Store the full agent object for reference
+    const agentConv: AgentConversation = {
+      id: `agent-${agent.id}`,
+      participants: [agent],
+      messages: [],
+      topic: "",
+      districtId: "central",
+      startTime: Date.now(),
+      lastUpdateTime: Date.now(),
+      status: "active",
+      sentiment: 0.5,
+    };
+    this.activeConversations.set(`agent-${agent.id}`, agentConv);
+
     await this.aiIntegration.recordAgentActivity(agent.id);
     this.emit("agentRegistered", agent);
   }
@@ -646,12 +662,10 @@ export class AgentConversationService extends EventEmitter {
     const potentialPartners = Array.from(this.agentInterests.entries())
       .filter(([id, _]) => id !== agent.id)
       .filter(([id, _]) => !this.isAgentBusy(id))
-      .filter(([id, interests]) => {
+      .filter(([_, interests]) => {
         // Check for common interests
-        const agentInterests = this.agentInterests.get(agent.id);
-        if (!agentInterests) return false;
-        return Array.from(interests).some((interest) =>
-          agentInterests.has(interest)
+        return agent.interests.some((interest) =>
+          Array.from(interests).includes(interest)
         );
       })
       .map(([id, _]) => this.getAgent(id))

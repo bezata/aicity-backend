@@ -253,11 +253,23 @@ export class SocketManagerService extends EventEmitter {
   }
 
   private determineMessagePriority(content: any): BroadcastOptions["priority"] {
-    if (content.includes("emergency") || content.includes("critical"))
+    // Ensure content is a string and not undefined
+    const messageContent =
+      typeof content === "string"
+        ? content
+        : content?.message || content?.content || "";
+
+    if (
+      messageContent.includes("emergency") ||
+      messageContent.includes("critical")
+    )
       return "critical";
-    if (content.includes("important") || content.includes("urgent"))
+    if (
+      messageContent.includes("important") ||
+      messageContent.includes("urgent")
+    )
       return "high";
-    if (content.includes("update") || content.includes("change"))
+    if (messageContent.includes("update") || messageContent.includes("change"))
       return "medium";
     return "low";
   }

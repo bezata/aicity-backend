@@ -17,6 +17,7 @@ import { DepartmentController } from "./controllers/department.controller";
 import { createStore } from "./services/app.services";
 import { DistrictController } from "./controllers/district.controller";
 import { DonationController } from "./controllers/donation.controller";
+import { DistrictMetricsController } from "./controllers/district-metrics.controller";
 
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
@@ -33,7 +34,16 @@ async function initializeAISystem() {
 
     const result = await store.services.aiIntegration.initializeSystem({
       agents: allAgents,
-      protocol: "city-management",
+      protocol: {
+        name: "city-management",
+        version: "1.0.0",
+        rules: [
+          "The city is a living organism that evolves and adapts to the needs of its residents.",
+          "The city is a collaborative entity that works together to achieve its goals.",
+          "The city is a sustainable entity that works together to achieve its goals.",
+          "The city is a resilient entity that works together to achieve its goals.",
+        ],
+      },
       initialState: {
         resident_agents: residentAgentIds, // String value
         city_agents: cityAgentIds, // String value
@@ -58,6 +68,9 @@ async function initializeAISystem() {
 }
 
 const app = new Elysia()
+  .get("/service-worker.js", () => {
+    return new Response("", { status: 200 });
+  })
   .use(
     swagger({
       documentation: {
@@ -102,6 +115,13 @@ const app = new Elysia()
       jwt,
       store,
     };
+  })
+  .onRequest((context) => {
+    console.log(
+      `[${new Date().toISOString()}] ${context.request.method} ${
+        context.request.url
+      }`
+    );
   });
 
 // Mount controllers
@@ -114,13 +134,19 @@ const apiGroup = app.group("/api", ((app: any) => {
       // Function-style controllers that take service
       .use(DonationController(store.services.donationService))
       // Pre-configured Elysia instances
+      .use(DistrictMetricsController)
       .use(DepartmentController)
       .use(DistrictController)
       .use(AIController)
       // Class-style controllers with setup method
       .use((app: any) => new AdaptiveLearningController(store).setup(app))
       .use((app: any) =>
-        new AIIntegrationController(store.services.aiIntegration).setup(app)
+        new AIIntegrationController(
+          store.services.aiIntegration,
+          store.services.cultureService,
+          store.services.districtCultureService,
+          store.services.agentCultureService
+        ).setup(app)
       )
       .group("ai", (app: any) => {
         return app
@@ -277,9 +303,49 @@ app.use(apiGroup as any);
 // Initialize AI system before starting the server
 initializeAISystem()
   .then(() => {
-    app.listen(process.env.PORT || 3000);
+    // Create the server with WebSocket support
+    const server = Bun.serve<{ districtId: string; lastActivity: number }>({
+      port: process.env.PORT || 3001,
+      fetch(req, server) {
+        // Handle WebSocket upgrade for district metrics
+        if (req.url.includes("/api/districts/") && req.url.includes("/live")) {
+          const url = new URL(req.url);
+          const districtId = url.pathname.split("/")[3]; // Extract district ID from URL
+          const success = server.upgrade(req, {
+            data: { districtId, lastActivity: Date.now() },
+          });
+          return success
+            ? undefined
+            : new Response("WebSocket upgrade failed", { status: 500 });
+        }
+
+        // Handle regular HTTP requests through Elysia
+        return app.handle(req);
+      },
+      websocket: {
+        open(ws) {
+          try {
+            const districtId = ws.data.districtId;
+            console.log(
+              `WebSocket connection opened for district: ${districtId}`
+            );
+            store.services.districtWebSocket.handleConnection(ws, districtId);
+          } catch (error) {
+            console.error("Error in WebSocket connection:", error);
+            ws.close();
+          }
+        },
+        message(ws, message) {
+          console.log("Received message:", message);
+        },
+        close(ws) {
+          console.log("WebSocket connection closed");
+        },
+      },
+    });
+
     console.log(
-      `🦊 AI City server is running at ${app.server?.hostname}:${app.server?.port}`
+      `🦊 AI City server is running at ${server.hostname}:${server.port}`
     );
   })
   .catch((error) => {

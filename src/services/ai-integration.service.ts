@@ -8,6 +8,9 @@ import {
   AIProtocol,
 } from "../types/ai-integration.types";
 import { v4 as uuidv4 } from "uuid";
+import { CultureService } from "../services/culture.service";
+import { DistrictCultureService } from "../services/district-culture.service";
+import { AgentCultureService } from "../services/agent-culture.service";
 
 export class AIIntegrationService {
   private activeAgents: Set<string> = new Set();
@@ -19,7 +22,12 @@ export class AIIntegrationService {
   private lastHeartbeat: Map<string, number> = new Map();
   private readonly HEARTBEAT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
-  constructor(private vectorStore: VectorStoreService) {
+  constructor(
+    private vectorStore: VectorStoreService,
+    private cultureService: CultureService,
+    private districtCultureService: DistrictCultureService,
+    private agentCultureService: AgentCultureService
+  ) {
     this.startHeartbeatMonitoring();
   }
 

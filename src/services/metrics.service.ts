@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { CityMetrics } from "../types/city-metrics";
 import { VectorStoreService } from "./vector-store.service";
+import { EnvironmentService } from "./environment.service";
 
 interface AIMetrics {
   agentActivity: {
@@ -57,7 +58,10 @@ export class MetricsService extends EventEmitter {
     metrics: EnhancedCityMetrics;
   }> = [];
 
-  constructor(private vectorStore: VectorStoreService) {
+  constructor(
+    private vectorStore: VectorStoreService,
+    private environmentService?: EnvironmentService
+  ) {
     super();
     this.currentMetrics = this.initializeMetrics();
     this.initializeMonitoring();
@@ -404,6 +408,112 @@ export class MetricsService extends EventEmitter {
 
   private initializeMetrics(): EnhancedCityMetrics {
     return {
+      weather: {
+        temperature: 22,
+        feelsLike: 23,
+        humidity: 65,
+        precipitation: 0,
+        windSpeed: 12,
+        windDirection: "NE",
+      },
+      environmental: {
+        airQuality: 85,
+        noiseLevel: 45,
+        waterQuality: 7,
+        greenCoverage: 0.4,
+        emissions: 0.5,
+      },
+      emergency: {
+        level: "normal",
+        activeIncidents: 2,
+        responseTeamsAvailable: 8,
+      },
+      vitals: {
+        populationCount: 15234,
+        activeEntities: 12453,
+        visitorCount: 892,
+        peakHoursStatus: "Optimal",
+      },
+      community: {
+        activeEvents: 12,
+        ongoingMeetings: 5,
+        collaborationSessions: 8,
+        chatActivity: "High",
+      },
+      safety: {
+        overallScore: 95,
+        recentIncidents: 3,
+        responseTime: "2.5 min",
+        serviceAvailability: 98,
+        crimeRate: 2.1,
+        emergencyResponseTime: 8.5,
+        publicTrustIndex: 0.7,
+        disasterReadiness: 0.8,
+      },
+      resources: {
+        energyConsumption: 72,
+        waterUsage: 65,
+        wasteManagement: 88,
+        efficiency: 91,
+      },
+      transport: {
+        trafficDensity: 45,
+        publicTransportLoad: 68,
+        parkingAvailable: 342,
+        avgTransitTime: 15,
+        trafficCongestion: 0.4,
+        publicTransitReliability: 0.85,
+      },
+      economic: {
+        businessActivity: 82,
+        growthRate: 4.2,
+        activeTransactions: 1243,
+        marketSentiment: "Positive",
+        employmentRate: 0.92,
+        giniCoefficient: 0.35,
+        businessFormationRate: 5.2,
+        innovationIndex: 0.7,
+        housingAffordability: 0.6,
+      },
+      cultural: {
+        eventAttendance: 89,
+        culturalSiteVisits: 1205,
+        communityEngagement: 86,
+        socialCohesion: 92,
+        culturalEngagement: 3.5,
+        civicParticipation: 0.65,
+      },
+      infrastructure: {
+        maintenanceRequests: 23,
+        serviceUptime: 99.9,
+        healthScore: 94,
+        developmentProgress: 78,
+        wasteRecyclingRate: 0.6,
+        smartGridEfficiency: 0.8,
+      },
+      budget: {
+        currentStatus: 8500000,
+        monthlySpending: 750000,
+        efficiency: 92,
+        allocation: {
+          infrastructure: 35,
+          services: 25,
+          development: 20,
+          emergency: 20,
+        },
+      },
+      departments: {
+        responseTimes: 95,
+        serviceQuality: 89,
+        resourceUtilization: 86,
+        efficiency: 91,
+      },
+      donations: {
+        activeCampaigns: 5,
+        totalDonations: 2500000,
+        goalProgress: 75,
+        impactScore: 89,
+      },
       sustainability: {
         carbonEmissions: 10,
         renewableEnergyRatio: 0.3,
@@ -412,32 +522,10 @@ export class MetricsService extends EventEmitter {
         waterQualityScore: 0.8,
         biodiversityIndex: 0.6,
       },
-      economy: {
-        employmentRate: 0.92,
-        giniCoefficient: 0.35,
-        businessFormationRate: 5.2,
-        innovationIndex: 0.7,
-        housingAffordability: 0.6,
-      },
       social: {
         healthcareAccessScore: 0.75,
         educationQualityIndex: 0.8,
-        culturalEngagement: 3.5,
-        civicParticipation: 0.65,
         communityWellbeing: 0.7,
-      },
-      infrastructure: {
-        trafficCongestion: 0.4,
-        publicTransitReliability: 0.85,
-        wasteRecyclingRate: 0.6,
-        infrastructureHealth: 0.75,
-        smartGridEfficiency: 0.8,
-      },
-      safety: {
-        crimeRate: 2.1,
-        emergencyResponseTime: 8.5,
-        publicTrustIndex: 0.7,
-        disasterReadiness: 0.8,
       },
       ai: {
         agentActivity: {
@@ -562,5 +650,155 @@ export class MetricsService extends EventEmitter {
 
     // Fallback generic recommendations
     return `Consider reviewing and optimizing ${category} policies related to ${metric}`;
+  }
+
+  async getCurrentMetrics(districtId: string): Promise<any> {
+    try {
+      // Get environmental metrics if available
+      let environmentalMetrics;
+      if (this.environmentService) {
+        const metrics = await this.environmentService.getEnvironmentalMetrics(
+          districtId
+        );
+        if (metrics instanceof Map) {
+          environmentalMetrics = metrics.get(districtId);
+        } else {
+          environmentalMetrics = metrics;
+        }
+      }
+
+      // Query vector store for latest district metrics
+      const results = await this.vectorStore.query({
+        vector: await this.vectorStore.createEmbedding(
+          `district ${districtId} current metrics`
+        ),
+        filter: {
+          type: { $eq: "district" },
+          districtId: { $eq: districtId },
+        },
+        topK: 1,
+      });
+
+      if (results.matches?.length > 0) {
+        const metrics = JSON.parse(results.matches[0].metadata.metrics);
+        // Merge environmental metrics if available
+        if (environmentalMetrics) {
+          metrics.environmental = {
+            airQuality: environmentalMetrics.airQuality.aqi,
+            noiseLevel: environmentalMetrics.noiseLevel.decibels,
+            waterQuality: environmentalMetrics.waterQuality.ph,
+            greenCoverage: environmentalMetrics.greenCoverage,
+            emissions: environmentalMetrics.emissions,
+          };
+        }
+        return metrics;
+      }
+
+      // Return default metrics if none found
+      return {
+        weather: {
+          temperature: 22,
+          feelsLike: 23,
+          humidity: 65,
+          precipitation: 0,
+          windSpeed: 12,
+          windDirection: "NE",
+        },
+        environmental: environmentalMetrics
+          ? {
+              airQuality: environmentalMetrics.airQuality.aqi,
+              noiseLevel: environmentalMetrics.noiseLevel.decibels,
+              waterQuality: environmentalMetrics.waterQuality.ph,
+              greenCoverage: environmentalMetrics.greenCoverage,
+              emissions: environmentalMetrics.emissions,
+            }
+          : {
+              airQuality: 85,
+              noiseLevel: 45,
+              waterQuality: 7,
+              greenCoverage: 0.4,
+              emissions: 0.5,
+            },
+        emergency: {
+          level: "normal",
+          activeIncidents: 2,
+          responseTeamsAvailable: 8,
+        },
+        vitals: {
+          populationCount: 15234,
+          activeEntities: 12453,
+          visitorCount: 892,
+          peakHoursStatus: "Optimal",
+        },
+        community: {
+          activeEvents: 12,
+          ongoingMeetings: 5,
+          collaborationSessions: 8,
+          chatActivity: "High",
+        },
+        safety: {
+          overallScore: 95,
+          recentIncidents: 3,
+          responseTime: "2.5 min",
+          serviceAvailability: 98,
+        },
+        resources: {
+          energyConsumption: 72,
+          waterUsage: 65,
+          wasteManagement: 88,
+          efficiency: 91,
+        },
+        transport: {
+          trafficDensity: 45,
+          publicTransportLoad: 68,
+          parkingAvailable: 342,
+          avgTransitTime: 15,
+        },
+        economic: {
+          businessActivity: 82,
+          growthRate: 4.2,
+          activeTransactions: 1243,
+          marketSentiment: "Positive",
+        },
+        cultural: {
+          eventAttendance: 89,
+          culturalSiteVisits: 1205,
+          communityEngagement: 86,
+          socialCohesion: 92,
+        },
+        infrastructure: {
+          maintenanceRequests: 23,
+          serviceUptime: 99.9,
+          healthScore: 94,
+          developmentProgress: 78,
+        },
+        budget: {
+          currentStatus: 8500000,
+          monthlySpending: 750000,
+          efficiency: 92,
+          allocation: {
+            infrastructure: 35,
+            services: 25,
+            development: 20,
+            emergency: 20,
+          },
+        },
+        departments: {
+          responseTimes: 95,
+          serviceQuality: 89,
+          resourceUtilization: 86,
+          efficiency: 91,
+        },
+        donations: {
+          activeCampaigns: 5,
+          totalDonations: 2500000,
+          goalProgress: 75,
+          impactScore: 89,
+        },
+      };
+    } catch (error) {
+      console.error("Error getting current metrics:", error);
+      throw error;
+    }
   }
 }

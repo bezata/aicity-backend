@@ -121,6 +121,7 @@ export class CultureService extends EventEmitter {
   private artists: Map<string, Artist> = new Map();
   private religions: Map<string, Religion> = new Map();
   private culturalMetrics: CulturalMetrics;
+  private initialized = false;
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -153,10 +154,13 @@ export class CultureService extends EventEmitter {
         communityHarmony: 0,
       },
     };
-    this.initializeCulturalSystem();
   }
 
-  private async initializeCulturalSystem() {
+  async initialize() {
+    if (this.initialized) {
+      return;
+    }
+
     // Start cultural cycles
     setInterval(() => this.generateEvents(), 1000 * 60 * 60 * 24); // Daily
     setInterval(() => this.updateMetricsPeriodically(), 1000 * 60 * 60); // Hourly
@@ -168,6 +172,9 @@ export class CultureService extends EventEmitter {
       "rhythmUpdated",
       this.synchronizeEvents.bind(this)
     );
+
+    this.initialized = true;
+    console.log("🎭 Culture Service initialized");
   }
 
   private async updateMetricsPeriodically(): Promise<void> {

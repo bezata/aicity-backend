@@ -34,11 +34,16 @@ import { CulturalTransportService } from "./cultural-transport.service";
 import { AIIntegrationService } from "./ai-integration.service";
 import { DonationService } from "./donation.service";
 import { DistrictCultureService } from "./district-culture.service";
+import { DistrictWebSocketService } from "./district-websocket.service";
+import { agents, residentAgents } from "../config/agents";
+import { cityManagementAgents, allCityAgents } from "../config/city-agents";
+import type { Agent } from "../types/agent.types";
 
 // Define store type
 export type AppStore = {
   services: {
     donationService: DonationService;
+    districtWebSocket: DistrictWebSocketService;
     togetherService: TogetherService;
     vectorStore: VectorStoreService;
     conversationService: ConversationService;
@@ -64,6 +69,9 @@ export type AppStore = {
     culturalDonation: CulturalDonationService;
     culturalTransport: CulturalTransportService;
     aiIntegration: AIIntegrationService;
+    cultureService: CultureService;
+    districtCultureService: DistrictCultureService;
+    agentCultureService: AgentCultureService;
   };
   conversations: Map<string, any[]>;
 };
@@ -72,17 +80,24 @@ export type AppStore = {
 if (!process.env.TOGETHER_API_KEY) {
   throw new Error("TOGETHER_API_KEY environment variable is not set");
 }
-
 // Declare services that have circular dependencies
 let weatherService: WeatherService;
 let transportService: TransportService;
 let cityRhythmService: CityRhythmService;
 let socialDynamicsService: SocialDynamicsService;
-const analyticsService = new AnalyticsService();
+let smartInfrastructureService: SmartInfrastructureService;
+let environmentService: EnvironmentService;
+let emergencyService: EmergencyService;
+
 // Initialize base services
 const togetherService = new TogetherService(process.env.TOGETHER_API_KEY);
 const vectorStore = new VectorStoreService(togetherService);
+const analyticsService = new AnalyticsService();
+
+// Initialize metrics service first
 const metricsService = new MetricsService(vectorStore);
+
+// Initialize core services
 const cityService = new CityService(metricsService);
 const departmentService = new DepartmentService(
   vectorStore,
@@ -90,22 +105,14 @@ const departmentService = new DepartmentService(
   analyticsService,
   metricsService
 );
-const citizenService = new CitizenService(
-  vectorStore,
-  togetherService,
-  departmentService,
-  analyticsService
-);
-const emergencyService = new EmergencyService(
-  vectorStore,
-  departmentService,
-  citizenService
-);
+
+// Initialize district and culture services
 const initialDistrictCultureService = new DistrictCultureService(
   undefined as unknown as CultureService,
-  undefined as unknown as DistrictService, // Will be updated after DistrictService initialization
+  undefined as unknown as DistrictService,
   vectorStore
 );
+
 const initialDistrictService = new DistrictService(
   cityService,
   vectorStore,
@@ -113,50 +120,64 @@ const initialDistrictService = new DistrictService(
   analyticsService,
   initialDistrictCultureService
 );
-// Create initial instances with undefined instead of null
-const initialCityRhythm = new CityRhythmService(
+
+// Initialize infrastructure and environment services
+smartInfrastructureService = new SmartInfrastructureService(
+  vectorStore,
+  metricsService,
+  undefined as unknown as TransportService
+);
+
+environmentService = new EnvironmentService(
+  vectorStore,
+  initialDistrictService,
+  smartInfrastructureService,
+  analyticsService
+);
+
+// Update metrics service with environment service
+(metricsService as any).environmentService = environmentService;
+
+// Initialize citizen and emergency services
+const citizenService = new CitizenService(
+  vectorStore,
+  togetherService,
+  departmentService,
+  analyticsService
+);
+
+emergencyService = new EmergencyService(
+  vectorStore,
+  departmentService,
+  citizenService
+);
+
+// Initialize city rhythm and transport services
+cityRhythmService = new CityRhythmService(
   vectorStore,
   citizenService,
   undefined as unknown as TransportService,
   departmentService
 );
-const initialEmergency = new EmergencyService(
-  vectorStore,
-  departmentService,
-  citizenService
-);
-const initialWeather = new WeatherService(
+
+weatherService = new WeatherService(
   vectorStore,
   cityService,
   undefined as unknown as TransportService,
-  initialCityRhythm,
-  initialEmergency
+  cityRhythmService,
+  emergencyService
 );
-const initialTransport = new TransportService(
+
+transportService = new TransportService(
   vectorStore,
-  initialWeather,
-  initialCityRhythm,
-  initialEmergency,
+  weatherService,
+  cityRhythmService,
+  emergencyService,
   initialDistrictService,
   metricsService
 );
 
-// Now create the final instances with proper dependencies
-weatherService = new WeatherService(
-  vectorStore,
-  cityService,
-  initialTransport,
-  initialCityRhythm,
-  initialEmergency
-);
-transportService = new TransportService(
-  vectorStore,
-  weatherService,
-  initialCityRhythm,
-  initialEmergency,
-  initialDistrictService,
-  metricsService
-);
+// Update city rhythm service with transport service
 cityRhythmService = new CityRhythmService(
   vectorStore,
   citizenService,
@@ -164,49 +185,45 @@ cityRhythmService = new CityRhythmService(
   departmentService
 );
 
-// Update the references
+// Update transport service's city rhythm reference
+(transportService as any).cityRhythmService = cityRhythmService;
+
+// Initialize social dynamics service
 socialDynamicsService = new SocialDynamicsService(
   vectorStore,
   departmentService,
   citizenService,
-  initialWeather,
+  weatherService,
   cityRhythmService
 );
 
-// Initialize culture service with correct dependencies
+// Initialize culture-related services
 const cultureService = new CultureService(
   vectorStore,
   weatherService,
   socialDynamicsService,
   cityRhythmService
 );
-const landmarkService = new LandmarkService(vectorStore, analyticsService);
 
-// Initialize agent culture service
+const landmarkService = new LandmarkService(vectorStore, analyticsService);
 const agentCulture = new AgentCultureService(cultureService, vectorStore);
 
-// Initialize district culture service first
+// Initialize district culture service with all dependencies
 const districtCultureService = new DistrictCultureService(
   cultureService,
-  undefined as unknown as DistrictService, // Will be updated after DistrictService initialization
+  initialDistrictService,
   vectorStore
 );
 
-// Initialize district service with all dependencies including district culture service
-const districtService = new DistrictService(
-  cityService,
+// Initialize AI integration service
+const aiIntegration = new AIIntegrationService(
   vectorStore,
-  togetherService,
-  analyticsService,
-  districtCultureService
+  cultureService,
+  districtCultureService,
+  agentCulture
 );
 
-// Update district culture service with district service reference
-(districtCultureService as any).districtService = districtService;
-
-// Initialize AI Integration service first since other services depend on it
-const aiIntegration = new AIIntegrationService(vectorStore);
-
+// Initialize collaboration and communication services
 const collaborationService = new AgentCollaborationService(
   togetherService,
   vectorStore,
@@ -216,38 +233,29 @@ const collaborationService = new AgentCollaborationService(
 );
 
 const socketManager = new SocketManagerService(collaborationService);
+const districtWebSocket = new DistrictWebSocketService(metricsService);
 
+// Initialize event and memory services
 const cityEventsService = new CityEventsService(
   metricsService,
   collaborationService,
   vectorStore,
-  districtService,
+  initialDistrictService,
   analyticsService
 );
-const smartInfrastructureService = new SmartInfrastructureService(
-  vectorStore,
-  metricsService,
-  transportService
-);
 
-// Initialize city memory service with all dependencies
 const cityMemory = new CityMemoryService(
   vectorStore,
   cultureService,
   landmarkService,
-  districtService,
+  initialDistrictService,
   smartInfrastructureService,
   analyticsService
 );
 
-const environmentService = new EnvironmentService(
-  vectorStore,
-  districtService,
-  smartInfrastructureService,
-  analyticsService
-);
-const initialEconomyService = new EconomyService(vectorStore, districtService);
-// Initialize city coordinator service
+// Initialize economic and development services
+const economyService = new EconomyService(vectorStore, initialDistrictService);
+
 const cityCoordinator = new CityCoordinatorService(
   vectorStore,
   departmentService,
@@ -256,7 +264,7 @@ const cityCoordinator = new CityCoordinatorService(
   socialDynamicsService,
   analyticsService,
   cityMemory,
-  initialEconomyService
+  economyService
 );
 
 const departmentAgentService = new DepartmentAgentService(
@@ -265,17 +273,21 @@ const departmentAgentService = new DepartmentAgentService(
   departmentService,
   metricsService
 );
+
 const developmentService = new DevelopmentService(
   vectorStore,
-  districtService,
+  initialDistrictService,
   smartInfrastructureService,
   environmentService
 );
+
+// Initialize spatial and cultural services
 const spatialCoordination = new SpatialCoordinationService(
   vectorStore,
-  districtService,
+  initialDistrictService,
   emergencyService
 );
+
 const conversationService = new ConversationService(
   togetherService,
   vectorStore,
@@ -307,19 +319,60 @@ const culturalTransport = new CulturalTransportService(
   analyticsService
 );
 
-// Initialize economy service
-const economyService = new EconomyService(vectorStore, districtService);
 const donationService = new DonationService(
   vectorStore,
   departmentService,
-  districtService,
+  initialDistrictService,
   socialDynamicsService
 );
-// Create initial store
+
+// Initialize AI system with all agents
+async function initializeAISystem() {
+  try {
+    const allAgents = [...allCityAgents.map((agent: Agent) => agent.id)];
+    const residentAgentIds = residentAgents.map((a: Agent) => a.id).join(",");
+    const cityAgentIds = cityManagementAgents.map((a: Agent) => a.id).join(",");
+
+    const result = await aiIntegration.initializeSystem({
+      agents: allAgents,
+      protocol: {
+        name: "city-management",
+        version: "1.0.0",
+        rules: [
+          "The city is a living organism that evolves and adapts to the needs of its residents.",
+          "The city is a collaborative entity that works together to achieve its goals.",
+          "The city is a sustainable entity that works together to achieve its goals.",
+          "The city is a resilient entity that works together to achieve its goals.",
+        ],
+      },
+      initialState: {
+        resident_agents: residentAgentIds,
+        city_agents: cityAgentIds,
+        agent_count: allAgents.length,
+        initialized: true,
+        agent_types: allAgents.map((id: string) => {
+          if (residentAgents.map((a: Agent) => a.id).includes(id))
+            return `${id}:resident`;
+          if (cityManagementAgents.map((a: Agent) => a.id).includes(id))
+            return `${id}:management`;
+          return `${id}:unknown`;
+        }),
+      },
+    });
+    console.log("🤖 AI System initialized with", allAgents.length, "agents");
+    return result;
+  } catch (error) {
+    console.error("Failed to initialize AI system:", error);
+    throw error;
+  }
+}
+
+// Create and export store
 export function createStore(): AppStore {
   return {
     services: {
       donationService,
+      districtWebSocket,
       togetherService,
       vectorStore,
       conversationService,
@@ -327,7 +380,7 @@ export function createStore(): AppStore {
       analyticsService,
       collaborationService,
       socketManager,
-      districtService,
+      districtService: initialDistrictService,
       cityEventsService,
       metricsService,
       departmentService,
@@ -345,6 +398,9 @@ export function createStore(): AppStore {
       culturalDonation,
       culturalTransport,
       aiIntegration,
+      cultureService,
+      districtCultureService,
+      agentCultureService: agentCulture,
     },
     conversations: new Map(),
   };

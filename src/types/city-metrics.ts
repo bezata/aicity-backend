@@ -1,41 +1,136 @@
 export interface CityMetrics {
-  sustainability: {
-    carbonEmissions: number; // tons per capita
-    renewableEnergyRatio: number; // 0-1
-    greenSpaceIndex: number; // 0-1
-    airQualityIndex: number; // 0-500
-    waterQualityScore: number; // 0-1
-    biodiversityIndex: number; // 0-1
+  weather: {
+    temperature: number;
+    feelsLike: number;
+    humidity: number;
+    precipitation: number;
+    windSpeed: number;
+    windDirection: string;
   };
 
-  economy: {
-    employmentRate: number; // 0-1
-    giniCoefficient: number; // 0-1
-    businessFormationRate: number; // new businesses per 1000 residents
-    innovationIndex: number; // 0-1
-    housingAffordability: number; // median income / median house price
+  environmental: {
+    airQuality: number;
+    noiseLevel: number;
+    waterQuality: number;
+    greenCoverage: number;
+    emissions: number;
   };
 
-  social: {
-    healthcareAccessScore: number; // 0-1
-    educationQualityIndex: number; // 0-1
-    culturalEngagement: number; // events per capita
-    civicParticipation: number; // 0-1
-    communityWellbeing: number; // 0-1
+  emergency: {
+    level: "normal" | "elevated" | "critical";
+    activeIncidents: number;
+    responseTeamsAvailable: number;
   };
 
-  infrastructure: {
-    trafficCongestion: number; // 0-1 (1 being worst)
-    publicTransitReliability: number; // 0-1
-    wasteRecyclingRate: number; // 0-1
-    infrastructureHealth: number; // 0-1
-    smartGridEfficiency: number; // 0-1
+  vitals: {
+    populationCount: number;
+    activeEntities: number;
+    visitorCount: number;
+    peakHoursStatus: string;
+  };
+
+  community: {
+    activeEvents: number;
+    ongoingMeetings: number;
+    collaborationSessions: number;
+    chatActivity: "Low" | "Medium" | "High";
   };
 
   safety: {
-    crimeRate: number; // incidents per 1000 residents
-    emergencyResponseTime: number; // minutes
-    publicTrustIndex: number; // 0-1
-    disasterReadiness: number; // 0-1
+    overallScore: number;
+    recentIncidents: number;
+    responseTime: string;
+    serviceAvailability: number;
+    crimeRate: number;
+    emergencyResponseTime: number;
+    publicTrustIndex: number;
+    disasterReadiness: number;
+  };
+
+  resources: {
+    energyConsumption: number;
+    waterUsage: number;
+    wasteManagement: number;
+    efficiency: number;
+  };
+
+  transport: {
+    trafficDensity: number;
+    publicTransportLoad: number;
+    parkingAvailable: number;
+    avgTransitTime: number;
+    trafficCongestion: number;
+    publicTransitReliability: number;
+  };
+
+  economic: {
+    businessActivity: number;
+    growthRate: number;
+    activeTransactions: number;
+    marketSentiment: string;
+    employmentRate: number;
+    giniCoefficient: number;
+    businessFormationRate: number;
+    innovationIndex: number;
+    housingAffordability: number;
+  };
+
+  cultural: {
+    eventAttendance: number;
+    culturalSiteVisits: number;
+    communityEngagement: number;
+    socialCohesion: number;
+    culturalEngagement: number;
+    civicParticipation: number;
+  };
+
+  infrastructure: {
+    maintenanceRequests: number;
+    serviceUptime: number;
+    healthScore: number;
+    developmentProgress: number;
+    wasteRecyclingRate: number;
+    smartGridEfficiency: number;
+  };
+
+  budget: {
+    currentStatus: number;
+    monthlySpending: number;
+    efficiency: number;
+    allocation: {
+      infrastructure: number;
+      services: number;
+      development: number;
+      emergency: number;
+    };
+  };
+
+  departments: {
+    responseTimes: number;
+    serviceQuality: number;
+    resourceUtilization: number;
+    efficiency: number;
+  };
+
+  donations: {
+    activeCampaigns: number;
+    totalDonations: number;
+    goalProgress: number;
+    impactScore: number;
+  };
+
+  sustainability: {
+    carbonEmissions: number;
+    renewableEnergyRatio: number;
+    greenSpaceIndex: number;
+    airQualityIndex: number;
+    waterQualityScore: number;
+    biodiversityIndex: number;
+  };
+
+  social: {
+    healthcareAccessScore: number;
+    educationQualityIndex: number;
+    communityWellbeing: number;
   };
 }

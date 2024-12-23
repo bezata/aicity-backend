@@ -51,6 +51,7 @@ interface CulturalDistrict {
 export class DistrictCultureService extends EventEmitter {
   private culturalDistricts: Map<string, CulturalDistrict> = new Map();
   private religiousZones: Map<string, ReligiousZone> = new Map();
+  private initialized = false;
 
   constructor(
     private cultureService: CultureService,
@@ -58,10 +59,13 @@ export class DistrictCultureService extends EventEmitter {
     private vectorStore: VectorStoreService
   ) {
     super();
-    this.initializeCulturalMapping();
   }
 
-  private async initializeCulturalMapping() {
+  async initialize() {
+    if (this.initialized) {
+      return;
+    }
+
     // Map cultural events to districts
     this.cultureService.on(
       "culturalEventCreated",
@@ -74,6 +78,9 @@ export class DistrictCultureService extends EventEmitter {
 
     // Initialize religious zone monitoring
     setInterval(() => this.monitorReligiousZones(), 60 * 60 * 1000); // Hourly check
+
+    this.initialized = true;
+    console.log("🏛️ District Culture Service initialized");
   }
 
   async createReligiousZone(

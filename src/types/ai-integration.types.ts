@@ -2,6 +2,7 @@ export interface SystemProtocol {
   name: string;
   version: string;
   rules: string[];
+  
 }
 
 export interface SystemInitializationConfig {

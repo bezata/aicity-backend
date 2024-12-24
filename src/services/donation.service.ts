@@ -254,6 +254,32 @@ export class DonationService extends EventEmitter {
     if (announcement) {
       announcement.districtReactions[reaction]++;
       this.announcements.set(announcementId, announcement);
+
+      // Get the donation to find the district
+      const donation = this.donations.get(announcement.donationId);
+      if (donation) {
+        // Broadcast the reaction update
+        this.eventBus.emit("donationReaction", {
+          districtId: donation.districtId,
+          announcementId: announcement.id,
+          reaction,
+          count: announcement.districtReactions[reaction],
+          timestamp: Date.now(),
+        });
+
+        // Update social dynamics
+        this.eventBus.emit("communityMoodUpdate", {
+          districtId: donation.districtId,
+          event: "donation_reaction",
+          sentiment:
+            reaction === "gratitude"
+              ? 0.9
+              : reaction === "excitement"
+              ? 0.8
+              : 0.7,
+          intensity: 0.5,
+        });
+      }
     }
   }
 

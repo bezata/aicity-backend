@@ -348,6 +348,22 @@ initializeAISystem()
             })
           );
 
+          // Listen to donation reactions
+          store.services.donationService.on("donationReaction", (data) => {
+            ws.send(
+              JSON.stringify({
+                type: "donation_reaction",
+                timestamp: Date.now(),
+                data: {
+                  announcementId: data.announcementId,
+                  reaction: data.reaction,
+                  count: data.count,
+                  districtId: data.districtId,
+                },
+              })
+            );
+          });
+
           // Listen to agent conversation events
           store.services.agentConversationService.on(
             "message:added",
@@ -376,22 +392,22 @@ initializeAISystem()
             }
           );
 
-          // Listen to conversation start events
-          store.services.agentConversationService.on(
-            "conversation:started",
-            (data) => {
+          // Listen to collaboration events
+          store.services.collaborationService.on(
+            "collaborationStarted",
+            (session) => {
               ws.send(
                 JSON.stringify({
-                  type: "conversation_started",
+                  type: "system_message",
                   timestamp: Date.now(),
                   data: {
-                    conversationId: data.id,
-                    participants: data.participants.map((p: any) => ({
-                      name: p.name,
-                      role: p.role,
-                    })),
-                    topic: data.topic,
-                    location: data.location,
+                    content: `🚨 Emergency Collaboration Started: A group of agents is working on solving a city problem. Participating agents: ${session.agents
+                      .map(
+                        (id: string) =>
+                          store.services.agentConversationService.getAgent(id)
+                            ?.name
+                      )
+                      .join(", ")}`,
                   },
                 })
               );
@@ -447,6 +463,15 @@ initializeAISystem()
 
                 // Add small delay between responses
                 await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
+            } else if (data.type === "add_reaction") {
+              console.log("👍 Adding reaction:", data);
+
+              if (data.announcementId && data.reaction) {
+                await store.services.donationService.addReactionToAnnouncement(
+                  data.announcementId,
+                  data.reaction
+                );
               }
             }
           } catch (error) {

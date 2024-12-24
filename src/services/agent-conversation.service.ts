@@ -91,10 +91,10 @@ export class AgentConversationService extends EventEmitter {
   private agentProfiles: Map<string, AgentSocialProfile> = new Map();
   private districtActivities: Map<string, Map<string, string[]>> = new Map();
   private registeredAgents: Map<string, Agent> = new Map();
-  private readonly maxConversationDuration = 20 * 60 * 1000; // 10 minutes
+  private readonly maxConversationDuration = 20 * 60 * 1000; // 20 minutes
   private readonly messageInterval = 60000; // 1 minute between messages
-  private readonly maxConcurrentConversations = 10; // Only 1 conversation at a time
-  private readonly minConversationCooldown = 1 * 60 * 1000; // 5 minutes cooldown between conversations
+  private readonly maxConcurrentConversations = 10; // Maximum concurrent conversations
+  private readonly minConversationCooldown = 1 * 60 * 1000; // 1 minute cooldown between conversations
   private lastConversationTime: number = 0;
   private dailyAPICallCount: number = 0;
   private readonly maxDailyAPICalls: number = 1000; // Limit daily API calls
@@ -428,6 +428,39 @@ export class AgentConversationService extends EventEmitter {
 
   private async generateNaturalConversations() {
     try {
+      // Check rate limits first
+      if (this.dailyAPICallCount >= this.maxDailyAPICalls) {
+        console.log("⚠️ Daily API call limit reached");
+        return;
+      }
+
+      const currentHour = new Date().getHours();
+      if (
+        currentHour < this.conversationStartHour ||
+        currentHour >= this.conversationEndHour
+      ) {
+        console.log("⏰ Outside conversation hours");
+        return;
+      }
+
+      const timeSinceLastConversation = Date.now() - this.lastConversationTime;
+      if (timeSinceLastConversation < this.minConversationCooldown) {
+        console.log("⏳ Conversation cooldown active");
+        return;
+      }
+
+      // Check concurrent conversations limit
+      const activeConversationsCount = Array.from(
+        this.activeConversations.values()
+      ).filter((conv) => conv.status === "active").length;
+
+      if (activeConversationsCount >= this.maxConcurrentConversations) {
+        console.log(
+          `⚠️ Max concurrent conversations (${this.maxConcurrentConversations}) reached`
+        );
+        return;
+      }
+
       // Get the Downtown District
       const district = await this.districtService.getDistrict(
         "a42ed892-3878-45a5-9a1a-4ceaf9524f1c"
@@ -490,7 +523,7 @@ export class AgentConversationService extends EventEmitter {
         context
       );
       console.log(
-        `✨ Started natural conversation with ${participants.length} agents:`,
+        `🤝 Started natural conversation with ${participants.length} agents:`,
         participants.map((a) => a.name).join(", ")
       );
     } catch (error) {
@@ -717,6 +750,10 @@ export class AgentConversationService extends EventEmitter {
     context: ConversationContext
   ) {
     try {
+      // Update rate limiting counters
+      this.lastConversationTime = Date.now();
+      this.dailyAPICallCount++;
+
       // Create conversation
       const conversation = await this.createConversation(participants, context);
       console.log("\n=== New Conversation Started ===");

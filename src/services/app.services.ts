@@ -313,7 +313,8 @@ const departmentAgentService = new DepartmentAgentService(
   togetherService,
   analyticsService,
   departmentService,
-  metricsService
+  metricsService,
+  vectorStore
 );
 
 const developmentService = new DevelopmentService(

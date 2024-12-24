@@ -5,6 +5,8 @@ import { TogetherService } from "./together.service";
 import { AnalyticsService } from "./analytics.service";
 import { DepartmentService } from "./department.service";
 import { MetricsService } from "./metrics.service";
+import { VectorStoreService } from "./vector-store.service";
+import { Agent } from "../types/agent.types";
 
 interface AgentTaskUpdate {
   agentId: string;
@@ -18,7 +20,8 @@ export class DepartmentAgentService extends EventEmitter {
     private togetherService: TogetherService,
     private analyticsService: AnalyticsService,
     private departmentService: DepartmentService,
-    private metricsService: MetricsService
+    private metricsService: MetricsService,
+    private vectorStore: VectorStoreService
   ) {
     super();
     this.setupEventListeners();
@@ -89,8 +92,6 @@ export class DepartmentAgentService extends EventEmitter {
       social: {
         healthcareAccessScore: agent.performance.efficiency,
         educationQualityIndex: 0.8,
-        culturalEngagement: 3.5,
-        civicParticipation: availableAgents.length / this.agents.size,
         communityWellbeing: agent.performance.citizenSatisfaction,
       },
     });
@@ -159,5 +160,47 @@ export class DepartmentAgentService extends EventEmitter {
         agentId: agent.id,
         task: agent.currentTask,
       }));
+  }
+
+  async registerAgent(agent: Agent): Promise<void> {
+    try {
+      // Create embedding for agent data
+      const embedding = await this.togetherService.createEmbedding(
+        `${agent.role} ${agent.personality} ${agent.interests.join(" ")}`
+      );
+
+      // Store agent data in Pinecone
+      await this.vectorStore.upsert({
+        id: `agent-${agent.id}`,
+        values: embedding,
+        metadata: {
+          type: "department_agent",
+          agentId: agent.id,
+          role: agent.role,
+          name: agent.name,
+          personality: agent.personality,
+          interests: agent.interests.join(","),
+          traits: JSON.stringify(agent.traits),
+          department: agent.department || "general",
+          timestamp: Date.now(),
+        },
+      });
+
+      // Track agent registration
+      this.analyticsService.trackEvent("agent_registered", {
+        agentId: agent.id,
+        role: agent.role,
+        department: agent.department || "general",
+      });
+
+      console.log(
+        `✅ Registered department agent: ${agent.name} in ${
+          agent.department || "general"
+        } department`
+      );
+    } catch (error) {
+      console.error(`Failed to register agent ${agent.name}:`, error);
+      throw error;
+    }
   }
 }

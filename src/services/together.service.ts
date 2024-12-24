@@ -6,7 +6,6 @@ export class TogetherService {
   private client: Together;
   private readonly embeddingModel = "togethercomputer/m2-bert-80M-8k-retrieval";
   private lastRequestTime: number = 0;
-  private minRequestInterval: number = 15000; // 15 seconds between requests
 
   constructor(apiKey: string) {
     console.log("🔑 Initializing Together service...");
@@ -27,13 +26,7 @@ export class TogetherService {
   private async waitForRateLimit() {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
-    if (timeSinceLastRequest < this.minRequestInterval) {
-      const waitTime = this.minRequestInterval - timeSinceLastRequest;
-      console.log(
-        `⏳ Rate limiting: waiting ${Math.round(waitTime / 1000)} seconds...`
-      );
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
-    }
+
     this.lastRequestTime = Date.now();
     console.log("✅ Rate limit wait complete");
   }
@@ -94,13 +87,13 @@ export class TogetherService {
         ];
 
         console.log("\n📝 API Request:");
-        console.log("Model:", "meta-llama/Llama-3.3-70B-Instruct-Turbo");
+        console.log("Model:", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo");
         console.log("System prompt:", systemPrompt || agent.systemPrompt);
         console.log("Temperature:", agent.temperature || 0.7);
         console.log("Messages:", JSON.stringify(formattedMessages, null, 2));
 
         const response = await this.client.chat.completions.create({
-          model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+          model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
           messages: formattedMessages,
           temperature: agent.temperature || 0.7,
           max_tokens: 2000,
@@ -164,45 +157,85 @@ export class TogetherService {
   }
 
   async generateText(prompt: string): Promise<string> {
-    try {
-      console.log("\n=== Together API Text Generation ===");
-      console.log("📝 Prompt:", prompt);
+    const maxRetries = 3;
+    let retryCount = 0;
 
-      await this.waitForRateLimit();
+    while (retryCount < maxRetries) {
+      try {
+        console.log("\n=== Together API Text Generation ===");
+        console.log("📝 Prompt:", prompt);
+        console.log("🔄 Attempt:", retryCount + 1, "of", maxRetries);
 
-      console.log("🎯 Calling Together API...");
-      const response = await this.client.chat.completions.create({
-        model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        max_tokens: 512,
-      });
+        await this.waitForRateLimit();
 
-      console.log("\n📥 API Response:");
-      console.log("Response ID:", response.id);
-      console.log("Tokens used:", response.usage);
-      console.log("Finish reason:", response.choices[0]?.finish_reason);
-      console.log("Raw content:", response.choices[0]?.message?.content);
+        // Add completion signal to prompt
+        const enhancedPrompt = prompt + "\nEND_OF_RESPONSE";
 
-      if (!response?.choices?.[0]?.message?.content) {
-        console.error("❌ Empty response content");
-        throw new Error("Invalid or empty response from language model");
-      }
+        const formattedMessages = [
+          {
+            role: "system" as const,
+            content:
+              "You are a helpful AI assistant. Provide clear and concise responses. Always complete your JSON responses fully.",
+          },
+          {
+            role: "user" as const,
+            content: enhancedPrompt,
+          },
+        ];
 
-      const result = response.choices[0].message.content.trim();
-      console.log("\n✅ Final response:", result);
-      console.log("=========================\n");
-      return result;
-    } catch (error: any) {
-      console.error("\n❌ Text generation failed:", error);
-      if (error instanceof Error) {
-        console.error("Error details:", {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
+        const response = await this.client.chat.completions.create({
+          model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+          messages: formattedMessages,
+          temperature: 0.7,
+          max_tokens: 1000, // Increased token limit
+          top_p: 0.9,
+          frequency_penalty: 0.3,
+          presence_penalty: 0.2,
+          stop: ["END_OF_RESPONSE"], // Stop at completion signal
         });
+
+        console.log("\n📥 API Response:");
+        console.log("Response ID:", response.id);
+        console.log("Tokens used:", response.usage);
+        console.log("Finish reason:", response.choices[0]?.finish_reason);
+
+        if (!response?.choices?.[0]?.message?.content?.trim()) {
+          throw new Error("Empty response from language model");
+        }
+
+        const result = response.choices[0].message.content
+          .replace("END_OF_RESPONSE", "")
+          .trim();
+
+        // Validate JSON if the prompt asks for JSON
+        if (prompt.toLowerCase().includes("json")) {
+          try {
+            JSON.parse(result); // Test if it's valid JSON
+          } catch (e) {
+            throw new Error("Invalid JSON response");
+          }
+        }
+
+        console.log("✅ Generated text:", result);
+        return result;
+      } catch (error) {
+        console.error(`\n❌ Attempt ${retryCount + 1} failed:`, error);
+        retryCount++;
+
+        if (retryCount === maxRetries) {
+          console.log("⚠️ All retries failed, using fallback text");
+          if (prompt.toLowerCase().includes("json")) {
+            return "[]"; // Return empty JSON array as fallback for JSON requests
+          }
+          return "I apologize, but I am unable to generate a response at the moment.";
+        }
+
+        const waitTime = 1000 * Math.pow(2, retryCount);
+        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
-      throw error;
     }
+
+    throw new Error("Failed to generate text after all retries");
   }
 }

@@ -83,6 +83,7 @@ export class CityCoordinatorService extends EventEmitter {
   private readonly coordinatorAgent: Agent = {
     id: "city-coordinator",
     name: "City Coordinator",
+    role: "System",
     personality: "Analytical and efficient",
     systemPrompt: "Coordinate city operations and optimize resource allocation",
     interests: ["city planning", "resource optimization", "coordination"],

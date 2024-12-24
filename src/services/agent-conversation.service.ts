@@ -184,83 +184,143 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private generateInitialRoutines(): AgentActivity[] {
-    const baseRoutines = [
-      {
-        timeSlot: 7,
-        activity: "early_exercise",
-        location: "Fitness Center",
-        possibleTopics: ["health", "wellness", "morning routine"],
-        socialProbability: 0.4,
-      },
+    return [
       {
         timeSlot: 9,
-        activity: "morning_coffee",
-        location: "Local Café",
-        possibleTopics: ["community", "news", "work life"],
-        socialProbability: 0.6,
+        activity: "Morning Activity",
+        location: "District Center",
+        possibleTopics: ["weather", "news", "community"],
+        socialProbability: 0.7,
       },
       {
         timeSlot: 12,
-        activity: "lunch_break",
-        location: "Restaurant",
-        possibleTopics: ["food", "culture", "local events"],
-        socialProbability: 0.7,
-      },
-      {
-        timeSlot: 15,
-        activity: "afternoon_meeting",
-        location: "Community Center",
-        possibleTopics: ["district development", "community projects"],
+        activity: "Lunch Break",
+        location: "Local Café",
+        possibleTopics: ["food", "culture", "events"],
         socialProbability: 0.8,
       },
       {
+        timeSlot: 15,
+        activity: "Afternoon Work",
+        location: "Office",
+        possibleTopics: ["projects", "collaboration"],
+        socialProbability: 0.6,
+      },
+      {
         timeSlot: 17,
-        activity: "evening_leisure",
-        location: "Park",
-        possibleTopics: ["recreation", "events", "hobbies"],
-        socialProbability: 0.5,
+        activity: "Community Meeting",
+        location: "Community Center",
+        possibleTopics: ["development", "planning"],
+        socialProbability: 0.9,
       },
       {
         timeSlot: 19,
-        activity: "cultural_event",
-        location: "Cultural Hub",
-        possibleTopics: ["arts", "performances", "exhibitions"],
+        activity: "Evening Recreation",
+        location: "Park",
+        possibleTopics: ["leisure", "hobbies"],
         socialProbability: 0.7,
       },
     ];
-
-    return this.shuffleAndSelectRoutines(baseRoutines);
-  }
-
-  private shuffleAndSelectRoutines(routines: AgentActivity[]): AgentActivity[] {
-    const shuffled = [...routines].sort(() => Math.random() - 0.5);
-    const numRoutines = Math.floor(Math.random() * 3) + 3; // 3-5 routines per agent
-    return shuffled.slice(0, numRoutines);
   }
 
   public async generateAIRoutines(agent: Agent): Promise<AgentActivity[]> {
     try {
-      const prompt = `Generate daily routines for an AI city agent with the following traits:
-        - Personality: ${agent.personality}
-        - Interests: ${agent.interests.join(", ")}
-        - Traits: ${Object.entries(agent.traits)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(", ")}
-        
-        Format: Return a JSON array of routines with timeSlot (0-23), activity name, location, possible conversation topics, and social probability (0-1).`;
+      // First try to retrieve from Pinecone
+      const embedding = await this.vectorStore.createEmbedding(
+        `${agent.role} ${agent.personality} routines`
+      );
+
+      const results = await this.vectorStore.query({
+        vector: embedding,
+        filter: {
+          type: { $eq: "agent_routine" },
+          agentId: { $eq: agent.id },
+        },
+        topK: 1,
+      });
+
+      if (results.matches?.length > 0 && results.matches[0].metadata.routines) {
+        console.log("Found existing routines in Pinecone");
+        return JSON.parse(results.matches[0].metadata.routines);
+      }
+
+      // If not found, generate new routines
+      console.log("Generating new AI routines");
+      const prompt = `You are a schedule generator. Generate a daily schedule for ${agent.name} (${agent.role}).
+      RESPOND ONLY WITH A VALID JSON ARRAY. NO OTHER TEXT.
+      Each object in array must have exactly these properties:
+      {
+        "timeSlot": (number 0-23),
+        "activity": (string),
+        "location": (string),
+        "possibleTopics": (array of strings),
+        "socialProbability": (number 0-1)
+      }
+      Generate exactly 5 activities.`;
 
       const response = await this.togetherService.generateText(prompt);
 
       try {
-        const aiRoutines = JSON.parse(response);
-        return this.validateAndFormatRoutines(aiRoutines);
-      } catch {
+        // Clean the response
+        const cleanedResponse = response
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .replace(/\n/g, "")
+          .replace(/\r/g, "")
+          .trim();
+
+        const routines = JSON.parse(cleanedResponse);
+
+        if (!Array.isArray(routines) || routines.length !== 5) {
+          throw new Error("Invalid routines format");
+        }
+
+        // Validate each routine
+        routines.forEach((routine) => {
+          if (!this.isValidRoutine(routine)) {
+            throw new Error("Invalid routine object format");
+          }
+        });
+
+        // Store in Pinecone
+        await this.vectorStore.upsert({
+          id: `routine-${agent.id}`,
+          values: embedding,
+          metadata: {
+            type: "agent_routine",
+            agentId: agent.id,
+            routines: JSON.stringify(routines),
+            timestamp: Date.now(),
+          },
+        });
+
+        return routines;
+      } catch (parseError) {
+        console.error("Failed to parse AI routines:", parseError);
         return this.generateInitialRoutines();
       }
     } catch (error) {
-      console.error("Failed to generate AI routines:", error);
+      console.error("Failed to generate/retrieve AI routines:", error);
       return this.generateInitialRoutines();
     }
+  }
+
+  private isValidRoutine(routine: any): boolean {
+    return (
+      typeof routine === "object" &&
+      typeof routine.timeSlot === "number" &&
+      routine.timeSlot >= 0 &&
+      routine.timeSlot <= 23 &&
+      typeof routine.activity === "string" &&
+      typeof routine.location === "string" &&
+      Array.isArray(routine.possibleTopics) &&
+      routine.possibleTopics.every(
+        (topic: unknown) => typeof topic === "string"
+      ) &&
+      typeof routine.socialProbability === "number" &&
+      routine.socialProbability >= 0 &&
+      routine.socialProbability <= 1
+    );
   }
 
   private validateAndFormatRoutines(aiRoutines: any[]): AgentActivity[] {

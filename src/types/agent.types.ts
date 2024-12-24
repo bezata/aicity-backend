@@ -49,4 +49,5 @@ export interface Agent {
     specialization?: string[];
   };
   districtId?: string;
+  department?: string;
 }

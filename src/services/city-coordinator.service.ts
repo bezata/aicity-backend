@@ -82,6 +82,7 @@ interface CityEvent {
 export class CityCoordinatorService extends EventEmitter {
   private readonly coordinatorAgent: Agent = {
     id: "city-coordinator",
+    role: "City Coordinator",
     name: "City Coordinator",
     personality: "Analytical and efficient",
     systemPrompt: "Coordinate city operations and optimize resource allocation",

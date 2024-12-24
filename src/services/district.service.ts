@@ -140,20 +140,7 @@ export class DistrictService extends EventEmitter {
         density: 3750,
         economicActivity: 0.7,
       },
-      {
-        name: "Innovation Hub",
-        type: "commercial" as DistrictType,
-        population: 20000,
-        boundaries: [
-          [2, 0] as [number, number],
-          [3, 0] as [number, number],
-          [3, 1] as [number, number],
-          [2, 1] as [number, number],
-        ],
-        area: 6,
-        density: 3333,
-        economicActivity: 0.9,
-      },
+
       {
         name: "Garden District",
         type: "residential" as DistrictType,
@@ -181,48 +168,6 @@ export class DistrictService extends EventEmitter {
         area: 15,
         density: 1000,
         economicActivity: 0.85,
-      },
-      {
-        name: "University District",
-        type: "mixed" as DistrictType,
-        population: 40000,
-        boundaries: [
-          [2, 1] as [number, number],
-          [3, 1] as [number, number],
-          [3, 2] as [number, number],
-          [2, 2] as [number, number],
-        ],
-        area: 9,
-        density: 4444,
-        economicActivity: 0.75,
-      },
-      {
-        name: "Waterfront District",
-        type: "mixed" as DistrictType,
-        population: 25000,
-        boundaries: [
-          [0, 2] as [number, number],
-          [1, 2] as [number, number],
-          [1, 3] as [number, number],
-          [0, 3] as [number, number],
-        ],
-        area: 7,
-        density: 3571,
-        economicActivity: 0.8,
-      },
-      {
-        name: "Arts District",
-        type: "mixed" as DistrictType,
-        population: 28000,
-        boundaries: [
-          [1, 2] as [number, number],
-          [2, 2] as [number, number],
-          [2, 3] as [number, number],
-          [1, 3] as [number, number],
-        ],
-        area: 8,
-        density: 3500,
-        economicActivity: 0.7,
       },
     ];
 

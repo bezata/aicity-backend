@@ -6,7 +6,7 @@ export class TogetherService {
   private client: Together;
   private readonly embeddingModel = "togethercomputer/m2-bert-80M-8k-retrieval";
   private lastRequestTime: number = 0;
-  private minRequestInterval: number = 15000; // 15 seconds between requests
+  private minRequestInterval: number = 2500; // 15 seconds between requests
 
   constructor(apiKey: string) {
     console.log("🔑 Initializing Together service...");

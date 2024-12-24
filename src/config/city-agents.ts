@@ -247,7 +247,6 @@ export const donationAgents: Agent[] = [
     },
   },
 ];
-
 // Combine all management agents
 export const cityManagementAgents: Agent[] = [
   ...infrastructureAgents,

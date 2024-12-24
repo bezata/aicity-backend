@@ -5,10 +5,23 @@ import type { Message } from "../types/conversation.types";
 export class TogetherService {
   private client: Together;
   private readonly embeddingModel = "togethercomputer/m2-bert-80M-8k-retrieval";
+  private lastRequestTime: number = 0;
+  private minRequestInterval: number = 1100; // 1.1 seconds between requests
 
   constructor(apiKey: string) {
     console.log("🔑 Initializing Together service...");
     this.client = new Together({ apiKey });
+  }
+
+  private async waitForRateLimit() {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.minRequestInterval - timeSinceLastRequest)
+      );
+    }
+    this.lastRequestTime = Date.now();
   }
 
   async createEmbedding(text: string): Promise<number[]> {
@@ -38,6 +51,8 @@ export class TogetherService {
       console.log("🤖 Generating response for agent:", agent.name);
       console.log("💬 Messages count:", messages.length);
       console.log("🎯 Calling Together API...");
+
+      await this.waitForRateLimit();
 
       const response = await this.client.chat.completions.create({
         model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",

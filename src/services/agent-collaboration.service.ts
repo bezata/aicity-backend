@@ -164,7 +164,7 @@ export class AgentCollaborationService extends EventEmitter {
     super();
     this.initializeService();
   }
-
+ 
   private initializeService() {
     this.setupPeriodicMaintenance();
 
@@ -277,6 +277,7 @@ export class AgentCollaborationService extends EventEmitter {
       this.analyticsService.trackInteraction(agent, message);
     });
   }
+  
 
   private setupPeriodicMaintenance() {
     setInterval(() => this.maintainSessions(), 60 * 60 * 1000);
@@ -1904,6 +1905,8 @@ Please provide these details to continue the discussion.`;
       priority: decision.priority,
     }));
   }
+
+  
 
   private async createFocusedDiscussion(
     topic: string,

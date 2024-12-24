@@ -278,11 +278,24 @@ const cityCoordinator = new CityCoordinatorService(
   economyService
 );
 
+// Initialize district service
+const districtService = new DistrictService(
+  cityService,
+  vectorStore,
+  togetherService,
+  analyticsService,
+  districtCultureService
+);
+
 // Initialize agent conversation service
 const agentConversationService = new AgentConversationService(
   vectorStore,
   cityCoordinator,
-  aiIntegration
+  aiIntegration,
+  socialDynamicsService,
+  cultureService,
+  togetherService,
+  districtService
 );
 
 // Initialize adaptive learning service

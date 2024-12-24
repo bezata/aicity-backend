@@ -11,6 +11,15 @@ type VectorStoreType =
   | "district"
   | "transport";
 
+interface WebSocketContext {
+  store: AppStore;
+  params: {
+    districtId: string;
+  };
+  agentId?: string;
+  lastActivity?: number;
+}
+
 export const DistrictController = new Elysia({ prefix: "/districts" })
   .get("/", async ({ store }) => {
     const appStore = store as AppStore;
@@ -126,8 +135,17 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
     async ({ params: { id }, body, store }) => {
       const appStore = store as AppStore;
       try {
+        // Convert the body category to match CityEventCategory
+        const eventData = {
+          ...body,
+          category: mapToCityEventCategory(body.category),
+        };
+
         const event =
-          await appStore.services.districtService.addEventToDistrict(id, body);
+          await appStore.services.districtService.addEventToDistrict(
+            id,
+            eventData
+          );
         return { success: true, data: event };
       } catch (error) {
         console.error(`Failed to add event to district ${id}:`, error);
@@ -139,16 +157,13 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
         title: t.String(),
         description: t.String(),
         category: t.Union([
-          t.Literal("urban_development"),
-          t.Literal("transportation"),
-          t.Literal("environmental"),
-          t.Literal("infrastructure"),
           t.Literal("community"),
           t.Literal("emergency"),
+          t.Literal("development"),
           t.Literal("cultural"),
-          t.Literal("health"),
-          t.Literal("education"),
-          t.Literal("technology"),
+          t.Literal("social"),
+          t.Literal("transport"),
+          t.Literal("environmental"),
         ]),
         severity: t.Number(),
         duration: t.Number(),
@@ -377,6 +392,125 @@ export const DistrictController = new Elysia({ prefix: "/districts" })
       throw error;
     }
   })
+  .ws("/:id/ws", {
+    body: t.Object({
+      type: t.Union([
+        t.Literal("join"),
+        t.Literal("leave"),
+        t.Literal("message"),
+        t.Literal("activity"),
+      ]),
+      agentId: t.String(),
+      content: t.Optional(t.String()),
+      location: t.Optional(t.String()),
+      activity: t.Optional(t.String()),
+    }),
+
+    beforeHandle: ({ body }) => {
+      if (body.type === "message" && (!body.content || !body.location)) {
+        throw new Error("Missing required message data");
+      }
+      if (body.type === "activity" && (!body.location || !body.activity)) {
+        throw new Error("Missing required activity data");
+      }
+    },
+
+    open(ws) {
+      console.log("District conversation WebSocket connected");
+      const districtId = ws.data.params.id;
+      console.log("Connected to district:", districtId);
+      ws.subscribe(districtId);
+    },
+
+    message(ws, message) {
+      try {
+        const appStore = ws.data.store as AppStore;
+        const districtId = ws.data.params.id;
+        const data = message;
+
+        console.log("Received message:", data);
+
+        switch (data.type) {
+          case "join":
+            appStore.services.districtService.recordAgentVisit(
+              districtId,
+              data.agentId
+            );
+            ws.publish(
+              districtId,
+              JSON.stringify({
+                type: "agent_joined",
+                agentId: data.agentId,
+                timestamp: Date.now(),
+              })
+            );
+            break;
+
+          case "leave":
+            ws.publish(
+              districtId,
+              JSON.stringify({
+                type: "agent_left",
+                agentId: data.agentId,
+                timestamp: Date.now(),
+              })
+            );
+            break;
+
+          case "message":
+            appStore.services.districtService.trackConversation(districtId, {
+              id: `msg-${Date.now()}`,
+              participants: [data.agentId],
+              location: data.location!,
+              topic: data.content!.substring(0, 50),
+              startTime: Date.now(),
+              sentiment: 0.5,
+              activity: data.activity || "chatting",
+            });
+
+            ws.publish(
+              districtId,
+              JSON.stringify({
+                type: "message",
+                agentId: data.agentId,
+                content: data.content,
+                location: data.location,
+                activity: data.activity,
+                timestamp: Date.now(),
+              })
+            );
+            break;
+
+          case "activity":
+            ws.publish(
+              districtId,
+              JSON.stringify({
+                type: "activity_update",
+                agentId: data.agentId,
+                activity: data.activity,
+                location: data.location,
+                timestamp: Date.now(),
+              })
+            );
+            break;
+        }
+      } catch (error) {
+        console.error("Error handling district WebSocket message:", error);
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "Failed to process message",
+          })
+        );
+      }
+    },
+
+    close(ws) {
+      const districtId = ws.data.params.id;
+      ws.unsubscribe(districtId);
+      console.log("District conversation WebSocket closed");
+    },
+  })
   .onError(({ code, error }) => {
     return {
       success: false,
@@ -400,4 +534,19 @@ function generateSchedule(
   }
 
   return schedule;
+}
+
+// Helper function to map controller categories to CityEventCategory
+function mapToCityEventCategory(category: string): CityEventCategory {
+  const categoryMap: Record<string, CityEventCategory> = {
+    community: "community",
+    emergency: "emergency",
+    development: "development",
+    cultural: "cultural",
+    social: "social",
+    transport: "transport",
+    environmental: "environmental",
+  };
+
+  return categoryMap[category] || "community";
 }

@@ -34,8 +34,34 @@ export interface DistrictAnalytics {
   cleanlinessScore: number;
 }
 
+interface DistrictConversation {
+  id: string;
+  participants: string[];
+  location: string;
+  topic: string;
+  startTime: number;
+  endTime?: number;
+  sentiment: number;
+  activity: string;
+}
+
 export class DistrictService extends EventEmitter {
   private districts: Map<string, District> = new Map();
+  private districtConversations: Map<string, DistrictConversation[]> =
+    new Map();
+
+  private categoryMap: Record<
+    CityEventCategory,
+    "cultural" | "social" | "environmental" | "economic"
+  > = {
+    community: "social",
+    emergency: "environmental",
+    development: "economic",
+    cultural: "cultural",
+    social: "social",
+    transport: "economic",
+    environmental: "environmental",
+  };
 
   constructor(
     private cityService: CityService,
@@ -545,40 +571,25 @@ export class DistrictService extends EventEmitter {
     const district = await this.getDistrict(id);
     if (!district) throw new Error("District not found");
 
-    // Map CityEvent category to LocalEvent category
-    const categoryMap: Record<CityEventCategory, LocalEvent["category"]> = {
-      environmental: "environmental",
-      cultural: "cultural",
-      community: "social",
-      urban_development: "economic",
-      transportation: "economic",
-      infrastructure: "economic",
-      emergency: "environmental",
-      health: "social",
-      education: "social",
-      technology: "economic",
-    };
-
     const event: LocalEvent = {
       id: crypto.randomUUID(),
       type: eventData.category!,
       name: eventData.title!,
       description: eventData.description!,
-      category: categoryMap[eventData.category!] || "social",
-      startTime: eventData.timestamp || Date.now(),
-      endTime:
-        (eventData.timestamp || Date.now()) + (eventData.duration || 3600000),
+      category: this.categoryMap[eventData.category!] || "social",
+      startTime: Date.now(),
+      endTime: Date.now() + (eventData.duration || 3600000),
       urgency: eventData.urgency || eventData.severity! / 10,
       impact: {
         type: eventData.category!,
         severity: eventData.severity!,
-        radius: 1000, // Default radius of 1km
+        radius: 1000,
         environmental: eventData.impact?.environmental || 0,
         social: eventData.impact?.social || 0,
         economic: eventData.impact?.economic || 0,
       },
-      location: [0, 0], // Will be updated with district center coordinates
-      status: eventData.status || "pending",
+      location: [0, 0],
+      status: "pending",
       affectedDistricts: [id],
       propagationProbability: 0.5,
     };
@@ -1176,6 +1187,93 @@ export class DistrictService extends EventEmitter {
       );
       return null;
     }
+  }
+
+  async trackConversation(
+    districtId: string,
+    conversation: DistrictConversation
+  ) {
+    const conversations = this.districtConversations.get(districtId) || [];
+    conversations.push(conversation);
+    this.districtConversations.set(districtId, conversations);
+
+    // Store in vector DB for analysis
+    await this.vectorStore.upsert({
+      id: `district-conversation-${conversation.id}`,
+      values: await this.vectorStore.createEmbedding(
+        `Conversation in district ${districtId}: ${conversation.topic} at ${conversation.location}`
+      ),
+      metadata: {
+        type: "district_conversation",
+        districtId,
+        conversationId: conversation.id,
+        location: conversation.location,
+        activity: conversation.activity,
+        sentiment: conversation.sentiment,
+        timestamp: conversation.startTime,
+      },
+    });
+
+    this.emit("conversationTracked", { districtId, conversation });
+  }
+
+  async getDistrictConversations(
+    districtId: string,
+    timeRange?: { start: number; end: number }
+  ): Promise<DistrictConversation[]> {
+    const conversations = this.districtConversations.get(districtId) || [];
+
+    if (!timeRange) {
+      return conversations;
+    }
+
+    return conversations.filter(
+      (conv) =>
+        conv.startTime >= timeRange.start && conv.startTime <= timeRange.end
+    );
+  }
+
+  async getConversationAnalytics(districtId: string) {
+    const conversations = await this.getDistrictConversations(districtId);
+
+    return {
+      totalConversations: conversations.length,
+      averageSentiment:
+        conversations.reduce((sum, conv) => sum + conv.sentiment, 0) /
+        conversations.length,
+      locationBreakdown: this.getLocationBreakdown(conversations),
+      activityBreakdown: this.getActivityBreakdown(conversations),
+      hourlyDistribution: this.getHourlyDistribution(conversations),
+    };
+  }
+
+  private getLocationBreakdown(
+    conversations: DistrictConversation[]
+  ): Record<string, number> {
+    return conversations.reduce((acc, conv) => {
+      acc[conv.location] = (acc[conv.location] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+  }
+
+  private getActivityBreakdown(
+    conversations: DistrictConversation[]
+  ): Record<string, number> {
+    return conversations.reduce((acc, conv) => {
+      acc[conv.activity] = (acc[conv.activity] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+  }
+
+  private getHourlyDistribution(
+    conversations: DistrictConversation[]
+  ): number[] {
+    const hourly = new Array(24).fill(0);
+    conversations.forEach((conv) => {
+      const hour = new Date(conv.startTime).getHours();
+      hourly[hour]++;
+    });
+    return hourly;
   }
 }
 

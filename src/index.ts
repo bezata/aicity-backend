@@ -23,6 +23,12 @@ type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
 const store = createStore();
 
+// Define WebSocket data type
+interface WebSocketData {
+  createdAt: number;
+  url: string;
+}
+
 // Initialize AI system with all agents
 async function initializeAISystem() {
   try {
@@ -303,43 +309,95 @@ app.use(apiGroup as any);
 // Initialize AI system before starting the server
 initializeAISystem()
   .then(() => {
-    // Create the server with WebSocket support
-    const server = Bun.serve<{ districtId: string; lastActivity: number }>({
+    const server = Bun.serve<WebSocketData>({
       port: process.env.PORT || 3001,
       fetch(req, server) {
-        // Handle WebSocket upgrade for district metrics
-        if (req.url.includes("/api/districts/") && req.url.includes("/live")) {
-          const url = new URL(req.url);
-          const districtId = url.pathname.split("/")[3]; // Extract district ID from URL
-          const success = server.upgrade(req, {
-            data: { districtId, lastActivity: Date.now() },
+        const url = new URL(req.url);
+        const isWebSocket = url.pathname.includes("/ws");
+
+        if (isWebSocket) {
+          const upgraded = server.upgrade(req, {
+            data: {
+              createdAt: Date.now(),
+              url: url.pathname,
+            },
           });
-          return success
-            ? undefined
-            : new Response("WebSocket upgrade failed", { status: 500 });
+
+          if (!upgraded) {
+            return new Response("WebSocket upgrade failed", { status: 400 });
+          }
+          return;
         }
 
-        // Handle regular HTTP requests through Elysia
         return app.handle(req);
       },
       websocket: {
         open(ws) {
-          try {
-            const districtId = ws.data.districtId;
-            console.log(
-              `WebSocket connection opened for district: ${districtId}`
-            );
-            store.services.districtWebSocket.handleConnection(ws, districtId);
-          } catch (error) {
-            console.error("Error in WebSocket connection:", error);
-            ws.close();
+          console.log(`WebSocket opened for ${ws.data.url}`);
+          const districtId = ws.data.url.split("/")[3]; // Extract district ID from URL
+          if (districtId) {
+            ws.subscribe(districtId);
+            console.log(`Subscribed to district: ${districtId}`);
           }
         },
         message(ws, message) {
-          console.log("Received message:", message);
+          try {
+            const data = JSON.parse(String(message));
+            console.log("Received message:", data);
+
+            const districtId = ws.data.url.split("/")[3];
+            if (!districtId) return;
+
+            // Handle different message types
+            switch (data.type) {
+              case "join":
+                ws.publish(
+                  districtId,
+                  JSON.stringify({
+                    type: "agent_joined",
+                    agentId: data.agentId,
+                    timestamp: Date.now(),
+                  })
+                );
+                break;
+              case "message":
+                ws.publish(
+                  districtId,
+                  JSON.stringify({
+                    type: "message",
+                    agentId: data.agentId,
+                    content: data.content,
+                    timestamp: Date.now(),
+                  })
+                );
+                break;
+              case "leave":
+                ws.publish(
+                  districtId,
+                  JSON.stringify({
+                    type: "agent_left",
+                    agentId: data.agentId,
+                    timestamp: Date.now(),
+                  })
+                );
+                break;
+            }
+          } catch (error) {
+            console.error("Error handling WebSocket message:", error);
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Failed to process message",
+              })
+            );
+          }
         },
         close(ws) {
-          console.log("WebSocket connection closed");
+          console.log(`WebSocket closed for ${ws.data.url}`);
+          const districtId = ws.data.url.split("/")[3];
+          if (districtId) {
+            ws.unsubscribe(districtId);
+          }
         },
       },
     });

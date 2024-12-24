@@ -15,6 +15,8 @@
     "module": "NodeNext" /* Specify what module code is generated. */,
     "moduleResolution": "NodeNext" /* Specify how TypeScript looks up a file from a given module specifier. */,
     "resolveJsonModule": true /* Enable importing .json files. */,
+    "allowImportingTsExtensions": true,
+    "noEmit": true /* Disable emitting files from a compilation. */,
     // "lib": [],                                        /* Specify a set of bundled library declaration files that describe the target runtime environment. */
     // "jsx": "preserve",                                /* Specify what JSX code is generated. */
     // "experimentalDecorators": true,                   /* Enable experimental support for TC39 stage 2 draft decorators. */

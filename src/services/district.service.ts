@@ -113,6 +113,7 @@ export class DistrictService extends EventEmitter {
   private async initializeDefaultDistricts() {
     const defaultDistricts = [
       {
+        id: "a42ed892-3878-45a5-9a1a-4ceaf9524f1c",
         name: "Downtown District",
         type: "mixed" as DistrictType,
         population: 50000,
@@ -127,6 +128,7 @@ export class DistrictService extends EventEmitter {
         economicActivity: 0.8,
       },
       {
+        id: "a42ed892-3878-45a5-9a1a-4ceaf9524f1d",
         name: "Cultural Heritage District",
         type: "mixed" as DistrictType,
         population: 30000,
@@ -142,6 +144,7 @@ export class DistrictService extends EventEmitter {
       },
 
       {
+        id: "a42ed892-3878-45a5-9a1a-4ceaf9524f1e",
         name: "Garden District",
         type: "residential" as DistrictType,
         population: 35000,
@@ -1232,42 +1235,37 @@ export class DistrictService extends EventEmitter {
   }
 
   public broadcastMessage(districtId: string, message: any) {
-    console.log(`Broadcasting message to district ${districtId}:`, message);
-    const connections = this.districtConnections.get(districtId);
-    if (!connections) {
-      console.log(`No connections found for district ${districtId}`);
-      return;
-    }
+    console.log(`\n=== Broadcasting to District ${districtId} ===`);
+    console.log("Message Type:", message.type);
+    console.log("Message Data:", JSON.stringify(message.data, null, 2));
 
-    const messageStr = JSON.stringify(message);
-    console.log(
-      `Found ${connections.length} connections for district ${districtId}`
-    );
+    const connections = this.districtConnections.get(districtId) || [];
+    console.log("Active Connections:", connections.length);
 
-    for (const client of connections) {
-      if (client.readyState === 1) {
-        // OPEN
-        console.log(`Sending message to client in district ${districtId}`);
-        client.send(messageStr);
+    connections.forEach((ws) => {
+      if (ws.readyState === 1) {
+        // WebSocket.OPEN
+        try {
+          ws.send(JSON.stringify(message));
+          console.log("✅ Message sent successfully");
+        } catch (error) {
+          console.error("❌ Error sending message:", error);
+        }
       } else {
-        console.log(
-          `Client in district ${districtId} not ready, state: ${client.readyState}`
-        );
+        console.log("⚠️ WebSocket not open, state:", ws.readyState);
       }
-    }
+    });
+
+    console.log("=== Broadcast Complete ===\n");
   }
 
   public addConnection(districtId: string, ws: ServerWebSocket<WebSocketData>) {
-    console.log(`Adding connection for district ${districtId}`);
-    if (!this.districtConnections.has(districtId)) {
-      console.log(`Creating new connection array for district ${districtId}`);
-      this.districtConnections.set(districtId, []);
-    }
-    this.districtConnections.get(districtId)!.push(ws);
+    console.log(`🔌 Adding WebSocket connection for district ${districtId}`);
+    const connections = this.districtConnections.get(districtId) || [];
+    connections.push(ws);
+    this.districtConnections.set(districtId, connections);
     console.log(
-      `Connection added. Total connections for district ${districtId}: ${
-        this.districtConnections.get(districtId)!.length
-      }`
+      `📊 Total connections for district ${districtId}: ${connections.length}`
     );
   }
 
@@ -1275,13 +1273,16 @@ export class DistrictService extends EventEmitter {
     districtId: string,
     ws: ServerWebSocket<WebSocketData>
   ) {
-    const connections = this.districtConnections.get(districtId);
-    if (!connections) return;
-
+    console.log(`❌ Removing WebSocket connection for district ${districtId}`);
+    const connections = this.districtConnections.get(districtId) || [];
     const index = connections.indexOf(ws);
     if (index !== -1) {
       connections.splice(index, 1);
+      this.districtConnections.set(districtId, connections);
     }
+    console.log(
+      `📊 Remaining connections for district ${districtId}: ${connections.length}`
+    );
   }
 
   private async upsertDistrictToVectorStore(district: District) {

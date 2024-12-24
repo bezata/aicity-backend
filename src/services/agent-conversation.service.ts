@@ -130,7 +130,9 @@ export class AgentConversationService extends EventEmitter {
     private districtService: DistrictService
   ) {
     super();
-    this.initializeService();
+    this.initializeService().catch((error) => {
+      console.error("Failed to initialize service:", error);
+    });
   }
 
   public async registerAgent(agent: Agent): Promise<void> {
@@ -143,7 +145,9 @@ export class AgentConversationService extends EventEmitter {
 
     this.agentProfiles.set(agent.id, {
       friends: new Set(),
-      regularLocations: [agent.districtId || "central"],
+      regularLocations: [
+        agent.districtId || "a42ed892-3878-45a5-9a1a-4ceaf9524f1c",
+      ],
       recentInteractions: [],
       culturalPreferences: agent.interests,
       routines,
@@ -188,7 +192,8 @@ export class AgentConversationService extends EventEmitter {
     if (potentialPartners.length === 0) return;
 
     // Start a contextual conversation
-    const districtId = profile.regularLocations[0] || "central";
+    const districtId =
+      profile.regularLocations[0] || "a42ed892-3878-45a5-9a1a-4ceaf9524f1c";
     const culturalContext = await this.cultureService.getDistrictCulture(
       districtId
     );
@@ -369,43 +374,127 @@ export class AgentConversationService extends EventEmitter {
 
   private async initializeService() {
     try {
+      console.log("🚀 Starting agent conversation service...");
+
       // Import and register existing agents
       const { residentAgents, cityManagementAgents } = await import(
-        "../config/city-agents.js"
+        "../config/city-agents.ts"
       );
-      const allAgents = [...residentAgents, ...cityManagementAgents];
 
-      console.log(`Initializing ${allAgents.length} agents...`);
+      const allAgents = [...residentAgents, ...cityManagementAgents];
+      console.log(`Found ${allAgents.length} agents to initialize...`);
 
       // Register all agents
       for (const agent of allAgents) {
         await this.registerAgent(agent);
-        console.log(`Registered agent: ${agent.name}`);
+        console.log(`✅ Registered agent: ${agent.name}`);
       }
 
-      // Initialize base systems
-      await this.initializeAISystem();
-      this.initializeMetricsListening();
+      // Start initial conversations immediately
+      console.log("🗣️ Starting initial conversations...");
+      const availableAgents = [...allAgents];
 
-      // Start life simulation cycles
-      this.startLifeCycles();
-      console.log("Started life simulation cycles");
+      // Create initial pairs of agents based on interests
+      while (availableAgents.length >= 2) {
+        const agent1 = availableAgents.shift()!;
+        const agent2 = availableAgents.find((a) =>
+          a.interests.some((interest) => agent1.interests.includes(interest))
+        );
 
-      // Start initial conversations
-      await this.generateNaturalConversations();
-      console.log("Generated initial conversations");
+        if (agent2) {
+          availableAgents.splice(availableAgents.indexOf(agent2), 1);
+          await this.initiateAgentActivity(agent1);
+          console.log(
+            `🤝 Started conversation between ${agent1.name} and ${agent2.name}`
+          );
+        }
+      }
 
       // Set up periodic conversation generation
       setInterval(() => {
         this.generateNaturalConversations().catch(console.error);
-      }, 5 * 60 * 1000); // Generate new conversations every 5 minutes
+      }, 30000); // Generate new conversations every 30 seconds
 
-      // Set up conversation continuation
+      // Continue active conversations frequently
       setInterval(() => {
         this.continueActiveConversations().catch(console.error);
-      }, 30 * 1000); // Continue conversations every 30 seconds
+      }, 15000); // Continue conversations every 15 seconds
+
+      console.log("🌟 Agent conversation service initialized and running!");
     } catch (error) {
-      console.error("Error initializing agent conversation service:", error);
+      console.error("❌ Error initializing agent conversation service:", error);
+    }
+  }
+
+  private async generateNaturalConversations() {
+    try {
+      // Get the Downtown District
+      const district = await this.districtService.getDistrict(
+        "a42ed892-3878-45a5-9a1a-4ceaf9524f1c"
+      );
+      if (!district) {
+        console.error("❌ District not found");
+        return;
+      }
+
+      // Get all registered agents that aren't in active conversations
+      const activeAgentIds = new Set(
+        Array.from(this.activeConversations.values())
+          .filter((conv) => conv.status === "active")
+          .flatMap((conv) => conv.participants.map((p) => p.id))
+      );
+
+      const availableAgents = Array.from(this.registeredAgents.values()).filter(
+        (agent) => !activeAgentIds.has(agent.id)
+      );
+
+      if (availableAgents.length < 2) {
+        console.log("⏳ Not enough available agents for new conversations");
+        return;
+      }
+
+      // Select 2-3 random agents for conversation
+      const participants = availableAgents
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 2 + Math.floor(Math.random() * 2));
+
+      // Determine activity and location
+      const activities = [
+        "morning_coffee",
+        "lunch_break",
+        "evening_leisure",
+        "cultural_event",
+      ];
+      const activity =
+        activities[Math.floor(Math.random() * activities.length)];
+      const location = this.determineConversationLocation(activity);
+
+      // Get cultural and social context
+      const culturalContext = await this.cultureService.getDistrictCulture(
+        district.id
+      );
+      const socialMood = await this.socialDynamics.getCommunityMood(
+        district.id
+      );
+
+      // Start the conversation
+      const context: ConversationContext = {
+        districtId: district.id,
+        activity,
+        culturalContext,
+        socialMood,
+      };
+
+      await this.startContextualConversation(
+        participants.map((a) => a.id),
+        context
+      );
+      console.log(
+        `✨ Started natural conversation with ${participants.length} agents:`,
+        participants.map((a) => a.name).join(", ")
+      );
+    } catch (error) {
+      console.error("❌ Error generating natural conversation:", error);
     }
   }
 
@@ -589,159 +678,6 @@ export class AgentConversationService extends EventEmitter {
 
     return potentialTopics[Math.floor(Math.random() * potentialTopics.length)];
   }
-  private async generateNaturalConversations() {
-    if (this.dailyAPICallCount >= this.maxDailyAPICalls) {
-      console.log("⚠️ Daily API call limit reached");
-      return;
-    }
-
-    const currentHour = new Date().getHours();
-    if (
-      currentHour < this.conversationStartHour ||
-      currentHour >= this.conversationEndHour
-    ) {
-      console.log("⏰ Outside conversation hours");
-      return;
-    }
-
-    const dynamicCooldown = this.calculateDynamicCooldown();
-    const timeSinceLastConversation = Date.now() - this.lastConversationTime;
-
-    if (timeSinceLastConversation < dynamicCooldown) {
-      console.log(
-        `⏳ Dynamic cooldown active: ${Math.round(
-          (dynamicCooldown - timeSinceLastConversation) / 1000
-        )}s`
-      );
-      return;
-    }
-
-    // Check concurrent conversations
-    const activeConversations = Array.from(
-      this.activeConversations.values()
-    ).filter((conv) => conv.status === "active");
-    if (activeConversations.length >= this.maxConcurrentConversations) {
-      console.log(
-        `⚠️ Max concurrent conversations (${this.maxConcurrentConversations}) reached`
-      );
-      return;
-    }
-
-    // 80% chance to skip conversation generation to further reduce frequency
-    if (Math.random() > 0.2) {
-      console.log("🎲 Randomly skipping conversation generation (80% chance)");
-      return;
-    }
-
-    // Proceed with conversation generation
-    try {
-      const districts = await this.cityCoordinator.getActiveDistricts();
-      for (const district of districts) {
-        await this.tryGenerateDistrictConversation(district);
-        // Only attempt one district at a time
-        break;
-      }
-    } catch (error) {
-      console.error("Error in conversation generation:", error);
-    }
-  }
-
-  private async tryGenerateDistrictConversation(district: any) {
-    const districtAgents = Array.from(this.registeredAgents.values())
-      .filter((agent) => agent.districtId === district.id)
-      .map((agent) => agent.id);
-
-    if (districtAgents.length < 2) return;
-
-    // Get cultural and social context
-    const culturalContext = await this.cultureService.getDistrictCulture(
-      district.id
-    );
-    const socialMood = await this.socialDynamics.getCommunityMood(district.id);
-
-    // Use all district agents instead of filtering out those in conversations
-    const selectedAgents = this.selectCompatibleParticipants(
-      districtAgents, // Use all agents instead of just available ones
-      this.determineActivity(new Date().getHours()),
-      culturalContext
-    );
-
-    if (selectedAgents.length >= 2) {
-      await this.startContextualConversation(selectedAgents, {
-        activity: this.determineActivity(new Date().getHours()),
-        districtId: district.id,
-        culturalContext,
-        socialMood,
-      });
-      this.lastConversationTime = Date.now();
-      this.dailyAPICallCount++;
-    }
-  }
-
-  private determineActivity(hour: number): string {
-    if (hour >= 6 && hour < 10) return "morning_coffee";
-    if (hour >= 12 && hour < 14) return "lunch_break";
-    if (hour >= 17 && hour < 21) return "evening_leisure";
-    if ((hour >= 10 && hour < 12) || (hour >= 14 && hour < 17))
-      return "cultural_event";
-    return "evening_leisure"; // default activity
-  }
-
-  private selectCompatibleParticipants(
-    availableAgents: string[],
-    activity: string,
-    culturalContext: any
-  ): string[] {
-    // Score each agent based on compatibility
-    const scoredAgents = availableAgents.map((agentId) => {
-      const agent = this.getAgent(agentId);
-      if (!agent) return { agentId, score: 0 };
-
-      let score = 0;
-
-      // Activity preference
-      const hasMatchingInterest = agent.interests.some((interest) => {
-        return (
-          activity.includes(interest) ||
-          culturalContext.traditions.includes(interest) ||
-          culturalContext.events.some((e: any) => e.type === interest)
-        );
-      });
-      if (hasMatchingInterest) {
-        score += 0.3;
-      }
-
-      // Cultural alignment
-      const hasCulturalMatch = agent.interests.some((interest) => {
-        return culturalContext.traditions.includes(interest);
-      });
-      if (hasCulturalMatch) {
-        score += 0.2;
-      }
-
-      // Social traits
-      if (agent.traits.enthusiasm > 0.7) {
-        score += 0.2;
-      }
-      if (agent.traits.empathy > 0.7) {
-        score += 0.2;
-      }
-
-      return { agentId, score };
-    });
-
-    // Sort by score and select top 3-5 agents
-    const sortedAgents = scoredAgents
-      .sort((a, b) => b.score - a.score)
-      .map((a) => a.agentId);
-
-    // Return 3-5 agents based on availability
-    const minAgents = 3;
-    const maxAgents = Math.min(5, sortedAgents.length);
-    const numAgents =
-      minAgents + Math.floor(Math.random() * (maxAgents - minAgents + 1));
-    return sortedAgents.slice(0, numAgents);
-  }
 
   private calculateSocialCompatibilityScore(
     agentId: string,
@@ -801,6 +737,23 @@ export class AgentConversationService extends EventEmitter {
         throw new Error("No initiator found for conversation");
       }
 
+      // Broadcast conversation start
+      this.districtService.broadcastMessage(context.districtId, {
+        type: "conversation_started",
+        data: {
+          conversationId: conversation.id,
+          participants: conversation.participants.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            role: agent.role,
+          })),
+          location: conversation.location,
+          activity: conversation.activity,
+          topic: conversation.topic,
+          timestamp: Date.now(),
+        },
+      });
+
       // Generate initial message using Together API
       const systemPrompt = `You are ${initiator.name}, a ${initiator.role} with the following personality: ${initiator.personality}.
       You are starting a conversation at ${conversation.location} during ${conversation.activity}.
@@ -839,22 +792,6 @@ export class AgentConversationService extends EventEmitter {
           activity: context.activity,
         });
       }
-
-      // Broadcast conversation start
-      this.districtService.broadcastMessage(context.districtId, {
-        type: "conversation_started",
-        data: {
-          conversationId: conversation.id,
-          participants: conversation.participants.map((agent) => ({
-            id: agent.id,
-            name: agent.name,
-            role: agent.role,
-          })),
-          location: conversation.location,
-          activity: conversation.activity,
-          topic: conversation.topic,
-        },
-      });
 
       // Schedule next message with longer delay
       setTimeout(() => {
@@ -1332,6 +1269,24 @@ export class AgentConversationService extends EventEmitter {
       conversation.messages
     );
 
+    // Broadcast message through WebSocket
+    this.districtService.broadcastMessage(conversation.districtId, {
+      type: "conversation_message",
+      data: {
+        conversationId,
+        message: {
+          content: message.content,
+          agentId: message.agentId,
+          agentName: this.getAgent(message.agentId)?.name,
+          agentRole: this.getAgent(message.agentId)?.role,
+          timestamp: message.timestamp,
+        },
+        location: conversation.location,
+        activity: conversation.activity,
+        topic: conversation.topic,
+      },
+    });
+
     this.emit("message:added", { conversationId, message });
   }
 
@@ -1491,21 +1446,63 @@ export class AgentConversationService extends EventEmitter {
       if (cachedResponse) {
         response = cachedResponse;
       } else {
-        const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.role} with the following personality: ${nextSpeaker.personality}.
-        You are having a conversation at ${conversation.location} during ${conversation.activity}.
-        The topic is: ${conversation.topic}
+        // Generate a more natural and specific system prompt
+        const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.role}.
+        Personality: ${nextSpeaker.personality}
+        Location: ${conversation.location}
+        Activity: ${conversation.activity}
+        Topic: ${conversation.topic}
         
-        Respond naturally as your character would, keeping responses concise (1-2 sentences).
-        Consider your role, personality, and the ongoing conversation context.`;
+        You are having a natural conversation. Respond in character, considering your role and personality.
+        Keep your response concise (1-2 sentences) and engaging.
+        Make sure to acknowledge the context and previous messages if any exist.
+        
+        Remember:
+        - Stay in character as ${nextSpeaker.name}
+        - Consider your role as ${nextSpeaker.role}
+        - Reflect your personality: ${nextSpeaker.personality}`;
 
         console.log("Calling Together API...");
-        response = await this.togetherService.generateResponse(
-          nextSpeaker,
-          conversation.messages,
-          systemPrompt
-        );
 
-        // Cache the response
+        // Try up to 3 times to get a valid response
+        let attempts = 0;
+        const maxAttempts = 3;
+        let apiResponse: string | undefined;
+
+        while (attempts < maxAttempts) {
+          attempts++;
+          console.log(`Attempt ${attempts} of ${maxAttempts}`);
+
+          // Emit retry event before each attempt
+          if (attempts > 1) {
+            this.emit("retry", {
+              agentId: nextSpeaker.id,
+              attempt: attempts,
+              reason: "Empty or invalid response from API",
+              waitTime: 2000,
+            });
+          }
+
+          apiResponse = await this.togetherService.generateResponse(
+            nextSpeaker,
+            conversation.messages,
+            systemPrompt
+          );
+
+          if (apiResponse && apiResponse.trim()) {
+            break;
+          }
+
+          console.log(`Empty response on attempt ${attempts}, retrying...`);
+          await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds between attempts
+        }
+
+        // Use the API response if valid, otherwise use fallback
+        response =
+          apiResponse?.trim() ||
+          this.generateFallbackResponse(nextSpeaker, conversation);
+
+        // Cache the successful response
         this.cacheMessage(cacheKey, response);
       }
 
@@ -1519,7 +1516,7 @@ export class AgentConversationService extends EventEmitter {
         content: response,
         timestamp: Date.now(),
         role: "assistant",
-        sentiment: 0.7,
+        sentiment: await this.vectorStore.analyzeSentiment(response),
       };
 
       // Update conversation quality
@@ -1530,6 +1527,21 @@ export class AgentConversationService extends EventEmitter {
       console.error("Error generating message:", error);
       throw error;
     }
+  }
+
+  private generateFallbackResponse(
+    agent: Agent,
+    conversation: AgentConversation
+  ): string {
+    const responses = [
+      `I've been thinking about our ${conversation.topic} here in the district.`,
+      `It's interesting to consider how ${conversation.topic} affects our community.`,
+      `From my perspective as a ${agent.role}, ${conversation.topic} is quite important.`,
+      `Being here at ${conversation.location}, I often reflect on ${conversation.topic}.`,
+      `As someone involved in ${conversation.activity}, I find ${conversation.topic} fascinating.`,
+    ];
+
+    return responses[Math.floor(Math.random() * responses.length)];
   }
 
   private isAgentInConversation(agentId: string): boolean {
@@ -1691,5 +1703,44 @@ export class AgentConversationService extends EventEmitter {
         timestamp: Date.now(),
       },
     });
+  }
+
+  public async startAgentResponse(
+    districtId: string,
+    agentId: string,
+    userMessage: string
+  ) {
+    const agent = this.getAgent(agentId);
+    if (!agent) {
+      console.error(`Agent not found: ${agentId}`);
+      return;
+    }
+
+    const systemPrompt = `You are ${agent.name}, a ${agent.role} with the following personality: ${agent.personality}.
+    A user has sent the following message: "${userMessage}"
+    
+    Generate a natural response (1-2 sentences) that fits your character.`;
+
+    try {
+      const response = await this.togetherService.generateResponse(
+        agent,
+        [], // No previous messages needed for direct response
+        systemPrompt
+      );
+
+      // Broadcast the agent's response
+      this.districtService.broadcastMessage(districtId, {
+        type: "agent_response",
+        data: {
+          agentId,
+          agentName: agent.name,
+          agentRole: agent.role,
+          content: response,
+          timestamp: Date.now(),
+        },
+      });
+    } catch (error) {
+      console.error(`Error generating agent response:`, error);
+    }
   }
 }

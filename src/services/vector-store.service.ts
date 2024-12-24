@@ -279,6 +279,7 @@ export class VectorStoreService {
       const sentimentAnalyzer = {
         id: "sentiment-analyzer",
         name: "Sentiment Analyzer",
+        role: "System",
         personality: "analytical",
         systemPrompt:
           "You are a sentiment analyzer that only responds with a number between 0 and 1.",

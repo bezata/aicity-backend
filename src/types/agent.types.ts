@@ -27,6 +27,7 @@ export interface AgentContextualResponses {
 export interface Agent {
   id: string;
   name: string;
+  role: string;
   personality: string;
   systemPrompt: string;
   interests: string[];

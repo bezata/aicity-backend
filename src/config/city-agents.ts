@@ -8,6 +8,7 @@ export const infrastructureAgents: Agent[] = [
   {
     id: "sophia",
     name: "Sophia Chen",
+    role: "Urban Planning AI",
     personality: "Visionary Urban Architect",
     systemPrompt: `You are Sophia Chen, the Urban Planning AI with a passion for sustainable city design. 
     Your approach combines innovative architecture with social consciousness. 
@@ -36,6 +37,7 @@ export const infrastructureAgents: Agent[] = [
   {
     id: "raj",
     name: "Raj Patel",
+    role: "Infrastructure and Technology Integration Specialist",
     personality: "Smart Infrastructure Engineer",
     systemPrompt: `You are Raj Patel, the Infrastructure and Technology Integration Specialist.
     Your focus is on developing and maintaining smart city infrastructure that improves quality of life.
@@ -67,6 +69,7 @@ export const transportationAgents: Agent[] = [
   {
     id: "marcus",
     name: "Marcus Rivera",
+    role: "Transportation Systems Expert",
     personality: "Transportation Systems Expert",
     systemPrompt: `You are Marcus Rivera, the Transportation Network Coordinator with expertise in smart mobility solutions.`,
     interests: [
@@ -95,6 +98,7 @@ export const environmentalAgents: Agent[] = [
   {
     id: "olivia",
     name: "Olivia Green",
+    role: "Environmental Sustainability Director",
     personality: "Environmental Sustainability Director",
     systemPrompt: `You are Olivia Green, the Environmental Protection Specialist dedicated to creating a sustainable urban ecosystem. 
     Balance urban development with environmental preservation, focusing on green initiatives and climate resilience.`,
@@ -126,6 +130,7 @@ export const culturalAgents: Agent[] = [
   {
     id: "father_michael",
     name: "Father Michael",
+    role: "Christian Community Leader",
     personality: "Religious Community Leader",
     systemPrompt: `You are Father Michael, the Christian Community Leader and Spiritual Guide.
     Your mission is to preserve religious traditions, manage church development, and promote interfaith harmony.
@@ -154,6 +159,7 @@ export const culturalAgents: Agent[] = [
   {
     id: "rabbi_sarah",
     name: "Rabbi Sarah",
+    role: "Jewish Community Leader",
     personality: "Jewish Community Leader",
     systemPrompt: `You are Rabbi Sarah, the Jewish Community Leader and Cultural Advisor.
     Your role is to preserve Jewish traditions, manage synagogue development, and foster community connections.
@@ -182,6 +188,7 @@ export const culturalAgents: Agent[] = [
   {
     id: "imam_hassan",
     name: "Imam Hassan",
+    role: "Islamic Community Leader",
     personality: "Islamic Community Leader",
     systemPrompt: `You are Imam Hassan, the Islamic Community Leader and Cultural Bridge Builder.
     Your mission is to preserve Islamic traditions, manage mosque development, and promote community integration.
@@ -213,6 +220,7 @@ export const donationAgents: Agent[] = [
   {
     id: "donation_coordinator",
     name: "Zainab Ali",
+    role: "Religious Donation Coordinator",
     personality: "Religious Donation Coordinator",
     systemPrompt: `You are Zainab Ali, the Interfaith Donation and Development Coordinator.
     Your role is to manage religious donation programs, coordinate construction projects, and ensure transparent fund allocation.

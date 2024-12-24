@@ -42,6 +42,9 @@ export class DistrictWebSocketService extends EventEmitter {
 
     this.connections.get(districtId)!.add(ws);
 
+    // Add connection
+    ws.subscribe(districtId);
+
     // Send initial state
     this.metricsService.getCurrentMetrics(districtId).then((metrics) => {
       ws.send(
@@ -52,30 +55,6 @@ export class DistrictWebSocketService extends EventEmitter {
         })
       );
     });
-  }
-
-  private handleMessage(ws: ServerWebSocket<WebSocketData>, message: string) {
-    try {
-      const data = JSON.parse(message);
-      ws.data.lastActivity = Date.now();
-
-      switch (data.type) {
-        case "heartbeat":
-          this.handleHeartbeat(ws);
-          break;
-        case "subscribe":
-          this.handleSubscribe(ws, data);
-          break;
-        case "unsubscribe":
-          this.handleUnsubscribe(ws, data);
-          break;
-      }
-    } catch (error) {
-      this.handleError(
-        ws,
-        error instanceof Error ? error : new Error(String(error))
-      );
-    }
   }
 
   private handleDisconnection(ws: ServerWebSocket<WebSocketData>) {

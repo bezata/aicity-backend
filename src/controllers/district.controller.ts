@@ -209,61 +209,64 @@ export const createDistrictController = (app: Elysia) => {
         open: (ws) => {
           const districtId = ws.data.params.districtId;
           const store = ws.data.store as AppStore;
-          store.services.districtService.addConnection(districtId, ws);
+          store.services.districtService.addConnection(districtId, ws as any);
           console.log(`WebSocket opened for district ${districtId}`);
+
+          // Send initial state
+          store.services.districtService.broadcastMessage(districtId, {
+            type: "connected",
+            timestamp: Date.now(),
+          });
         },
         message: (ws, message) => {
-          const districtId = ws.data.params.districtId;
-          const store = ws.data.store as AppStore;
-          const data = JSON.parse(message as string);
+          try {
+            const data =
+              typeof message === "string" ? JSON.parse(message) : message;
+            const districtId = ws.data.params.districtId;
+            const store = ws.data.store as AppStore;
 
-          // Handle different message types
-          switch (data.type) {
-            case "join":
-              console.log(
-                `Agent ${data.agentId} joined district ${districtId}`
-              );
-              store.services.districtService.broadcastMessage(districtId, {
-                type: "join",
-                agentId: data.agentId,
-                timestamp: Date.now(),
-              });
-              break;
-
-            case "leave":
-              console.log(`Agent ${data.agentId} left district ${districtId}`);
-              store.services.districtService.broadcastMessage(districtId, {
-                type: "leave",
-                agentId: data.agentId,
-                timestamp: Date.now(),
-              });
-              break;
-
-            case "message":
-              console.log(`Message in district ${districtId}: ${data.content}`);
-              store.services.districtService.broadcastMessage(districtId, {
-                type: "message",
-                agentId: data.agentId,
-                content: data.content,
-                timestamp: Date.now(),
-              });
-              break;
-
-            case "activity":
-              console.log(`Activity update in district ${districtId}`);
-              store.services.districtService.broadcastMessage(districtId, {
-                type: "activity",
-                agentId: data.agentId,
-                activity: data.activity,
-                timestamp: Date.now(),
-              });
-              break;
+            // Handle different message types
+            switch (data.type) {
+              case "join":
+                store.services.districtService.broadcastMessage(districtId, {
+                  type: "agent_joined",
+                  agentId: data.agentId,
+                  timestamp: Date.now(),
+                });
+                break;
+              case "message":
+                store.services.districtService.broadcastMessage(districtId, {
+                  type: "agent_message",
+                  agentId: data.agentId,
+                  content: data.content,
+                  timestamp: Date.now(),
+                });
+                break;
+              case "leave":
+                store.services.districtService.broadcastMessage(districtId, {
+                  type: "agent_left",
+                  agentId: data.agentId,
+                  timestamp: Date.now(),
+                });
+                break;
+            }
+          } catch (error) {
+            console.error("Error handling WebSocket message:", error);
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Failed to process message",
+              })
+            );
           }
         },
         close: (ws) => {
           const districtId = ws.data.params.districtId;
           const store = ws.data.store as AppStore;
-          store.services.districtService.removeConnection(districtId, ws);
+          store.services.districtService.removeConnection(
+            districtId,
+            ws as any
+          );
           console.log(`WebSocket closed for district ${districtId}`);
         },
       })

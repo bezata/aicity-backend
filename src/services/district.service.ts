@@ -18,7 +18,7 @@ import { TogetherService } from "./together.service";
 import { VectorStoreType } from "../types/vector-store.types";
 import { AnalyticsService } from "./analytics.service";
 import { DistrictCultureService } from "./district-culture.service";
-import type { WebSocket } from "ws";
+import type { ServerWebSocket } from "bun";
 
 export interface DistrictAnalytics {
   totalEvents: number;
@@ -46,6 +46,11 @@ interface DistrictConversation {
   activity: string;
 }
 
+interface WebSocketData {
+  districtId: string;
+  lastActivity: number;
+}
+
 export class DistrictService extends EventEmitter {
   private districts: Map<string, District> = new Map();
   private districtConversations: Map<string, DistrictConversation[]> =
@@ -65,7 +70,8 @@ export class DistrictService extends EventEmitter {
   };
 
   // Track WebSocket connections per district
-  private districtConnections: Map<string, any[]> = new Map();
+  private districtConnections: Map<string, ServerWebSocket<WebSocketData>[]> =
+    new Map();
 
   constructor(
     private cityService: CityService,
@@ -1280,46 +1286,57 @@ export class DistrictService extends EventEmitter {
     return hourly;
   }
 
-  public async broadcastMessage(districtId: string, message: any) {
-    const district = await this.getDistrict(districtId);
-    if (!district) return;
+  public broadcastMessage(districtId: string, message: any) {
+    console.log(`Broadcasting message to district ${districtId}:`, message);
+    const connections = this.districtConnections.get(districtId);
+    if (!connections) {
+      console.log(`No connections found for district ${districtId}`);
+      return;
+    }
 
-    // Get all WebSocket connections for this district
-    const connections = this.districtConnections.get(districtId) || [];
+    const messageStr = JSON.stringify(message);
+    console.log(
+      `Found ${connections.length} connections for district ${districtId}`
+    );
 
-    // Broadcast to all connections
-    for (const ws of connections) {
-      try {
-        if (ws.readyState === 1) {
-          // WebSocket.OPEN
-          ws.send(
-            JSON.stringify({
-              type: "message",
-              data: message,
-            })
-          );
-        }
-      } catch (error) {
-        console.error("Error broadcasting message:", error);
+    for (const client of connections) {
+      if (client.readyState === 1) {
+        // OPEN
+        console.log(`Sending message to client in district ${districtId}`);
+        client.send(messageStr);
+      } else {
+        console.log(
+          `Client in district ${districtId} not ready, state: ${client.readyState}`
+        );
       }
     }
   }
 
-  // Add connection to district
-  public addConnection(districtId: string, ws: any) {
-    const connections = this.districtConnections.get(districtId) || [];
-    connections.push(ws);
-    this.districtConnections.set(districtId, connections);
+  public addConnection(districtId: string, ws: ServerWebSocket<WebSocketData>) {
+    console.log(`Adding connection for district ${districtId}`);
+    if (!this.districtConnections.has(districtId)) {
+      console.log(`Creating new connection array for district ${districtId}`);
+      this.districtConnections.set(districtId, []);
+    }
+    this.districtConnections.get(districtId)!.push(ws);
+    console.log(
+      `Connection added. Total connections for district ${districtId}: ${
+        this.districtConnections.get(districtId)!.length
+      }`
+    );
   }
 
-  // Remove connection from district
-  public removeConnection(districtId: string, ws: any) {
-    const connections = this.districtConnections.get(districtId) || [];
+  public removeConnection(
+    districtId: string,
+    ws: ServerWebSocket<WebSocketData>
+  ) {
+    const connections = this.districtConnections.get(districtId);
+    if (!connections) return;
+
     const index = connections.indexOf(ws);
-    if (index > -1) {
+    if (index !== -1) {
       connections.splice(index, 1);
     }
-    this.districtConnections.set(districtId, connections);
   }
 }
 

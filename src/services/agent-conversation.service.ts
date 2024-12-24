@@ -22,6 +22,19 @@ interface AgentInteraction {
   timestamp: number;
 }
 
+interface ConversationContext {
+  districtId: string;
+  activity: string;
+  socialMood: {
+    positivity: number;
+    engagement: number;
+  };
+  culturalContext: {
+    events: any[];
+    traditions: any[];
+  };
+}
+
 export interface AgentConversation {
   id: string;
   participants: Agent[];
@@ -31,27 +44,24 @@ export interface AgentConversation {
   location: string;
   activity: string;
   startTime: number;
+  endTime?: number;
   lastUpdateTime: number;
-  status: "active" | "completed";
+  status: "active" | "ended";
   sentiment: number;
-  socialContext?: {
+  socialContext: {
     communityMood: number;
     engagement: number;
     activityType: string;
     participants: number;
   };
-  culturalContext?: {
-    currentEvents: string[];
-    traditions: string[];
+  culturalContext: {
+    currentEvents: any[];
+    traditions: any[];
     atmosphere: {
       harmonyIndex: number;
       culturalTension: number;
       mood: string;
     };
-  };
-  environmentalContext?: {
-    carbonEmissions: number;
-    energyRatio: number;
   };
 }
 
@@ -81,6 +91,8 @@ export class AgentConversationService extends EventEmitter {
   private agentProfiles: Map<string, AgentSocialProfile> = new Map();
   private districtActivities: Map<string, Map<string, string[]>> = new Map();
   private registeredAgents: Map<string, Agent> = new Map();
+  private readonly maxConversationDuration = 2 * 60 * 1000; // 2 minutes
+  private readonly messageInterval = 5000; // 5 seconds between messages
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -274,12 +286,56 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private async initializeService() {
-    // Initialize base systems
-    await this.initializeAISystem();
-    this.initializeMetricsListening();
+    try {
+      // Import and register existing agents
+      const { residentAgents, cityManagementAgents } = await import(
+        "../config/city-agents.js"
+      );
+      const allAgents = [...residentAgents, ...cityManagementAgents];
 
-    // Start life simulation cycles
-    this.startLifeCycles();
+      console.log(`Initializing ${allAgents.length} agents...`);
+
+      // Register all agents
+      for (const agent of allAgents) {
+        await this.registerAgent(agent);
+        console.log(`Registered agent: ${agent.name}`);
+      }
+
+      // Initialize base systems
+      await this.initializeAISystem();
+      this.initializeMetricsListening();
+
+      // Start life simulation cycles
+      this.startLifeCycles();
+      console.log("Started life simulation cycles");
+
+      // Start initial conversations
+      await this.generateNaturalConversations();
+      console.log("Generated initial conversations");
+
+      // Set up periodic conversation generation
+      setInterval(() => {
+        this.generateNaturalConversations().catch(console.error);
+      }, 5 * 60 * 1000); // Generate new conversations every 5 minutes
+
+      // Set up conversation continuation
+      setInterval(() => {
+        this.continueActiveConversations().catch(console.error);
+      }, 30 * 1000); // Continue conversations every 30 seconds
+    } catch (error) {
+      console.error("Error initializing agent conversation service:", error);
+    }
+  }
+
+  private async continueActiveConversations() {
+    const activeConversations = await this.getActiveConversations();
+    for (const conversation of activeConversations) {
+      try {
+        await this.continueConversation(conversation);
+      } catch (error) {
+        console.error("Error continuing conversation:", error);
+      }
+    }
   }
 
   // Add these methods to store and retrieve conversation history
@@ -336,17 +392,17 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private startLifeCycles() {
-    // Update agent activities every minute
-    setInterval(() => this.updateAgentActivities(), 60 * 1000);
+    // Update agent activities every 30 seconds
+    setInterval(() => this.updateAgentActivities(), 30 * 1000);
 
-    // Generate natural conversations every 2 minutes
-    setInterval(() => this.generateNaturalConversations(), 2 * 60 * 1000);
+    // Generate natural conversations every 30 seconds
+    setInterval(() => this.generateNaturalConversations(), 30 * 1000);
 
     // Update social networks every hour
     setInterval(() => this.updateSocialNetworks(), 60 * 60 * 1000);
 
     // Process ongoing conversations
-    setInterval(() => this.updateOngoingConversations(), 30 * 1000);
+    setInterval(() => this.updateOngoingConversations(), 10 * 1000);
   }
 
   private async updateAgentActivities() {
@@ -446,8 +502,12 @@ export class AgentConversationService extends EventEmitter {
     const districts = await this.cityCoordinator.getActiveDistricts();
 
     for (const district of districts) {
-      const activities = this.districtActivities.get(district.id);
-      if (!activities) continue;
+      // Get all agents in this district
+      const districtAgents = Array.from(this.registeredAgents.values())
+        .filter((agent) => agent.districtId === district.id)
+        .map((agent) => agent.id);
+
+      if (districtAgents.length < 2) continue;
 
       // Get cultural and social context
       const culturalContext = await this.cultureService.getDistrictCulture(
@@ -457,15 +517,31 @@ export class AgentConversationService extends EventEmitter {
         district.id
       );
 
+      // Group agents by current activity
+      const currentHour = new Date().getHours();
+      const activities = new Map<string, string[]>();
+
+      // Add agents to activities
+      for (const agentId of districtAgents) {
+        const agent = this.getAgent(agentId);
+        if (!agent) continue;
+
+        // Skip if agent is already in a conversation
+        if (this.isAgentInConversation(agentId)) continue;
+
+        // Determine current activity based on time
+        const activity = this.determineActivity(currentHour);
+
+        if (!activities.has(activity)) {
+          activities.set(activity, []);
+        }
+        activities.get(activity)!.push(agentId);
+      }
+
       // Process each activity group
       for (const [activity, agents] of activities.entries()) {
-        // Skip if not enough agents or already in conversations
+        // Skip if not enough agents
         if (agents.length < 2) continue;
-
-        const availableAgents = agents.filter(
-          (agentId) => !this.isAgentInConversation(agentId)
-        );
-        if (availableAgents.length < 2) continue;
 
         // Calculate chance for spontaneous conversation
         const conversationChance = this.calculateSpontaneousConversationChance(
@@ -477,7 +553,7 @@ export class AgentConversationService extends EventEmitter {
         if (Math.random() < conversationChance) {
           // Select participants based on social compatibility
           const participants = this.selectCompatibleParticipants(
-            availableAgents,
+            agents,
             activity,
             culturalContext
           );
@@ -489,74 +565,93 @@ export class AgentConversationService extends EventEmitter {
             culturalContext,
             socialMood,
           });
+
+          // Log conversation start
+          console.log(
+            `Started conversation in district ${district.id} with participants:`,
+            participants
+          );
+
+          // Broadcast conversation start
+          this.districtService.broadcastMessage(district.id, {
+            type: "conversation_started",
+            data: {
+              participants: participants.map((id) => {
+                const agent = this.getAgent(id);
+                return {
+                  id: agent?.id,
+                  name: agent?.name,
+                  role: agent?.role,
+                };
+              }),
+              activity,
+              location: this.determineConversationLocation(activity),
+            },
+            timestamp: Date.now(),
+          });
         }
       }
     }
   }
 
-  private isAgentInConversation(agentId: string): boolean {
-    return Array.from(this.activeConversations.values()).some(
-      (conv) =>
-        conv.status === "active" &&
-        conv.participants.some((p) => p.id === agentId)
-    );
-  }
-
-  private calculateSpontaneousConversationChance(
-    activity: string,
-    culturalContext: any,
-    socialMood: any
-  ): number {
-    let chance = 0.2; // Base chance
-
-    // Modify based on activity type
-    const activityModifiers: Record<string, number> = {
-      morning_coffee: 0.3, // People are more social during coffee
-      lunch_break: 0.4, // Social lunch time
-      cultural_event: 0.5, // High interaction during events
-      evening_leisure: 0.35, // Relaxed social time
-    };
-    chance += activityModifiers[activity] || 0;
-
-    // Increase chance during cultural events
-    if (culturalContext.events.length > 0) {
-      chance += 0.2;
-    }
-
-    // Adjust based on social mood
-    chance += (socialMood.positivity || 0.5) * 0.2;
-    chance += (socialMood.engagement || 0.5) * 0.2;
-
-    return Math.min(0.9, chance); // Cap at 90% chance
+  private determineActivity(hour: number): string {
+    if (hour >= 6 && hour < 10) return "morning_coffee";
+    if (hour >= 12 && hour < 14) return "lunch_break";
+    if (hour >= 17 && hour < 21) return "evening_leisure";
+    if ((hour >= 10 && hour < 12) || (hour >= 14 && hour < 17))
+      return "cultural_event";
+    return "evening_leisure"; // default activity
   }
 
   private selectCompatibleParticipants(
-    agents: string[],
+    availableAgents: string[],
     activity: string,
     culturalContext: any
   ): string[] {
-    const shuffled = [...agents];
+    // Score each agent based on compatibility
+    const scoredAgents = availableAgents.map((agentId) => {
+      const agent = this.getAgent(agentId);
+      if (!agent) return { agentId, score: 0 };
 
-    // Score each agent's compatibility
-    const scoredAgents = shuffled.map((agentId) => {
-      const profile = this.agentProfiles.get(agentId);
-      const score = this.calculateSocialCompatibilityScore(
-        agentId,
-        activity,
-        culturalContext
-      );
+      let score = 0;
+
+      // Activity preference
+      const hasMatchingInterest = agent.interests.some((interest) => {
+        return (
+          activity.includes(interest) ||
+          culturalContext.traditions.includes(interest) ||
+          culturalContext.events.some((e: any) => e.type === interest)
+        );
+      });
+      if (hasMatchingInterest) {
+        score += 0.3;
+      }
+
+      // Cultural alignment
+      const hasCulturalMatch = agent.interests.some((interest) => {
+        return culturalContext.traditions.includes(interest);
+      });
+      if (hasCulturalMatch) {
+        score += 0.2;
+      }
+
+      // Social traits
+      if (agent.traits.enthusiasm > 0.7) {
+        score += 0.2;
+      }
+      if (agent.traits.empathy > 0.7) {
+        score += 0.2;
+      }
+
       return { agentId, score };
     });
 
-    // Sort by compatibility score
-    scoredAgents.sort((a, b) => b.score - a.score);
+    // Sort by score and select top 2-3 agents
+    const sortedAgents = scoredAgents
+      .sort((a, b) => b.score - a.score)
+      .map((a) => a.agentId);
 
-    // Select 2-3 compatible agents
-    const groupSize = Math.min(
-      Math.floor(Math.random() * 2) + 2,
-      scoredAgents.length
-    );
-    return scoredAgents.slice(0, groupSize).map((a) => a.agentId);
+    return sortedAgents.slice(0, 2 + Math.floor(Math.random() * 2));
   }
 
   private calculateSocialCompatibilityScore(
@@ -592,57 +687,84 @@ export class AgentConversationService extends EventEmitter {
 
     return Math.min(1, score);
   }
-  private async startContextualConversation(agents: string[], context: any) {
-    const topic = this.generateContextualTopic(context);
-    const location = this.determineConversationLocation(context.activity);
+  private async startContextualConversation(
+    participants: string[],
+    context: ConversationContext
+  ) {
+    try {
+      // Create conversation
+      const conversation = await this.createConversation(participants, context);
+      console.log("\n=== New Conversation Started ===");
+      console.log("Conversation ID:", conversation.id);
+      console.log("District:", context.districtId);
+      console.log(
+        "Participants:",
+        conversation.participants.map((p) => `${p.name} (${p.role})`)
+      );
+      console.log("Location:", conversation.location);
+      console.log("Activity:", conversation.activity);
+      console.log("Topic:", conversation.topic);
+      console.log("================================\n");
 
-    const conversation: AgentConversation = {
-      id: `conv-${Date.now()}`,
-      participants: agents
-        .map((id) => this.getAgent(id))
-        .filter(Boolean) as Agent[],
-      messages: [],
-      topic,
-      districtId: context.districtId,
-      location,
-      activity: context.activity,
-      startTime: Date.now(),
-      lastUpdateTime: Date.now(),
-      status: "active",
-      sentiment: 0.5,
-      socialContext: {
-        communityMood: context.socialMood.positivity,
-        engagement: context.socialMood.engagement,
-        activityType: context.activity,
-        participants: agents.length,
-      },
-      culturalContext: {
-        currentEvents: context.culturalContext.events,
-        traditions: context.culturalContext.traditions,
-        atmosphere: {
-          harmonyIndex: 0.8,
-          culturalTension: 0.2,
-          mood: "positive",
+      // Get initiator
+      const initiator = this.getAgent(participants[0]);
+      if (!initiator) {
+        throw new Error("No initiator found for conversation");
+      }
+
+      // Generate initial message using Together API
+      const systemPrompt = `You are ${initiator.name}, a ${initiator.role} with the following personality: ${initiator.personality}.
+      You are starting a conversation at ${conversation.location} during ${conversation.activity}.
+      The topic is: ${conversation.topic}
+      
+      Generate a natural conversation opener (1-2 sentences) that fits your character and the context.`;
+
+      console.log("Generating initial message...");
+      console.log("System prompt:", systemPrompt);
+
+      const initialResponse = await this.togetherService.generateResponse(
+        initiator,
+        [], // No previous messages for the initial greeting
+        systemPrompt
+      );
+
+      console.log("Initial message generated:", initialResponse);
+
+      // Add the initial message
+      await this.addMessage(conversation.id, {
+        id: `msg-${Date.now()}`,
+        agentId: initiator.id,
+        content: initialResponse,
+        timestamp: Date.now(),
+        role: "assistant",
+      });
+
+      // Broadcast conversation start
+      this.districtService.broadcastMessage(context.districtId, {
+        type: "conversation_started",
+        data: {
+          conversationId: conversation.id,
+          participants: conversation.participants.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            role: agent.role,
+          })),
+          location: conversation.location,
+          activity: conversation.activity,
+          topic: conversation.topic,
         },
-      },
-    };
+      });
 
-    this.activeConversations.set(conversation.id, conversation);
-    await this.addInitialMessage(conversation);
+      // Schedule next message
+      setTimeout(() => {
+        this.continueConversation(conversation).catch(console.error);
+      }, 5000); // First response after 5 seconds
 
-    // Track conversation in district and broadcast via WebSocket
-    await this.districtService.trackConversation(context.districtId, {
-      id: conversation.id,
-      participants: agents,
-      location: conversation.location,
-      topic: conversation.topic,
-      startTime: conversation.startTime,
-      sentiment: conversation.sentiment,
-      activity: conversation.activity,
-    });
-
-    // Start periodic conversation updates
-    this.scheduleConversationUpdates(conversation.id);
+      return conversation;
+    } catch (error) {
+      console.error("Error starting contextual conversation:", error);
+      throw error;
+    }
   }
 
   private scheduleConversationUpdates(conversationId: string) {
@@ -654,13 +776,13 @@ export class AgentConversationService extends EventEmitter {
       }
 
       await this.continueConversation(conversation);
-    }, 10000); // Generate new message every 10 seconds
+    }, 5000); // Generate new message every 5 seconds
 
-    // Clear interval after 5 minutes
+    // Clear interval after 2 minutes
     setTimeout(() => {
       clearInterval(updateInterval);
       this.endConversation(conversationId);
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
   }
 
   private async addInitialMessage(conversation: AgentConversation) {
@@ -745,55 +867,69 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private async continueConversation(conversation: AgentConversation) {
-    // Get last speaker and next speaker
-    const lastMessage = conversation.messages[conversation.messages.length - 1];
-    const nextSpeaker = conversation.participants.find(
-      (p) => p.id !== lastMessage?.agentId
-    );
-
-    if (!nextSpeaker) return;
-
     try {
-      // Generate contextual response
-      const response = await this.generateContextualResponse(
-        nextSpeaker,
-        conversation
-      );
+      const message = await this.generateNextMessage(conversation);
+      await this.addMessage(conversation.id, message);
 
-      // Add personality traits to response
-      const personalizedResponse = this.addPersonalityToResponse(
-        response,
-        nextSpeaker
-      );
+      const agent = this.getAgent(message.agentId);
+      console.log(`[Message] ${agent?.name}: ${message.content}`);
 
-      const message: Message = {
-        id: `msg-${Date.now()}`,
-        agentId: nextSpeaker.id,
-        content: personalizedResponse,
-        timestamp: Date.now(),
-        role: "assistant",
-        sentiment: 0.7,
-      };
-
-      // Add message to conversation
-      conversation.messages.push(message);
-      conversation.lastUpdateTime = Date.now();
-
-      // Broadcast via district service
-      await this.districtService.broadcastMessage(conversation.districtId, {
-        type: "message",
-        conversationId: conversation.id,
-        message,
-        location: conversation.location,
-        activity: conversation.activity,
+      // Broadcast the message
+      this.districtService.broadcastMessage(conversation.districtId, {
+        type: "agent_message",
+        data: {
+          conversationId: conversation.id,
+          message: {
+            content: message.content,
+            agentId: message.agentId,
+            timestamp: message.timestamp,
+          },
+          location: conversation.location,
+          activity: conversation.activity,
+        },
       });
 
-      // Update conversation sentiment
-      conversation.sentiment = this.calculateConversationSentiment(
-        conversation.messages
-      );
+      // Schedule next message with random delay (5-15 seconds)
+      const delay = 5000 + Math.random() * 10000;
+      setTimeout(() => {
+        this.continueConversation(conversation).catch(console.error);
+      }, delay);
+
+      // End conversation after a while (random between 5-10 messages)
+      if (conversation.messages.length >= 5 + Math.floor(Math.random() * 5)) {
+        conversation.status = "ended";
+        conversation.endTime = Date.now();
+
+        console.log("\n=== Conversation Ended ===");
+        console.log("Conversation ID:", conversation.id);
+        console.log("Total Messages:", conversation.messages.length);
+        console.log(
+          "Duration:",
+          (conversation.endTime - conversation.startTime) / 1000,
+          "seconds"
+        );
+        console.log("========================\n");
+
+        // Broadcast conversation end
+        this.districtService.broadcastMessage(conversation.districtId, {
+          type: "conversation_ended",
+          data: {
+            conversationId: conversation.id,
+            participants: conversation.participants.map((agent) => ({
+              id: agent.id,
+              name: agent.name,
+              role: agent.role,
+            })),
+            location: conversation.location,
+            activity: conversation.activity,
+            duration: conversation.endTime - conversation.startTime,
+            messageCount: conversation.messages.length,
+          },
+        });
+      }
     } catch (error) {
       console.error("Error continuing conversation:", error);
+      throw error;
     }
   }
   private generateHistoricalResponse(
@@ -1002,53 +1138,44 @@ export class AgentConversationService extends EventEmitter {
     const conversation = this.activeConversations.get(conversationId);
     if (!conversation) return;
 
-    conversation.status = "completed";
+    conversation.status = "ended";
+    conversation.endTime = Date.now();
 
-    // Update district conversation
-    await this.districtService.trackConversation(conversation.districtId, {
-      id: conversation.id,
-      participants: conversation.participants.map((p) => p.id),
-      location: conversation.location,
-      topic: conversation.topic,
-      startTime: conversation.startTime,
-      endTime: Date.now(),
-      sentiment: conversation.sentiment,
-      activity: conversation.activity,
+    // Broadcast conversation end over WebSocket
+    this.districtService.broadcastMessage(conversation.districtId, {
+      type: "conversation_ended",
+      data: {
+        conversationId: conversation.id,
+        participants: conversation.participants.map((p) => ({
+          id: p.id,
+          name: p.name,
+          role: p.role,
+        })),
+        location: conversation.location,
+        activity: conversation.activity,
+        duration: conversation.endTime - conversation.startTime,
+        timestamp: Date.now(),
+      },
     });
 
-    // Store final conversation state in vector DB
+    this.activeConversations.delete(conversationId);
     await this.storeConversationInVectorDB(conversation);
-
-    // Store interaction patterns
-    for (const participant of conversation.participants) {
-      const profile = this.agentProfiles.get(participant.id);
-      if (profile) {
-        profile.recentInteractions.push({
-          agentId: participant.id,
-          type: conversation.activity,
-          sentiment: conversation.sentiment,
-          timestamp: Date.now(),
-        });
-      }
-    }
-
-    this.emit("conversation:ended", conversation);
   }
 
   private async updateOngoingConversations() {
-    for (const [id, conversation] of this.activeConversations.entries()) {
+    for (const conversation of this.activeConversations.values()) {
       if (conversation.status === "active") {
-        const timeSinceLastUpdate = Date.now() - conversation.lastUpdateTime;
-
-        if (timeSinceLastUpdate > 5 * 60 * 1000) {
-          // 5 minutes
-          await this.continueConversation(conversation);
+        // Check if conversation should end
+        const duration = Date.now() - conversation.startTime;
+        if (duration > this.maxConversationDuration) {
+          await this.endConversation(conversation.id);
+          continue;
         }
 
-        if (timeSinceLastUpdate > 30 * 60 * 1000) {
-          // 30 minutes
-          conversation.status = "completed";
-          this.emit("conversation:ended", { conversationId: id });
+        // Continue conversation if enough time has passed since last message
+        const timeSinceLastUpdate = Date.now() - conversation.lastUpdateTime;
+        if (timeSinceLastUpdate > this.messageInterval) {
+          await this.continueConversation(conversation);
         }
       }
     }
@@ -1192,5 +1319,138 @@ export class AgentConversationService extends EventEmitter {
 
     const sum = sentiments.reduce((acc, val) => acc + val, 0);
     return sum / sentiments.length;
+  }
+
+  private async createConversation(
+    participants: string[],
+    context: ConversationContext
+  ): Promise<AgentConversation> {
+    const topic = this.generateContextualTopic(context);
+    const location = this.determineConversationLocation(context.activity);
+
+    const conversation: AgentConversation = {
+      id: `conv-${Date.now()}`,
+      participants: participants
+        .map((id) => this.getAgent(id))
+        .filter(Boolean) as Agent[],
+      messages: [],
+      topic,
+      districtId: context.districtId,
+      location,
+      activity: context.activity,
+      startTime: Date.now(),
+      lastUpdateTime: Date.now(),
+      status: "active",
+      sentiment: 0.5,
+      socialContext: {
+        communityMood: context.socialMood.positivity,
+        engagement: context.socialMood.engagement,
+        activityType: context.activity,
+        participants: participants.length,
+      },
+      culturalContext: {
+        currentEvents: context.culturalContext.events,
+        traditions: context.culturalContext.traditions,
+        atmosphere: {
+          harmonyIndex: 0.8,
+          culturalTension: 0.2,
+          mood: "positive",
+        },
+      },
+    };
+
+    this.activeConversations.set(conversation.id, conversation);
+    return conversation;
+  }
+
+  private async generateNextMessage(
+    conversation: AgentConversation
+  ): Promise<Message> {
+    console.log("\n=== Generating Next Message ===");
+
+    // Get last speaker and next speaker
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    const nextSpeaker = conversation.participants.find(
+      (p) => p.id !== lastMessage?.agentId
+    );
+
+    if (!nextSpeaker) {
+      throw new Error("No next speaker found");
+    }
+
+    console.log("Next speaker:", nextSpeaker.name);
+
+    try {
+      // Add system context
+      const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.role} with the following personality: ${nextSpeaker.personality}.
+      You are having a conversation at ${conversation.location} during ${conversation.activity}.
+      The topic is: ${conversation.topic}
+      
+      Respond naturally as your character would, keeping responses concise (1-2 sentences).
+      Consider your role, personality, and the ongoing conversation context.`;
+
+      console.log("Calling Together API...");
+      console.log("System prompt:", systemPrompt);
+
+      // Call Together API using generateResponse
+      const response = await this.togetherService.generateResponse(
+        nextSpeaker,
+        conversation.messages,
+        systemPrompt
+      );
+
+      console.log("Together API response:", response);
+
+      // Create message object
+      const message: Message = {
+        id: `msg-${Date.now()}`,
+        agentId: nextSpeaker.id,
+        content: response,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: 0.7,
+      };
+
+      return message;
+    } catch (error) {
+      console.error("Error generating message:", error);
+      throw error;
+    }
+  }
+
+  private isAgentInConversation(agentId: string): boolean {
+    return Array.from(this.activeConversations.values()).some(
+      (conv) =>
+        conv.status === "active" &&
+        conv.participants.some((p) => p.id === agentId)
+    );
+  }
+
+  private calculateSpontaneousConversationChance(
+    activity: string,
+    culturalContext: any,
+    socialMood: any
+  ): number {
+    let chance = 0.6; // Higher base chance
+
+    // Modify based on activity type
+    const activityModifiers: Record<string, number> = {
+      morning_coffee: 0.5, // People are more social during coffee
+      lunch_break: 0.6, // Social lunch time
+      cultural_event: 0.7, // High interaction during events
+      evening_leisure: 0.5, // Relaxed social time
+    };
+    chance += activityModifiers[activity] || 0;
+
+    // Increase chance during cultural events
+    if (culturalContext.events.length > 0) {
+      chance += 0.3;
+    }
+
+    // Adjust based on social mood
+    chance += (socialMood.positivity || 0.5) * 0.3;
+    chance += (socialMood.engagement || 0.5) * 0.3;
+
+    return Math.min(1.0, chance); // Cap at 100% chance
   }
 }

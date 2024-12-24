@@ -178,6 +178,7 @@ export class AgentCollaborationService extends EventEmitter {
       const agent: Agent = {
         id: session.id,
         name: "Collaboration System",
+        role: "System",
         personality: "Systematic",
         systemPrompt: "Manage collaboration sessions",
         interests: ["collaboration", "coordination"],
@@ -216,6 +217,7 @@ export class AgentCollaborationService extends EventEmitter {
       const agent: Agent = {
         id: session.id,
         name: "Collaboration System",
+        role: "System",
         personality: "Systematic",
         systemPrompt: "Manage collaboration sessions",
         interests: ["collaboration", "coordination"],
@@ -249,6 +251,7 @@ export class AgentCollaborationService extends EventEmitter {
       const agent: Agent = {
         id: decision.sessionId,
         name: "Collaboration System",
+        role: "System",
         personality: "Systematic",
         systemPrompt: "Manage collaboration sessions",
         interests: ["collaboration", "coordination"],

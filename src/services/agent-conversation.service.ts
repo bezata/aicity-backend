@@ -748,7 +748,7 @@ export class AgentConversationService extends EventEmitter {
   private async startContextualConversation(
     participants: string[],
     context: ConversationContext
-  ) {
+  ): Promise<AgentConversation> {
     try {
       // Update rate limiting counters
       this.lastConversationTime = Date.now();
@@ -798,16 +798,11 @@ export class AgentConversationService extends EventEmitter {
       
       Generate a natural conversation opener (1-2 sentences) that fits your character and the context.`;
 
-      console.log("Generating initial message...");
-      console.log("System prompt:", systemPrompt);
-
       const initialResponse = await this.togetherService.generateResponse(
         initiator,
         [], // No previous messages for the initial greeting
         systemPrompt
       );
-
-      console.log("Initial message generated:", initialResponse);
 
       // Add the initial message
       await this.addMessage(conversation.id, {
@@ -830,7 +825,7 @@ export class AgentConversationService extends EventEmitter {
         });
       }
 
-      // Schedule next message with longer delay
+      // Schedule next message
       setTimeout(() => {
         this.continueConversation(conversation).catch(console.error);
       }, 30000); // First response after 30 seconds
@@ -950,50 +945,71 @@ export class AgentConversationService extends EventEmitter {
         return;
       }
 
-      // Check time of day
-      const currentHour = new Date().getHours();
-      if (
-        currentHour < this.conversationStartHour ||
-        currentHour >= this.conversationEndHour
-      ) {
-        console.log("⏰ Outside conversation hours, ending conversation");
+      // Get next speaker
+      const lastMessage =
+        conversation.messages[conversation.messages.length - 1];
+      const nextSpeaker = conversation.participants.find(
+        (p) => p.id !== lastMessage?.agentId
+      );
+
+      if (!nextSpeaker) {
+        console.log("No next speaker found, ending conversation");
         await this.endConversation(conversation.id);
         return;
       }
 
-      const message = await this.generateNextMessage(conversation);
+      // Generate response
+      const systemPrompt = `You are ${nextSpeaker.name}, a ${
+        nextSpeaker.role
+      } with the following personality: ${nextSpeaker.personality}.
+      You are in a conversation at ${conversation.location} during ${
+        conversation.activity
+      }.
+      The topic is: ${conversation.topic}
+      
+      Previous messages:
+      ${conversation.messages
+        .map((m) => `${this.getAgent(m.agentId)?.name}: ${m.content}`)
+        .join("\n")}
+      
+      Generate a natural response (1-2 sentences) that fits your character and continues the conversation.`;
+
+      const response = await this.togetherService.generateResponse(
+        nextSpeaker,
+        conversation.messages,
+        systemPrompt
+      );
+
+      // Add message
+      const message: Message = {
+        id: `msg-${Date.now()}`,
+        agentId: nextSpeaker.id,
+        content: response,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: await this.vectorStore.analyzeSentiment(response),
+      };
+
       await this.addMessage(conversation.id, message);
-      this.dailyAPICallCount++;
 
-      const agent = this.getAgent(message.agentId);
-      console.log(`[Message] ${agent?.name}: ${message.content}`);
-
-      // Broadcast the message
+      // Broadcast message
       this.districtService.broadcastMessage(conversation.districtId, {
         type: "agent_message",
         data: {
           conversationId: conversation.id,
           message: {
-            content: message.content,
-            agentId: message.agentId,
-            timestamp: message.timestamp,
+            ...message,
+            agentName: nextSpeaker.name,
+            agentRole: nextSpeaker.role,
           },
           location: conversation.location,
           activity: conversation.activity,
+          topic: conversation.topic,
         },
       });
 
-      // 50% chance to end conversation after each message
-      if (conversation.messages.length >= 2 && Math.random() > 0.5) {
-        console.log(
-          "🎲 Randomly ending conversation (50% chance after 2 messages)"
-        );
-        await this.endConversation(conversation.id);
-        return;
-      }
-
-      // Schedule next message with long random delay (2-5 minutes)
-      const delay = 120000 + Math.random() * 180000;
+      // Schedule next message with random delay (5-15 seconds)
+      const delay = 5000 + Math.random() * 10000;
       setTimeout(() => {
         this.continueConversation(conversation).catch(console.error);
       }, delay);
@@ -1306,21 +1322,14 @@ export class AgentConversationService extends EventEmitter {
       conversation.messages
     );
 
-    // Broadcast message through WebSocket
+    // Broadcast message
     this.districtService.broadcastMessage(conversation.districtId, {
-      type: "conversation_message",
+      type: "conversation_update",
       data: {
         conversationId,
-        message: {
-          content: message.content,
-          agentId: message.agentId,
-          agentName: this.getAgent(message.agentId)?.name,
-          agentRole: this.getAgent(message.agentId)?.role,
-          timestamp: message.timestamp,
-        },
-        location: conversation.location,
-        activity: conversation.activity,
-        topic: conversation.topic,
+        messages: conversation.messages,
+        sentiment: conversation.sentiment,
+        lastUpdateTime: conversation.lastUpdateTime,
       },
     });
 
@@ -1778,6 +1787,59 @@ export class AgentConversationService extends EventEmitter {
       });
     } catch (error) {
       console.error(`Error generating agent response:`, error);
+    }
+  }
+
+  public getRegisteredAgents(): Map<string, Agent> {
+    return this.registeredAgents;
+  }
+
+  public async startNewConversation(
+    participants: string[],
+    context: ConversationContext
+  ): Promise<AgentConversation> {
+    return this.startContextualConversation(participants, context);
+  }
+
+  public async generateRandomResponse(
+    districtId: string,
+    agentId: string,
+    userMessage: string
+  ): Promise<string> {
+    const agent = this.getAgent(agentId);
+    if (!agent) {
+      console.error(`Agent not found: ${agentId}`);
+      return "";
+    }
+
+    const systemPrompt = `You are ${agent.name}, a ${agent.role} with the following personality: ${agent.personality}.
+    A user has sent the following message: "${userMessage}"
+    
+    Generate a natural response (1-2 sentences) that fits your character.`;
+
+    try {
+      const response = await this.togetherService.generateResponse(
+        agent,
+        [], // No previous messages needed for direct response
+        systemPrompt
+      );
+
+      // Broadcast the agent's response
+      this.districtService.broadcastMessage(districtId, {
+        type: "agent_response",
+        data: {
+          agentId,
+          agentName: agent.name,
+          agentRole: agent.role,
+          content: response,
+          timestamp: Date.now(),
+        },
+      });
+
+      return response;
+    } catch (error) {
+      console.error(`Error generating agent response:`, error);
+      return "";
     }
   }
 }

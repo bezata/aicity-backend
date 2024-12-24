@@ -209,158 +209,164 @@ export const createDistrictController = (app: Elysia) => {
           }
         }
       )
-      .ws("/:districtId/ws", {
-        open: (ws) => {
-          const districtId = ws.data.params.districtId;
+      .ws("/chat", {
+        open: async (ws) => {
           const store = ws.data.store as AppStore;
-          store.services.districtService.addConnection(districtId, ws as any);
-          console.log(`WebSocket opened for district ${districtId}`);
+          console.log("🌟 WebSocket Chat Connected");
 
-          // Send initial state with active conversations
-          store.services.agentConversationService
-            .getActiveConversations()
-            .then((conversations) => {
-              const districtConversations = conversations.filter(
-                (conv) => conv.districtId === districtId
-              );
-              store.services.districtService.broadcastMessage(districtId, {
-                type: "connected",
-                timestamp: Date.now(),
-                data: {
-                  activeConversations: districtConversations.map((conv) => ({
-                    id: conv.id,
-                    participants: conv.participants.map((p) => ({
-                      id: p.id,
-                      name: p.name,
-                      role: p.role,
-                    })),
-                    messages: conv.messages,
-                    topic: conv.topic,
-                    location: conv.location,
-                    activity: conv.activity,
-                    startTime: conv.startTime,
-                    status: conv.status,
-                    sentiment: conv.sentiment,
-                    socialContext: conv.socialContext,
-                    culturalContext: conv.culturalContext,
+          // Start initial conversation with random agents
+          const allAgents = Array.from(
+            store.services.agentConversationService
+              .getRegisteredAgents()
+              .values()
+          );
+          const randomAgents = allAgents
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 3); // Get 3 random agents
+
+          const defaultDistrictId = "a42ed892-3878-45a5-9a1a-4ceaf9524f1c";
+
+          // Start conversation
+          const context = {
+            districtId: defaultDistrictId,
+            activity: "community_discussion",
+            culturalContext:
+              await store.services.cultureService.getDistrictCulture(
+                defaultDistrictId
+              ),
+            socialMood: {
+              positivity: 0.7,
+              engagement: 0.7,
+            },
+          };
+
+          // Start conversation between agents
+          const conversation =
+            await store.services.agentConversationService.startNewConversation(
+              randomAgents.map((agent) => agent.id),
+              context
+            );
+
+          // Send initial data
+          ws.send(
+            JSON.stringify({
+              type: "chat_started",
+              data: {
+                agents: randomAgents.map((agent) => ({
+                  id: agent.id,
+                  name: agent.name,
+                  role: agent.role,
+                  personality: agent.personality,
+                })),
+                conversation: {
+                  id: conversation.id,
+                  topic: conversation.topic,
+                  location: conversation.location,
+                  messages: conversation.messages.map((msg) => ({
+                    id: msg.id,
+                    content: msg.content,
+                    agentName: store.services.agentConversationService.getAgent(
+                      msg.agentId
+                    )?.name,
+                    agentRole: store.services.agentConversationService.getAgent(
+                      msg.agentId
+                    )?.role,
+                    timestamp: msg.timestamp,
                   })),
                 },
-              });
+              },
             })
-            .catch(console.error);
+          );
+
+          // Set up interval to generate new messages
+          const chatInterval = setInterval(async () => {
+            try {
+              // Get a random agent to speak
+              const speaker =
+                randomAgents[Math.floor(Math.random() * randomAgents.length)];
+
+              // Generate a response
+              const response =
+                await store.services.agentConversationService.generateRandomResponse(
+                  defaultDistrictId,
+                  speaker.id,
+                  "Continue the conversation naturally"
+                );
+
+              // Send the new message
+              ws.send(
+                JSON.stringify({
+                  type: "new_message",
+                  data: {
+                    agentId: speaker.id,
+                    agentName: speaker.name,
+                    agentRole: speaker.role,
+                    content: response,
+                    timestamp: Date.now(),
+                  },
+                })
+              );
+            } catch (error) {
+              console.error("Error generating chat:", error);
+            }
+          }, 5000); // Generate new message every 5 seconds
+
+          // Clean up on close
         },
-        message: (ws, message) => {
+
+        message: async (ws, message) => {
           try {
             const data =
               typeof message === "string" ? JSON.parse(message) : message;
-            const districtId = ws.data.params.districtId;
             const store = ws.data.store as AppStore;
+            const defaultDistrictId = "a42ed892-3878-45a5-9a1a-4ceaf9524f1c";
 
-            // Handle different message types
-            switch (data.type) {
-              case "join":
-                store.services.districtService.broadcastMessage(districtId, {
-                  type: "agent_joined",
-                  agentId: data.agentId,
-                  timestamp: Date.now(),
-                  data: {
-                    agent: store.services.agentConversationService.getAgent(
-                      data.agentId
-                    ),
-                  },
-                });
-                break;
-
-              case "message":
-                store.services.districtService.broadcastMessage(districtId, {
-                  type: "agent_message",
-                  timestamp: Date.now(),
-                  data: {
-                    conversationId: data.conversationId,
-                    message: {
-                      id: `msg-${Date.now()}`,
-                      agentId: data.agentId,
-                      content: data.content,
-                      timestamp: Date.now(),
-                      role: "assistant",
-                    },
-                    conversation: store.services.agentConversationService
-                      .getActiveConversations()
-                      .then((convs) =>
-                        convs.find((c) => c.id === data.conversationId)
-                      ),
-                  },
-                });
-                break;
-
-              case "leave":
-                store.services.districtService.broadcastMessage(districtId, {
-                  type: "agent_left",
-                  agentId: data.agentId,
-                  timestamp: Date.now(),
-                  data: {
-                    agent: store.services.agentConversationService.getAgent(
-                      data.agentId
-                    ),
-                  },
-                });
-                break;
-
-              case "get_conversations":
+            if (data.type === "user_message") {
+              // Get 2 random agents to respond
+              const agents = Array.from(
                 store.services.agentConversationService
-                  .getActiveConversations()
-                  .then((conversations) => {
-                    const districtConversations = conversations.filter(
-                      (conv) => conv.districtId === districtId
-                    );
-                    ws.send(
-                      JSON.stringify({
-                        type: "conversations_update",
-                        timestamp: Date.now(),
-                        data: {
-                          conversations: districtConversations.map((conv) => ({
-                            id: conv.id,
-                            participants: conv.participants.map((p) => ({
-                              id: p.id,
-                              name: p.name,
-                              role: p.role,
-                            })),
-                            messages: conv.messages,
-                            topic: conv.topic,
-                            location: conv.location,
-                            activity: conv.activity,
-                            startTime: conv.startTime,
-                            status: conv.status,
-                            sentiment: conv.sentiment,
-                            socialContext: conv.socialContext,
-                            culturalContext: conv.culturalContext,
-                          })),
-                        },
-                      })
-                    );
+                  .getRegisteredAgents()
+                  .values()
+              )
+                .sort(() => Math.random() - 0.5)
+                .slice(0, 2);
+
+              // Generate responses
+              for (const agent of agents) {
+                const response =
+                  await store.services.agentConversationService.generateRandomResponse(
+                    defaultDistrictId,
+                    agent.id,
+                    data.content
+                  );
+
+                ws.send(
+                  JSON.stringify({
+                    type: "agent_response",
+                    data: {
+                      agentId: agent.id,
+                      agentName: agent.name,
+                      agentRole: agent.role,
+                      content: response,
+                      timestamp: Date.now(),
+                    },
                   })
-                  .catch(console.error);
-                break;
+                );
+              }
             }
           } catch (error) {
-            console.error("Error handling WebSocket message:", error);
+            console.error("Error handling message:", error);
             ws.send(
               JSON.stringify({
                 type: "error",
                 message: "Failed to process message",
-                timestamp: Date.now(),
               })
             );
           }
         },
+
         close: (ws) => {
-          const districtId = ws.data.params.districtId;
-          const store = ws.data.store as AppStore;
-          store.services.districtService.removeConnection(
-            districtId,
-            ws as any
-          );
-          console.log(`WebSocket closed for district ${districtId}`);
+          console.log("WebSocket Chat Closed");
         },
       })
       .post("/update", async ({ body, store }) => {

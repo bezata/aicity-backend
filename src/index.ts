@@ -333,71 +333,76 @@ initializeAISystem()
       },
       websocket: {
         open(ws) {
-          console.log(`WebSocket opened for ${ws.data.url}`);
-          const districtId = ws.data.url.split("/")[3]; // Extract district ID from URL
-          if (districtId) {
-            ws.subscribe(districtId);
-            console.log(`Subscribed to district: ${districtId}`);
-          }
+          console.log(`🌟 WebSocket connected to ${ws.data.url}`);
+
+          // Subscribe to agent conversations
+          ws.subscribe("agent_conversations");
+
+          // Send welcome message
+          ws.send(
+            JSON.stringify({
+              type: "connected",
+              timestamp: Date.now(),
+              message: "Connected to AI City Agent Conversations",
+            })
+          );
+
+          // Listen to agent conversation events
+          store.services.agentConversationService.on(
+            "message:added",
+            (data) => {
+              ws.send(
+                JSON.stringify({
+                  type: "agent_conversation",
+                  timestamp: Date.now(),
+                  data: {
+                    conversationId: data.conversationId,
+                    message: {
+                      content: data.message.content,
+                      agentName:
+                        store.services.agentConversationService.getAgent(
+                          data.message.agentId
+                        )?.name,
+                      agentRole:
+                        store.services.agentConversationService.getAgent(
+                          data.message.agentId
+                        )?.role,
+                      timestamp: data.message.timestamp,
+                    },
+                  },
+                })
+              );
+            }
+          );
+
+          // Listen to conversation start events
+          store.services.agentConversationService.on(
+            "conversation:started",
+            (data) => {
+              ws.send(
+                JSON.stringify({
+                  type: "conversation_started",
+                  timestamp: Date.now(),
+                  data: {
+                    conversationId: data.id,
+                    participants: data.participants.map((p) => ({
+                      name: p.name,
+                      role: p.role,
+                    })),
+                    topic: data.topic,
+                    location: data.location,
+                  },
+                })
+              );
+            }
+          );
         },
         message(ws, message) {
-          try {
-            const data = JSON.parse(String(message));
-            console.log("Received message:", data);
-
-            const districtId = ws.data.url.split("/")[3];
-            if (!districtId) return;
-
-            // Handle different message types
-            switch (data.type) {
-              case "join":
-                ws.publish(
-                  districtId,
-                  JSON.stringify({
-                    type: "agent_joined",
-                    agentId: data.agentId,
-                    timestamp: Date.now(),
-                  })
-                );
-                break;
-              case "message":
-                ws.publish(
-                  districtId,
-                  JSON.stringify({
-                    type: "message",
-                    agentId: data.agentId,
-                    content: data.content,
-                    timestamp: Date.now(),
-                  })
-                );
-                break;
-              case "leave":
-                ws.publish(
-                  districtId,
-                  JSON.stringify({
-                    type: "agent_left",
-                    agentId: data.agentId,
-                    timestamp: Date.now(),
-                  })
-                );
-                break;
-            }
-          } catch (error) {
-            console.error("Error handling WebSocket message:", error);
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Failed to process message",
-              })
-            );
-          }
+          console.log("Received message:", message);
         },
         close(ws) {
           console.log(`WebSocket closed for ${ws.data.url}`);
-          const districtId = ws.data.url.split("/")[3];
-          if (districtId) {
-            ws.unsubscribe(districtId);
-          }
+          ws.unsubscribe("agent_conversations");
         },
       },
     });

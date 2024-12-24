@@ -172,9 +172,6 @@ export class AgentConversationService extends EventEmitter {
 
     if (!currentActivity) return;
 
-    // Check if agent is already in a conversation
-    if (this.isAgentInConversation(agent.id)) return;
-
     // Find potential conversation partners in the same location
     const potentialPartners = Array.from(this.agentProfiles.entries())
       .filter(([otherId, otherProfile]) => {
@@ -183,8 +180,7 @@ export class AgentConversationService extends EventEmitter {
         );
         return (
           otherId !== agent.id &&
-          otherActivity?.location === currentActivity.location &&
-          !this.isAgentInConversation(otherId)
+          otherActivity?.location === currentActivity.location
         );
       })
       .map(([id]) => id);
@@ -663,19 +659,14 @@ export class AgentConversationService extends EventEmitter {
     );
     const socialMood = await this.socialDynamics.getCommunityMood(district.id);
 
-    // Select 2 random agents for conversation
-    const availableAgents = districtAgents.filter(
-      (agentId) => !this.isAgentInConversation(agentId)
-    );
-    if (availableAgents.length < 2) return;
-
+    // Use all district agents instead of filtering out those in conversations
     const selectedAgents = this.selectCompatibleParticipants(
-      availableAgents,
+      districtAgents, // Use all agents instead of just available ones
       this.determineActivity(new Date().getHours()),
       culturalContext
-    ).slice(0, 2); // Limit to exactly 2 participants
+    );
 
-    if (selectedAgents.length === 2) {
+    if (selectedAgents.length >= 2) {
       await this.startContextualConversation(selectedAgents, {
         activity: this.determineActivity(new Date().getHours()),
         districtId: district.id,
@@ -739,12 +730,17 @@ export class AgentConversationService extends EventEmitter {
       return { agentId, score };
     });
 
-    // Sort by score and select top 2-3 agents
+    // Sort by score and select top 3-5 agents
     const sortedAgents = scoredAgents
       .sort((a, b) => b.score - a.score)
       .map((a) => a.agentId);
 
-    return sortedAgents.slice(0, 2 + Math.floor(Math.random() * 2));
+    // Return 3-5 agents based on availability
+    const minAgents = 3;
+    const maxAgents = Math.min(5, sortedAgents.length);
+    const numAgents =
+      minAgents + Math.floor(Math.random() * (maxAgents - minAgents + 1));
+    return sortedAgents.slice(0, numAgents);
   }
 
   private calculateSocialCompatibilityScore(
@@ -831,6 +827,18 @@ export class AgentConversationService extends EventEmitter {
         timestamp: Date.now(),
         role: "assistant",
       });
+
+      // Store conversation in vector store if it's district-related
+      if (context.districtId) {
+        await this.upsertConversationToDistrict(context.districtId, {
+          id: conversation.id,
+          participants: conversation.participants.map((p) => p.id),
+          content: initialResponse,
+          topics: [conversation.topic],
+          sentiment: 0.7, // Initial neutral-positive sentiment
+          activity: context.activity,
+        });
+      }
 
       // Broadcast conversation start
       this.districtService.broadcastMessage(context.districtId, {
@@ -1308,7 +1316,7 @@ export class AgentConversationService extends EventEmitter {
     ];
   }
 
-  private getAgent(agentId: string): Agent | undefined {
+  public getAgent(agentId: string): Agent | undefined {
     return this.registeredAgents.get(agentId);
   }
 
@@ -1638,5 +1646,50 @@ export class AgentConversationService extends EventEmitter {
     stats.count++;
     stats.lastTime = Date.now();
     this.agentConversationCounts.set(agentId, stats);
+  }
+
+  private async upsertConversationToDistrict(
+    districtId: string,
+    conversation: {
+      id: string;
+      participants: string[];
+      content: string;
+      topics: string[];
+      sentiment: number;
+      activity?: string;
+    }
+  ) {
+    // Create embedding for the conversation
+    const conversationText = `Conversation in district ${districtId}: ${conversation.content}`;
+
+    // Upsert to vector store
+    await this.vectorStore.upsert({
+      id: `district-conversation-${conversation.id}`,
+      values: await this.vectorStore.createEmbedding(conversationText),
+      metadata: {
+        type: "district_conversation",
+        districtId: districtId,
+        conversationId: conversation.id,
+        participants: conversation.participants,
+        topics: conversation.topics,
+        sentiment: conversation.sentiment,
+        activity: conversation.activity || "general",
+        timestamp: Date.now(),
+      },
+    });
+
+    // Broadcast to district WebSocket
+    this.districtService.broadcastMessage(districtId, {
+      type: "conversation",
+      data: {
+        conversationId: conversation.id,
+        participants: conversation.participants,
+        content: conversation.content,
+        topics: conversation.topics,
+        sentiment: conversation.sentiment,
+        activity: conversation.activity,
+        timestamp: Date.now(),
+      },
+    });
   }
 }

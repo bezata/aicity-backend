@@ -57,6 +57,10 @@ interface InteractionBody {
   content: string;
 }
 
+interface UpdateDistrictsBody {
+  districts: District[];
+}
+
 export const createDistrictController = (app: Elysia) => {
   app.group("/districts", (app) =>
     app
@@ -212,11 +216,38 @@ export const createDistrictController = (app: Elysia) => {
           store.services.districtService.addConnection(districtId, ws as any);
           console.log(`WebSocket opened for district ${districtId}`);
 
-          // Send initial state
-          store.services.districtService.broadcastMessage(districtId, {
-            type: "connected",
-            timestamp: Date.now(),
-          });
+          // Send initial state with active conversations
+          store.services.agentConversationService
+            .getActiveConversations()
+            .then((conversations) => {
+              const districtConversations = conversations.filter(
+                (conv) => conv.districtId === districtId
+              );
+              store.services.districtService.broadcastMessage(districtId, {
+                type: "connected",
+                timestamp: Date.now(),
+                data: {
+                  activeConversations: districtConversations.map((conv) => ({
+                    id: conv.id,
+                    participants: conv.participants.map((p) => ({
+                      id: p.id,
+                      name: p.name,
+                      role: p.role,
+                    })),
+                    messages: conv.messages,
+                    topic: conv.topic,
+                    location: conv.location,
+                    activity: conv.activity,
+                    startTime: conv.startTime,
+                    status: conv.status,
+                    sentiment: conv.sentiment,
+                    socialContext: conv.socialContext,
+                    culturalContext: conv.culturalContext,
+                  })),
+                },
+              });
+            })
+            .catch(console.error);
         },
         message: (ws, message) => {
           try {
@@ -232,22 +263,83 @@ export const createDistrictController = (app: Elysia) => {
                   type: "agent_joined",
                   agentId: data.agentId,
                   timestamp: Date.now(),
+                  data: {
+                    agent: store.services.agentConversationService.getAgent(
+                      data.agentId
+                    ),
+                  },
                 });
                 break;
+
               case "message":
                 store.services.districtService.broadcastMessage(districtId, {
                   type: "agent_message",
-                  agentId: data.agentId,
-                  content: data.content,
                   timestamp: Date.now(),
+                  data: {
+                    conversationId: data.conversationId,
+                    message: {
+                      id: `msg-${Date.now()}`,
+                      agentId: data.agentId,
+                      content: data.content,
+                      timestamp: Date.now(),
+                      role: "assistant",
+                    },
+                    conversation: store.services.agentConversationService
+                      .getActiveConversations()
+                      .then((convs) =>
+                        convs.find((c) => c.id === data.conversationId)
+                      ),
+                  },
                 });
                 break;
+
               case "leave":
                 store.services.districtService.broadcastMessage(districtId, {
                   type: "agent_left",
                   agentId: data.agentId,
                   timestamp: Date.now(),
+                  data: {
+                    agent: store.services.agentConversationService.getAgent(
+                      data.agentId
+                    ),
+                  },
                 });
+                break;
+
+              case "get_conversations":
+                store.services.agentConversationService
+                  .getActiveConversations()
+                  .then((conversations) => {
+                    const districtConversations = conversations.filter(
+                      (conv) => conv.districtId === districtId
+                    );
+                    ws.send(
+                      JSON.stringify({
+                        type: "conversations_update",
+                        timestamp: Date.now(),
+                        data: {
+                          conversations: districtConversations.map((conv) => ({
+                            id: conv.id,
+                            participants: conv.participants.map((p) => ({
+                              id: p.id,
+                              name: p.name,
+                              role: p.role,
+                            })),
+                            messages: conv.messages,
+                            topic: conv.topic,
+                            location: conv.location,
+                            activity: conv.activity,
+                            startTime: conv.startTime,
+                            status: conv.status,
+                            sentiment: conv.sentiment,
+                            socialContext: conv.socialContext,
+                            culturalContext: conv.culturalContext,
+                          })),
+                        },
+                      })
+                    );
+                  })
+                  .catch(console.error);
                 break;
             }
           } catch (error) {
@@ -256,6 +348,7 @@ export const createDistrictController = (app: Elysia) => {
               JSON.stringify({
                 type: "error",
                 message: "Failed to process message",
+                timestamp: Date.now(),
               })
             );
           }
@@ -269,6 +362,20 @@ export const createDistrictController = (app: Elysia) => {
           );
           console.log(`WebSocket closed for district ${districtId}`);
         },
+      })
+      .post("/update", async ({ body, store }) => {
+        const appStore = store as AppStore;
+        const updateBody = body as UpdateDistrictsBody;
+        try {
+          const updatedDistricts =
+            await appStore.services.districtService.updateDistrictsFromData(
+              updateBody.districts
+            );
+          return { success: true, data: updatedDistricts };
+        } catch (error: any) {
+          console.error("Error updating districts:", error);
+          throw error;
+        }
       })
   );
 

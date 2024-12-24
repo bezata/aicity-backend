@@ -1283,6 +1283,48 @@ export class DistrictService extends EventEmitter {
       connections.splice(index, 1);
     }
   }
+
+  private async upsertDistrictToVectorStore(district: District) {
+    const districtDescription = `District ${district.name} (${district.type}): Population ${district.population}, Density ${district.density}, Economic Activity ${district.economicActivity}. 
+    Metrics - Safety: ${district.metrics.safety}, Cleanliness: ${district.metrics.cleanliness}, Cultural Vibrancy: ${district.metrics.culturalVibrancy}
+    Social Index: ${district.socialMetrics.index}, Economic Index: ${district.economicMetrics.index}`;
+
+    await this.vectorStore.upsert({
+      id: `district-${district.id}`,
+      values: await this.vectorStore.createEmbedding(districtDescription),
+      metadata: {
+        type: "district",
+        districtId: district.id,
+        name: district.name,
+        district_type: district.type,
+        population: district.population,
+        density: district.density,
+        economic_activity: district.economicActivity,
+        metrics: JSON.stringify(district.metrics),
+        social_metrics: JSON.stringify(district.socialMetrics),
+        economic_metrics: JSON.stringify(district.economicMetrics),
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  async updateDistrictsFromData(districtsData: District[]) {
+    console.log("Updating districts from data...");
+
+    for (const districtData of districtsData) {
+      // Update the districts Map
+      this.districts.set(districtData.id, districtData);
+
+      // Upsert to vector store
+      await this.upsertDistrictToVectorStore(districtData);
+
+      // Emit district updated event
+      this.emit("districtUpdated", districtData);
+    }
+
+    console.log(`Updated ${districtsData.length} districts`);
+    return Array.from(this.districts.values());
+  }
 }
 
 export interface DistrictMetrics {

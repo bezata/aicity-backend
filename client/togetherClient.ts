@@ -44,7 +44,11 @@ export class TogetherClient {
         stream: true,
       });
 
-      return response;
+      let fullResponse = "";
+      for await (const chunk of this.streamResponse(response)) {
+        fullResponse += chunk;
+      }
+      return fullResponse;
     } catch (error) {
       console.error("Error in chat completion:", error);
       throw error;

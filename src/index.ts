@@ -631,11 +631,41 @@ initializeAISystem()
         },
         message: async (ws, message) => {
           try {
-            const data = JSON.parse(String(message));
-            console.log("📩 Received message:", data);
+            console.log("Raw message received:", String(message));
+            // Clean up the message by removing whitespace and normalizing
+            const cleanMessage = String(message)
+              .replace(/\s+/g, " ") // Replace multiple whitespace with single space
+              .replace(/\n/g, "") // Remove newlines
+              .trim(); // Remove leading/trailing whitespace
+
+            console.log("Cleaned message:", cleanMessage);
+            const data = JSON.parse(cleanMessage);
+            console.log("Parsed message:", data);
 
             if (data.type === "join_conversation") {
               console.log("👥 User joining conversation:", data.conversationId);
+              // First check if conversation exists
+              const conversation = await store.services.agentConversationService
+                .getActiveConversations()
+                .then((convs) =>
+                  convs.find((c) => c.id === data.conversationId)
+                );
+
+              if (!conversation) {
+                console.log("❌ Conversation not found:", data.conversationId);
+                sendWebSocketMessage(ws, ws.data.messageHistory, "error", {
+                  message: "Conversation not found or no longer active",
+                });
+                return;
+              }
+
+              console.log(
+                "Found conversation:",
+                conversation.id,
+                "with",
+                conversation.participants.length,
+                "participants"
+              );
               await sendConversationHistory(ws, data.conversationId);
               // Subscribe to conversation updates
               ws.subscribe(`conversation:${data.conversationId}`);
@@ -654,15 +684,49 @@ initializeAISystem()
             } else if (data.type === "user_message") {
               console.log("👤 User sent message:", data.content);
 
-              // Get 2-3 random agents to respond
-              const allAgents = Array.from(
-                store.services.agentConversationService
-                  .getRegisteredAgents()
-                  .values()
-              );
-              const respondingAgents = allAgents
-                .sort(() => Math.random() - 0.5)
-                .slice(0, 2 + Math.floor(Math.random() * 2));
+              let respondingAgents: any[] = [];
+
+              // If message is in a conversation, get the conversation's agents
+              if (data.conversationId) {
+                const conversation =
+                  await store.services.agentConversationService
+                    .getActiveConversations()
+                    .then((convs) =>
+                      convs.find((c) => c.id === data.conversationId)
+                    );
+
+                if (conversation) {
+                  // Check if message mentions specific agent
+                  const mentionedAgentName = data.content
+                    .toLowerCase()
+                    .match(/hey\s+(\w+)/)?.[1];
+                  if (mentionedAgentName) {
+                    const mentionedAgent = conversation.participants.find(
+                      (p) => p.name.toLowerCase() === mentionedAgentName
+                    );
+                    if (mentionedAgent) {
+                      respondingAgents = [mentionedAgent];
+                    }
+                  }
+
+                  // If no specific agent mentioned, use conversation participants
+                  if (respondingAgents.length === 0) {
+                    respondingAgents = conversation.participants;
+                  }
+                }
+              }
+
+              // If no conversation or no agents found, fall back to random selection
+              if (respondingAgents.length === 0) {
+                const allAgents = Array.from(
+                  store.services.agentConversationService
+                    .getRegisteredAgents()
+                    .values()
+                );
+                respondingAgents = allAgents
+                  .sort(() => Math.random() - 0.5)
+                  .slice(0, 2 + Math.floor(Math.random() * 2));
+              }
 
               console.log(
                 "🤖 Selected agents for response:",

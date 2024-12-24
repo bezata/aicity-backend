@@ -1544,8 +1544,8 @@ export class AgentConversationService extends EventEmitter {
         - Consider your role as ${nextSpeaker.role}
         - Reflect your personality: ${nextSpeaker.personality}`;
 
-        const maxRetries = 3;
-        const retryDelay = 2000; // 2 seconds between retries
+        const maxRetries = 10;
+        const retryDelay = 30000; // 30 seconds between retries
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {

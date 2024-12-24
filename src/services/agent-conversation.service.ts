@@ -91,15 +91,15 @@ export class AgentConversationService extends EventEmitter {
   private agentProfiles: Map<string, AgentSocialProfile> = new Map();
   private districtActivities: Map<string, Map<string, string[]>> = new Map();
   private registeredAgents: Map<string, Agent> = new Map();
-  private readonly maxConversationDuration = 20 * 60 * 1000; // 20 minutes
-  private readonly messageInterval = 60000; // 1 minute between messages
-  private readonly maxConcurrentConversations = 10; // Maximum concurrent conversations
-  private readonly minConversationCooldown = 1 * 60 * 1000; // 1 minute cooldown between conversations
+  private readonly maxConversationDuration = 10 * 60 * 1000; // 20 minutes
+  private readonly messageInterval = 30000; // 1 minute between messages
+  private readonly maxConcurrentConversations = 1; // Maximum concurrent conversations
+  private readonly minConversationCooldown = 30000; // 1 minute cooldown between conversations
   private lastConversationTime: number = 0;
   private dailyAPICallCount: number = 0;
-  private readonly maxDailyAPICalls: number = 1000; // Limit daily API calls
-  private readonly conversationStartHour: number = 8; // Start conversations at 8 AM
-  private readonly conversationEndHour: number = 22; // End conversations at 10 PM
+  private readonly maxDailyAPICalls: number = 100000; // Limit daily API calls
+  private readonly conversationStartHour: number = 0; // Start conversations at 8 AM
+  private readonly conversationEndHour: number = 24; // End conversations at 10 PM
   private messageCache: Map<string, { content: string; timestamp: number }> =
     new Map();
   private readonly cacheDuration = 24 * 60 * 60 * 1000; // 24 hours
@@ -119,6 +119,79 @@ export class AgentConversationService extends EventEmitter {
   private readonly dynamicCooldownMultiplier = 0.1; // Increases cooldown when API usage is high
   private conversationQualityScores: Map<string, number> = new Map();
   private readonly minQualityThreshold = 0.6;
+
+  // Add new delay configuration
+  private messageDelayConfig = {
+    minDelay: 1000, // Minimum delay between messages (5 seconds)
+    maxDelay: 2000, // Maximum delay between messages (10 seconds)
+    responseDelay: 1000, // Delay before agent responds (3 seconds)
+    typingSpeed: 50, // Milliseconds per character for typing simulation
+  };
+
+  // Add method to update delay configuration
+  public updateMessageDelayConfig(
+    config: Partial<typeof this.messageDelayConfig>
+  ) {
+    this.messageDelayConfig = {
+      ...this.messageDelayConfig,
+      ...config,
+    };
+  }
+
+  // Add method to get current delay configuration
+  public getMessageDelayConfig() {
+    return { ...this.messageDelayConfig };
+  }
+
+  private async simulateTyping(messageLength: number): Promise<void> {
+    const typingDuration = messageLength * this.messageDelayConfig.typingSpeed;
+    await new Promise((resolve) => setTimeout(resolve, typingDuration));
+  }
+
+  private async addMessageWithDelay(conversationId: string, message: Message) {
+    const conversation = this.activeConversations.get(conversationId);
+    if (!conversation) return;
+
+    // Add initial response delay
+    await new Promise((resolve) =>
+      setTimeout(resolve, this.messageDelayConfig.responseDelay)
+    );
+
+    // Simulate typing
+    await this.simulateTyping(message.content.length);
+
+    conversation.messages.push(message);
+    conversation.lastUpdateTime = Date.now();
+
+    // Update sentiment
+    conversation.sentiment = await this.calculateConversationSentiment(
+      conversation.messages
+    );
+
+    // Broadcast message
+    this.districtService.broadcastMessage(conversation.districtId, {
+      type: "conversation_update",
+      data: {
+        conversationId,
+        messages: conversation.messages,
+        sentiment: conversation.sentiment,
+        lastUpdateTime: conversation.lastUpdateTime,
+      },
+    });
+
+    this.emit("message:added", { conversationId, message });
+
+    // Add random delay before next message
+    const nextMessageDelay =
+      Math.floor(
+        Math.random() *
+          (this.messageDelayConfig.maxDelay -
+            this.messageDelayConfig.minDelay +
+            1)
+      ) + this.messageDelayConfig.minDelay;
+
+    await new Promise((resolve) => setTimeout(resolve, nextMessageDelay));
+  }
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -267,12 +340,9 @@ export class AgentConversationService extends EventEmitter {
       });
 
       if (results.matches?.length > 0 && results.matches[0].metadata.routines) {
-        console.log("Found existing routines in Pinecone");
         return JSON.parse(results.matches[0].metadata.routines);
       }
 
-      // If not found, generate new routines
-      console.log("Generating new AI routines");
       const prompt = `You are a schedule generator. Generate a daily schedule for ${agent.name} (${agent.role}).
       RESPOND ONLY WITH A VALID JSON ARRAY. NO OTHER TEXT.
       Each object in array must have exactly these properties:
@@ -288,7 +358,6 @@ export class AgentConversationService extends EventEmitter {
       const response = await this.togetherService.generateText(prompt);
 
       try {
-        // Clean the response
         const cleanedResponse = response
           .replace(/```json/g, "")
           .replace(/```/g, "")
@@ -302,14 +371,12 @@ export class AgentConversationService extends EventEmitter {
           throw new Error("Invalid routines format");
         }
 
-        // Validate each routine
         routines.forEach((routine) => {
           if (!this.isValidRoutine(routine)) {
             throw new Error("Invalid routine object format");
           }
         });
 
-        // Store in Pinecone
         await this.vectorStore.upsert({
           id: `routine-${agent.id}`,
           values: embedding,
@@ -374,24 +441,19 @@ export class AgentConversationService extends EventEmitter {
 
   private async initializeService() {
     try {
-      console.log("🚀 Starting agent conversation service...");
-
-      // Import and register existing agents
       const { residentAgents, cityManagementAgents } = await import(
         "../config/city-agents.ts"
       );
 
       const allAgents = [...residentAgents, ...cityManagementAgents];
-      console.log(`Found ${allAgents.length} agents to initialize...`);
+      console.error(`Found ${allAgents.length} agents to initialize`);
 
       // Register all agents
       for (const agent of allAgents) {
         await this.registerAgent(agent);
-        console.log(`✅ Registered agent: ${agent.name}`);
       }
 
       // Start initial conversations immediately
-      console.log("🗣️ Starting initial conversations...");
       const availableAgents = [...allAgents];
 
       // Create initial pairs of agents based on interests
@@ -404,25 +466,20 @@ export class AgentConversationService extends EventEmitter {
         if (agent2) {
           availableAgents.splice(availableAgents.indexOf(agent2), 1);
           await this.initiateAgentActivity(agent1);
-          console.log(
-            `🤝 Started conversation between ${agent1.name} and ${agent2.name}`
-          );
         }
       }
 
       // Set up periodic conversation generation
       setInterval(() => {
         this.generateNaturalConversations().catch(console.error);
-      }, 30000); // Generate new conversations every 30 seconds
+      }, 30000);
 
       // Continue active conversations frequently
       setInterval(() => {
         this.continueActiveConversations().catch(console.error);
-      }, 15000); // Continue conversations every 15 seconds
-
-      console.log("🌟 Agent conversation service initialized and running!");
+      }, 15000);
     } catch (error) {
-      console.error("❌ Error initializing agent conversation service:", error);
+      console.error("Error initializing agent conversation service:", error);
     }
   }
 
@@ -750,31 +807,17 @@ export class AgentConversationService extends EventEmitter {
     context: ConversationContext
   ): Promise<AgentConversation> {
     try {
-      // Update rate limiting counters
       this.lastConversationTime = Date.now();
       this.dailyAPICallCount++;
 
-      // Create conversation
       const conversation = await this.createConversation(participants, context);
-      console.log("\n=== New Conversation Started ===");
-      console.log("Conversation ID:", conversation.id);
-      console.log("District:", context.districtId);
-      console.log(
-        "Participants:",
-        conversation.participants.map((p) => `${p.name} (${p.role})`)
-      );
-      console.log("Location:", conversation.location);
-      console.log("Activity:", conversation.activity);
-      console.log("Topic:", conversation.topic);
-      console.log("================================\n");
+      console.error(`Message count: ${conversation.messages.length}`);
 
-      // Get initiator
       const initiator = this.getAgent(participants[0]);
       if (!initiator) {
         throw new Error("No initiator found for conversation");
       }
 
-      // Broadcast conversation start
       this.districtService.broadcastMessage(context.districtId, {
         type: "conversation_started",
         data: {
@@ -791,7 +834,6 @@ export class AgentConversationService extends EventEmitter {
         },
       });
 
-      // Generate initial message using Together API
       const systemPrompt = `You are ${initiator.name}, a ${initiator.role} with the following personality: ${initiator.personality}.
       You are starting a conversation at ${conversation.location} during ${conversation.activity}.
       The topic is: ${conversation.topic}
@@ -800,11 +842,10 @@ export class AgentConversationService extends EventEmitter {
 
       const initialResponse = await this.togetherService.generateResponse(
         initiator,
-        [], // No previous messages for the initial greeting
+        [],
         systemPrompt
       );
 
-      // Add the initial message
       await this.addMessage(conversation.id, {
         id: `msg-${Date.now()}`,
         agentId: initiator.id,
@@ -813,22 +854,20 @@ export class AgentConversationService extends EventEmitter {
         role: "assistant",
       });
 
-      // Store conversation in vector store if it's district-related
       if (context.districtId) {
         await this.upsertConversationToDistrict(context.districtId, {
           id: conversation.id,
           participants: conversation.participants.map((p) => p.id),
           content: initialResponse,
           topics: [conversation.topic],
-          sentiment: 0.7, // Initial neutral-positive sentiment
+          sentiment: 0.7,
           activity: context.activity,
         });
       }
 
-      // Schedule next message
       setTimeout(() => {
         this.continueConversation(conversation).catch(console.error);
-      }, 30000); // First response after 30 seconds
+      }, 30000);
 
       return conversation;
     } catch (error) {
@@ -938,14 +977,12 @@ export class AgentConversationService extends EventEmitter {
 
   private async continueConversation(conversation: AgentConversation) {
     try {
-      // Check API call limit
       if (this.dailyAPICallCount >= this.maxDailyAPICalls) {
-        console.log("⚠️ Daily API call limit reached, ending conversation");
+        console.error("Daily API call limit reached, ending conversation");
         await this.endConversation(conversation.id);
         return;
       }
 
-      // Get next speaker
       const lastMessage =
         conversation.messages[conversation.messages.length - 1];
       const nextSpeaker = conversation.participants.find(
@@ -953,12 +990,11 @@ export class AgentConversationService extends EventEmitter {
       );
 
       if (!nextSpeaker) {
-        console.log("No next speaker found, ending conversation");
+        console.error("No next speaker found, ending conversation");
         await this.endConversation(conversation.id);
         return;
       }
 
-      // Generate response
       const systemPrompt = `You are ${nextSpeaker.name}, a ${
         nextSpeaker.role
       } with the following personality: ${nextSpeaker.personality}.
@@ -980,7 +1016,6 @@ export class AgentConversationService extends EventEmitter {
         systemPrompt
       );
 
-      // Add message
       const message: Message = {
         id: `msg-${Date.now()}`,
         agentId: nextSpeaker.id,
@@ -990,9 +1025,10 @@ export class AgentConversationService extends EventEmitter {
         sentiment: await this.vectorStore.analyzeSentiment(response),
       };
 
-      await this.addMessage(conversation.id, message);
+      // Use new addMessageWithDelay method instead of direct addition
+      await this.addMessageWithDelay(conversation.id, message);
+      console.error(`Message count: ${conversation.messages.length}`);
 
-      // Broadcast message
       this.districtService.broadcastMessage(conversation.districtId, {
         type: "agent_message",
         data: {
@@ -1008,8 +1044,15 @@ export class AgentConversationService extends EventEmitter {
         },
       });
 
-      // Schedule next message with random delay (5-15 seconds)
-      const delay = 5000 + Math.random() * 10000;
+      // Use configured delay for next message
+      const delay =
+        Math.floor(
+          Math.random() *
+            (this.messageDelayConfig.maxDelay -
+              this.messageDelayConfig.minDelay +
+              1)
+        ) + this.messageDelayConfig.minDelay;
+
       setTimeout(() => {
         this.continueConversation(conversation).catch(console.error);
       }, delay);
@@ -1463,8 +1506,6 @@ export class AgentConversationService extends EventEmitter {
   private async generateNextMessage(
     conversation: AgentConversation
   ): Promise<Message> {
-    console.log("\n=== Generating Next Message ===");
-
     const lastMessage = conversation.messages[conversation.messages.length - 1];
     const nextSpeaker = conversation.participants.find(
       (p) => p.id !== lastMessage?.agentId
@@ -1474,25 +1515,20 @@ export class AgentConversationService extends EventEmitter {
       throw new Error("No next speaker found");
     }
 
-    console.log("Next speaker:", nextSpeaker.name);
-
     try {
-      // Check if agent can participate
       if (!this.canAgentParticipate(nextSpeaker.id)) {
-        console.log("⚠️ Agent has reached daily conversation limit");
+        console.error("Agent has reached daily conversation limit");
         await this.endConversation(conversation.id);
         throw new Error("Agent daily limit reached");
       }
 
-      // Try to get cached response first
       const cacheKey = `${conversation.topic}-${nextSpeaker.id}-${conversation.messages.length}`;
       const cachedResponse = this.getCachedMessage(cacheKey);
 
-      let response: string;
+      let response: string | undefined;
       if (cachedResponse) {
         response = cachedResponse;
       } else {
-        // Generate a more natural and specific system prompt
         const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.role}.
         Personality: ${nextSpeaker.personality}
         Location: ${conversation.location}
@@ -1508,54 +1544,46 @@ export class AgentConversationService extends EventEmitter {
         - Consider your role as ${nextSpeaker.role}
         - Reflect your personality: ${nextSpeaker.personality}`;
 
-        console.log("Calling Together API...");
+        const maxRetries = 3;
+        const retryDelay = 2000; // 2 seconds between retries
 
-        // Try up to 3 times to get a valid response
-        let attempts = 0;
-        const maxAttempts = 3;
-        let apiResponse: string | undefined;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            response = await this.togetherService.generateResponse(
+              nextSpeaker,
+              conversation.messages,
+              systemPrompt
+            );
 
-        while (attempts < maxAttempts) {
-          attempts++;
-          console.log(`Attempt ${attempts} of ${maxAttempts}`);
+            if (response?.trim()) {
+              break;
+            }
 
-          // Emit retry event before each attempt
-          if (attempts > 1) {
-            this.emit("retry", {
-              agentId: nextSpeaker.id,
-              attempt: attempts,
-              reason: "Empty or invalid response from API",
-              waitTime: 2000,
-            });
+            console.error(`Empty response on attempt ${attempt}, retrying...`);
+            if (attempt < maxRetries) {
+              await new Promise((resolve) => setTimeout(resolve, retryDelay));
+            }
+          } catch (error) {
+            console.error(`API error on attempt ${attempt}:`, error);
+            if (attempt < maxRetries) {
+              await new Promise((resolve) => setTimeout(resolve, retryDelay));
+            } else {
+              throw new Error(
+                "Failed to generate response after maximum retries"
+              );
+            }
           }
-
-          apiResponse = await this.togetherService.generateResponse(
-            nextSpeaker,
-            conversation.messages,
-            systemPrompt
-          );
-
-          if (apiResponse && apiResponse.trim()) {
-            break;
-          }
-
-          console.log(`Empty response on attempt ${attempts}, retrying...`);
-          await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds between attempts
         }
 
-        // Use the API response if valid, otherwise use fallback
-        response =
-          apiResponse?.trim() ||
-          this.generateFallbackResponse(nextSpeaker, conversation);
+        if (!response) {
+          throw new Error("Failed to generate valid response after retries");
+        }
 
-        // Cache the successful response
         this.cacheMessage(cacheKey, response);
       }
 
-      // Update agent participation
       this.updateAgentParticipation(nextSpeaker.id);
 
-      // Create message object
       const message: Message = {
         id: `msg-${Date.now()}`,
         agentId: nextSpeaker.id,
@@ -1565,29 +1593,14 @@ export class AgentConversationService extends EventEmitter {
         sentiment: await this.vectorStore.analyzeSentiment(response),
       };
 
-      // Update conversation quality
       await this.updateConversationQuality(conversation);
+      console.error(`Message count: ${conversation.messages.length + 1}`);
 
       return message;
     } catch (error) {
       console.error("Error generating message:", error);
       throw error;
     }
-  }
-
-  private generateFallbackResponse(
-    agent: Agent,
-    conversation: AgentConversation
-  ): string {
-    const responses = [
-      `I've been thinking about our ${conversation.topic} here in the district.`,
-      `It's interesting to consider how ${conversation.topic} affects our community.`,
-      `From my perspective as a ${agent.role}, ${conversation.topic} is quite important.`,
-      `Being here at ${conversation.location}, I often reflect on ${conversation.topic}.`,
-      `As someone involved in ${conversation.activity}, I find ${conversation.topic} fascinating.`,
-    ];
-
-    return responses[Math.floor(Math.random() * responses.length)];
   }
 
   private isAgentInConversation(agentId: string): boolean {
@@ -1672,10 +1685,8 @@ export class AgentConversationService extends EventEmitter {
     this.conversationQualityScores.set(conversation.id, qualityScore);
 
     if (qualityScore < this.minQualityThreshold) {
-      console.log(
-        `⚠️ Low quality conversation detected (score: ${qualityScore.toFixed(
-          2
-        )})`
+      console.error(
+        `Low quality conversation detected (score: ${qualityScore.toFixed(2)})`
       );
       await this.endConversation(conversation.id);
     }
@@ -1812,17 +1823,25 @@ export class AgentConversationService extends EventEmitter {
       return "";
     }
 
-    const systemPrompt = `You are ${agent.name}, a ${agent.role} with the following personality: ${agent.personality}.
-    A user has sent the following message: "${userMessage}"
-    
-    Generate a natural response (1-2 sentences) that fits your character.`;
-
     try {
+      // Add initial response delay
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.messageDelayConfig.responseDelay)
+      );
+
+      const systemPrompt = `You are ${agent.name}, a ${agent.role} with the following personality: ${agent.personality}.
+      A user has sent the following message: "${userMessage}"
+      
+      Generate a natural response (1-2 sentences) that fits your character.`;
+
       const response = await this.togetherService.generateResponse(
         agent,
         [], // No previous messages needed for direct response
         systemPrompt
       );
+
+      // Simulate typing time based on response length
+      await this.simulateTyping(response.length);
 
       // Broadcast the agent's response
       this.districtService.broadcastMessage(districtId, {

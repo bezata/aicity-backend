@@ -226,7 +226,8 @@ export class DistrictService extends EventEmitter {
         },
       };
 
-      await this.addDistrict(district);
+      this.districts.set(district.id, district);
+      await this.storeDistrictMetrics(district);
     }
 
     // Initialize religious and cultural sites
@@ -1253,19 +1254,13 @@ export class DistrictService extends EventEmitter {
   }
 
   public broadcastMessage(districtId: string, message: any) {
-    console.log(`\n=== Broadcasting to District ${districtId} ===`);
-    console.log("Message Type:", message.type);
-    console.log("Message Data:", JSON.stringify(message.data, null, 2));
-
     const connections = this.districtConnections.get(districtId) || [];
-    console.log("Active Connections:", connections.length);
 
     connections.forEach((ws) => {
       if (ws.readyState === 1) {
         // WebSocket.OPEN
         try {
           ws.send(JSON.stringify(message));
-          console.log("✅ Message sent successfully");
         } catch (error) {
           console.error("❌ Error sending message:", error);
         }
@@ -1273,34 +1268,24 @@ export class DistrictService extends EventEmitter {
         console.log("⚠️ WebSocket not open, state:", ws.readyState);
       }
     });
-
-    console.log("=== Broadcast Complete ===\n");
   }
 
   public addConnection(districtId: string, ws: ServerWebSocket<WebSocketData>) {
-    console.log(`🔌 Adding WebSocket connection for district ${districtId}`);
     const connections = this.districtConnections.get(districtId) || [];
     connections.push(ws);
     this.districtConnections.set(districtId, connections);
-    console.log(
-      `📊 Total connections for district ${districtId}: ${connections.length}`
-    );
   }
 
   public removeConnection(
     districtId: string,
     ws: ServerWebSocket<WebSocketData>
   ) {
-    console.log(`❌ Removing WebSocket connection for district ${districtId}`);
     const connections = this.districtConnections.get(districtId) || [];
     const index = connections.indexOf(ws);
     if (index !== -1) {
       connections.splice(index, 1);
       this.districtConnections.set(districtId, connections);
     }
-    console.log(
-      `📊 Remaining connections for district ${districtId}: ${connections.length}`
-    );
   }
 
   private async upsertDistrictToVectorStore(district: District) {
@@ -1328,8 +1313,6 @@ export class DistrictService extends EventEmitter {
   }
 
   async updateDistrictsFromData(districtsData: District[]) {
-    console.log("Updating districts from data...");
-
     for (const districtData of districtsData) {
       // Update the districts Map
       this.districts.set(districtData.id, districtData);
@@ -1341,8 +1324,60 @@ export class DistrictService extends EventEmitter {
       this.emit("districtUpdated", districtData);
     }
 
-    console.log(`Updated ${districtsData.length} districts`);
     return Array.from(this.districts.values());
+  }
+
+  private async storeDistrictMetrics(district: District) {
+    try {
+      await this.vectorStore.upsert({
+        id: `district-metrics-${district.id}`,
+        values: await this.vectorStore.createEmbedding(
+          `district ${district.id} metrics ${JSON.stringify(district.metrics)}`
+        ),
+        metadata: {
+          type: "district",
+          districtId: district.id,
+          metrics: JSON.stringify(district.metrics),
+          timestamp: Date.now(),
+        },
+      });
+    } catch (error) {
+      console.error(
+        `Failed to store metrics for district ${district.id}:`,
+        error
+      );
+    }
+  }
+
+  async updateDistrictMetrics(
+    districtId: string,
+    metrics: Partial<District["metrics"]>
+  ) {
+    const district = await this.getDistrict(districtId);
+    if (!district) {
+      throw new Error("District not found");
+    }
+
+    // Update metrics
+    district.metrics = {
+      ...district.metrics,
+      ...metrics,
+    };
+
+    // Store in map
+    this.districts.set(districtId, district);
+
+    // Store in vector store
+    await this.storeDistrictMetrics(district);
+
+    // Emit update event
+    this.emit("metricsUpdated", {
+      districtId,
+      metrics: district.metrics,
+      timestamp: Date.now(),
+    });
+
+    return district.metrics;
   }
 }
 

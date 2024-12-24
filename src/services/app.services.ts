@@ -41,6 +41,7 @@ import type { Agent } from "../types/agent.types";
 import { SocialCohesionService } from "./social-cohesion.service";
 import { AgentConversationService } from "./agent-conversation.service";
 import type { AgentConversation } from "./agent-conversation.service";
+import { ChroniclesService } from "./chronicles.service";
 
 // Define store type
 export type AppStore = {
@@ -77,6 +78,7 @@ export type AppStore = {
     agentCultureService: AgentCultureService;
     socialCohesionService: SocialCohesionService;
     agentConversationService: AgentConversationService;
+    chroniclesService: ChroniclesService;
   };
   conversations: Map<string, any[]>;
 };
@@ -85,14 +87,6 @@ export type AppStore = {
 if (!process.env.TOGETHER_API_KEY) {
   throw new Error("TOGETHER_API_KEY environment variable is not set");
 }
-// Declare services that have circular dependencies
-let weatherService: WeatherService;
-let transportService: TransportService;
-let cityRhythmService: CityRhythmService;
-let socialDynamicsService: SocialDynamicsService;
-let smartInfrastructureService: SmartInfrastructureService;
-let environmentService: EnvironmentService;
-let emergencyService: EmergencyService;
 
 // Initialize base services
 const togetherService = new TogetherService(process.env.TOGETHER_API_KEY);
@@ -127,13 +121,13 @@ const initialDistrictService = new DistrictService(
 );
 
 // Initialize infrastructure and environment services
-smartInfrastructureService = new SmartInfrastructureService(
+const smartInfrastructureService = new SmartInfrastructureService(
   vectorStore,
   metricsService,
   undefined as unknown as TransportService
 );
 
-environmentService = new EnvironmentService(
+const environmentService = new EnvironmentService(
   vectorStore,
   initialDistrictService,
   smartInfrastructureService,
@@ -151,21 +145,21 @@ const citizenService = new CitizenService(
   analyticsService
 );
 
-emergencyService = new EmergencyService(
+const emergencyService = new EmergencyService(
   vectorStore,
   departmentService,
   citizenService
 );
 
 // Initialize city rhythm and transport services
-cityRhythmService = new CityRhythmService(
+let cityRhythmService = new CityRhythmService(
   vectorStore,
   citizenService,
   undefined as unknown as TransportService,
   departmentService
 );
 
-weatherService = new WeatherService(
+const weatherService = new WeatherService(
   vectorStore,
   cityService,
   undefined as unknown as TransportService,
@@ -173,7 +167,7 @@ weatherService = new WeatherService(
   emergencyService
 );
 
-transportService = new TransportService(
+const transportService = new TransportService(
   vectorStore,
   weatherService,
   cityRhythmService,
@@ -194,7 +188,7 @@ cityRhythmService = new CityRhythmService(
 (transportService as any).cityRhythmService = cityRhythmService;
 
 // Initialize social dynamics service
-socialDynamicsService = new SocialDynamicsService(
+const socialDynamicsService = new SocialDynamicsService(
   vectorStore,
   departmentService,
   citizenService,
@@ -342,6 +336,9 @@ const conversationService = new ConversationService(
   emergencyService,
   cityEventsService
 );
+
+// Initialize chronicles service
+const chroniclesService = new ChroniclesService(togetherService);
 
 // Register city agents for autonomous conversations
 const registerCityAgents = async () => {
@@ -510,6 +507,7 @@ export function createStore(): AppStore {
       agentCultureService: agentCulture,
       socialCohesionService,
       agentConversationService,
+      chroniclesService,
     },
     conversations: new Map(),
   };

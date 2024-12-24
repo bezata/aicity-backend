@@ -679,126 +679,53 @@ export class MetricsService extends EventEmitter {
         topK: 1,
       });
 
-      if (results.matches?.length > 0) {
-        const metrics = JSON.parse(results.matches[0].metadata.metrics);
-        // Merge environmental metrics if available
-        if (environmentalMetrics) {
-          metrics.environmental = {
-            airQuality: environmentalMetrics.airQuality.aqi,
-            noiseLevel: environmentalMetrics.noiseLevel.decibels,
-            waterQuality: environmentalMetrics.waterQuality.ph,
-            greenCoverage: environmentalMetrics.greenCoverage,
-            emissions: environmentalMetrics.emissions,
-          };
+      let metrics;
+      if (results.matches?.length > 0 && results.matches[0].metadata?.metrics) {
+        try {
+          metrics = JSON.parse(results.matches[0].metadata.metrics);
+        } catch (error) {
+          console.error("Failed to parse metrics:", error);
+          metrics = this.getDefaultMetrics();
         }
-        return metrics;
+      } else {
+        console.log("No metrics found for district, using defaults");
+        metrics = this.getDefaultMetrics();
       }
 
-      // Return default metrics if none found
-      return {
-        weather: {
-          temperature: 22,
-          feelsLike: 23,
-          humidity: 65,
-          precipitation: 0,
-          windSpeed: 12,
-          windDirection: "NE",
-        },
-        environmental: environmentalMetrics
-          ? {
-              airQuality: environmentalMetrics.airQuality.aqi,
-              noiseLevel: environmentalMetrics.noiseLevel.decibels,
-              waterQuality: environmentalMetrics.waterQuality.ph,
-              greenCoverage: environmentalMetrics.greenCoverage,
-              emissions: environmentalMetrics.emissions,
-            }
-          : {
-              airQuality: 85,
-              noiseLevel: 45,
-              waterQuality: 7,
-              greenCoverage: 0.4,
-              emissions: 0.5,
-            },
-        emergency: {
-          level: "normal",
-          activeIncidents: 2,
-          responseTeamsAvailable: 8,
-        },
-        vitals: {
-          populationCount: 15234,
-          activeEntities: 12453,
-          visitorCount: 892,
-          peakHoursStatus: "Optimal",
-        },
-        community: {
-          activeEvents: 12,
-          ongoingMeetings: 5,
-          collaborationSessions: 8,
-          chatActivity: "High",
-        },
-        safety: {
-          overallScore: 95,
-          recentIncidents: 3,
-          responseTime: "2.5 min",
-          serviceAvailability: 98,
-        },
-        resources: {
-          energyConsumption: 72,
-          waterUsage: 65,
-          wasteManagement: 88,
-          efficiency: 91,
-        },
-        transport: {
-          trafficDensity: 45,
-          publicTransportLoad: 68,
-          parkingAvailable: 342,
-          avgTransitTime: 15,
-        },
-        economic: {
-          businessActivity: 82,
-          growthRate: 4.2,
-          activeTransactions: 1243,
-          marketSentiment: "Positive",
-        },
-        cultural: {
-          eventAttendance: 89,
-          culturalSiteVisits: 1205,
-          communityEngagement: 86,
-          socialCohesion: 92,
-        },
-        infrastructure: {
-          maintenanceRequests: 23,
-          serviceUptime: 99.9,
-          healthScore: 94,
-          developmentProgress: 78,
-        },
-        budget: {
-          currentStatus: 8500000,
-          monthlySpending: 750000,
-          efficiency: 92,
-          allocation: {
-            infrastructure: 35,
-            services: 25,
-            development: 20,
-            emergency: 20,
-          },
-        },
-        departments: {
-          responseTimes: 95,
-          serviceQuality: 89,
-          resourceUtilization: 86,
-          efficiency: 91,
-        },
-        donations: {
-          activeCampaigns: 5,
-          totalDonations: 2500000,
-          goalProgress: 75,
-          impactScore: 89,
-        },
-      };
+      // Merge environmental metrics if available
+      if (environmentalMetrics) {
+        metrics.environmental = {
+          airQuality: environmentalMetrics.airQuality.aqi,
+          noiseLevel: environmentalMetrics.noiseLevel.decibels,
+          waterQuality: environmentalMetrics.waterQuality.ph,
+          greenCoverage: environmentalMetrics.greenCoverage,
+        };
+      }
+
+      return metrics;
     } catch (error) {
-      console.error("Error getting current metrics:", error);
-      throw error;
+      console.error("Error fetching metrics:", error);
+      return this.getDefaultMetrics();
     }
+  }
+
+  private getDefaultMetrics() {
+    return {
+      safety: 0.7,
+      cleanliness: 0.7,
+      noise: 0.5,
+      crowding: 0.5,
+      ambiance: 0.7,
+      education: 0.7,
+      healthcare: 0.7,
+      environment: 0.7,
+      economicGrowth: 0.6,
+      environmental: {
+        airQuality: 75,
+        noiseLevel: 45,
+        waterQuality: 7.0,
+        greenCoverage: 0.3,
+      },
+    };
   }
 }

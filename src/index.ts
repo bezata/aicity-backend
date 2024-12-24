@@ -6,6 +6,7 @@ import { verifyAuth } from "./middleware/auth";
 import { ErrorResponse } from "./types/responses";
 import { agents, residentAgents } from "./config/agents";
 import { cityManagementAgents, allCityAgents } from "./config/city-agents";
+import { ServerWebSocket, Server } from "bun";
 
 // Import controllers
 import { CityRhythmController } from "./controllers/city-rhythm.controller";
@@ -19,15 +20,20 @@ import { createDistrictController } from "./controllers/district.controller";
 import { DonationController } from "./controllers/donation.controller";
 import { DistrictMetricsController } from "./controllers/district-metrics.controller";
 import { AgentCollaborationController } from "./controllers/agent-collaboration.controller";
+import { ChroniclesController } from "./controllers/chronicles.controller";
+import { CCTVController } from "./controllers/cctv.controller";
 
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
 const store = createStore();
 
 // Define WebSocket data type
-interface WebSocketData {
+export interface WebSocketData {
   createdAt: number;
   url: string;
+  eventListeners?: Map<string, (...args: any[]) => void>;
+  messageHistory: Map<string, { content: string; timestamp: number }>;
+  activeConversations: Set<string>; // Track which conversations this connection is subscribed to
 }
 
 // Initialize AI system with all agents
@@ -141,6 +147,7 @@ const apiGroup = app.group("/api", ((app: any) => {
       // Function-style controllers that take service
       .use(DonationController(store.services.donationService))
       // Pre-configured Elysia instances
+
       .use(DistrictMetricsController)
       .use(DepartmentController)
       .use(createDistrictController)
@@ -155,6 +162,8 @@ const apiGroup = app.group("/api", ((app: any) => {
           store.services.agentCultureService
         ).setup(app)
       )
+      .use((app: any) => new ChroniclesController(store).routes(app))
+      .use(CCTVController)
       .use(AgentCollaborationController)
       .group("ai", (app: any) => {
         return app
@@ -308,6 +317,127 @@ const apiGroup = app.group("/api", ((app: any) => {
 
 app.use(apiGroup as any);
 
+// Helper function to check for duplicate messages
+const isDuplicateMessage = (
+  messageHistory: Map<string, { content: string; timestamp: number }>,
+  type: string,
+  content: string
+): boolean => {
+  const key = `${type}-${content}`;
+  const lastMessage = messageHistory.get(key);
+  const now = Date.now();
+
+  if (lastMessage && now - lastMessage.timestamp < 10000) {
+    // 10 seconds
+    return true;
+  }
+
+  // Update history
+  messageHistory.set(key, { content, timestamp: now });
+
+  // Clean up old messages
+  for (const [key, msg] of messageHistory.entries()) {
+    if (now - msg.timestamp > 10000) {
+      messageHistory.delete(key);
+    }
+  }
+
+  return false;
+};
+
+// Helper function to send websocket message with duplicate check
+const sendWebSocketMessage = (
+  ws: ServerWebSocket<WebSocketData>,
+  messageHistory: Map<string, { content: string; timestamp: number }>,
+  type: string,
+  data: any
+) => {
+  const content = JSON.stringify(data);
+  if (!content || content === "{}") return; // Skip empty messages
+
+  if (isDuplicateMessage(messageHistory, type, content)) {
+    console.log(`Skipping duplicate message of type: ${type}`);
+    return;
+  }
+
+  try {
+    ws.send(
+      JSON.stringify({
+        type,
+        timestamp: Date.now(),
+        data,
+      })
+    );
+  } catch (error) {
+    console.error("Failed to send WebSocket message:", error);
+  }
+};
+
+// Helper function to send conversation history
+const sendConversationHistory = async (
+  ws: ServerWebSocket<WebSocketData>,
+  conversationId: string
+) => {
+  try {
+    const conversation = await store.services.agentConversationService
+      .getActiveConversations()
+      .then((convs) => convs.find((c) => c.id === conversationId));
+
+    if (!conversation) {
+      sendWebSocketMessage(ws, ws.data.messageHistory, "error", {
+        message: "Conversation not found",
+      });
+      return;
+    }
+
+    // Send conversation details
+    sendWebSocketMessage(ws, ws.data.messageHistory, "conversation_joined", {
+      conversationId: conversation.id,
+      topic: conversation.topic,
+      location: conversation.location,
+      activity: conversation.activity,
+      participants: conversation.participants.map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.role,
+      })),
+      messages: conversation.messages.map((m) => ({
+        content: m.content,
+        agentName: store.services.agentConversationService.getAgent(m.agentId)
+          ?.name,
+        agentRole: store.services.agentConversationService.getAgent(m.agentId)
+          ?.role,
+        timestamp: m.timestamp,
+      })),
+    });
+
+    // Add conversation to active subscriptions
+    ws.data.activeConversations.add(conversationId);
+  } catch (error) {
+    console.error("Error sending conversation history:", error);
+    sendWebSocketMessage(ws, ws.data.messageHistory, "error", {
+      message: "Failed to load conversation history",
+    });
+  }
+};
+
+// Helper function to broadcast message to all subscribers of a conversation
+const broadcastToConversation = (
+  server: Server,
+  conversationId: string,
+  type: string,
+  data: any
+) => {
+  server.publish(
+    `conversation:${conversationId}`,
+    JSON.stringify({
+      type,
+      timestamp: Date.now(),
+      data,
+    })
+  );
+};
+
 // Initialize AI system before starting the server
 initializeAISystem()
   .then(() => {
@@ -322,6 +452,11 @@ initializeAISystem()
             data: {
               createdAt: Date.now(),
               url: url.pathname,
+              messageHistory: new Map<
+                string,
+                { content: string; timestamp: number }
+              >(),
+              activeConversations: new Set(),
             },
           });
 
@@ -337,159 +472,186 @@ initializeAISystem()
         open(ws) {
           console.log(`🌟 WebSocket connected to ${ws.data.url}`);
 
-          // Subscribe to agent conversations
-          ws.subscribe("agent_conversations");
+          // Set max listeners for services to prevent warnings
+          store.services.agentConversationService.setMaxListeners(20);
+          store.services.collaborationService.setMaxListeners(20);
+          store.services.donationService.setMaxListeners(20);
 
           // Send welcome message
-          ws.send(
-            JSON.stringify({
-              type: "connected",
-              timestamp: Date.now(),
-              message:
-                "Connected to AI City Agent Conversations - Send a message to interact with agents!",
-            })
-          );
-
-          // Listen to donation reactions
-          store.services.donationService.on("donationReaction", (data) => {
-            ws.send(
-              JSON.stringify({
-                type: "donation_reaction",
-                timestamp: Date.now(),
-                data: {
-                  announcementId: data.announcementId,
-                  reaction: data.reaction,
-                  count: data.count,
-                  districtId: data.districtId,
-                },
-              })
-            );
+          sendWebSocketMessage(ws, ws.data.messageHistory, "connected", {
+            message:
+              "Connected to AI City Agent Conversations - Send a message to interact with agents!",
           });
 
+          // Store event listeners for cleanup
+          const eventListeners = new Map();
+
+          // Listen to donation reactions
+          const donationReactionListener = (data: any) => {
+            sendWebSocketMessage(
+              ws,
+              ws.data.messageHistory,
+              "donation_reaction",
+              {
+                announcementId: data.announcementId,
+                reaction: data.reaction,
+                count: data.count,
+                districtId: data.districtId,
+              }
+            );
+          };
+          store.services.donationService.on(
+            "donationReaction",
+            donationReactionListener
+          );
+          eventListeners.set("donationReaction", donationReactionListener);
+
           // Listen to agent conversation events
+          const messageAddedListener = (data: any) => {
+            if (!data.message?.content) return; // Skip empty messages
+
+            sendWebSocketMessage(
+              ws,
+              ws.data.messageHistory,
+              "agent_conversation",
+              {
+                conversationId: data.conversationId,
+                message: {
+                  content: data.message.content,
+                  agentName: store.services.agentConversationService.getAgent(
+                    data.message.agentId
+                  )?.name,
+                  agentRole: store.services.agentConversationService.getAgent(
+                    data.message.agentId
+                  )?.role,
+                  timestamp: data.message.timestamp,
+                },
+              }
+            );
+          };
           store.services.agentConversationService.on(
             "message:added",
-            (data) => {
-              ws.send(
-                JSON.stringify({
-                  type: "agent_conversation",
-                  timestamp: Date.now(),
-                  data: {
-                    conversationId: data.conversationId,
-                    message: {
-                      content: data.message.content,
-                      agentName:
-                        store.services.agentConversationService.getAgent(
-                          data.message.agentId
-                        )?.name,
-                      agentRole:
-                        store.services.agentConversationService.getAgent(
-                          data.message.agentId
-                        )?.role,
-                      timestamp: data.message.timestamp,
-                    },
-                  },
-                })
-              );
-            }
+            messageAddedListener
           );
+          eventListeners.set("message:added", messageAddedListener);
 
           // Listen to collaboration events
+          const collaborationStartedListener = (session: any) => {
+            sendWebSocketMessage(ws, ws.data.messageHistory, "system_message", {
+              content: `🚨 Emergency Collaboration Started: A group of agents is working on solving a city problem. Participating agents: ${session.agents
+                .map(
+                  (id: string) =>
+                    store.services.agentConversationService.getAgent(id)?.name
+                )
+                .join(", ")}`,
+            });
+          };
           store.services.collaborationService.on(
             "collaborationStarted",
-            (session) => {
-              ws.send(
-                JSON.stringify({
-                  type: "system_message",
-                  timestamp: Date.now(),
-                  data: {
-                    content: `🚨 Emergency Collaboration Started: A group of agents is working on solving a city problem. Participating agents: ${session.agents
-                      .map(
-                        (id: string) =>
-                          store.services.agentConversationService.getAgent(id)
-                            ?.name
-                      )
-                      .join(", ")}`,
-                  },
-                })
-              );
-            }
+            collaborationStartedListener
+          );
+          eventListeners.set(
+            "collaborationStarted",
+            collaborationStartedListener
           );
 
           // Listen to collaboration completion
+          const collaborationCompletedListener = async (data: any) => {
+            const department =
+              await store.services.departmentService.getDepartment(
+                data.departmentId
+              );
+            if (department) {
+              // Update department metrics
+              department.metrics.collaborationScore = Math.min(
+                1,
+                department.metrics.collaborationScore + 0.1
+              );
+              department.metrics.efficiency = Math.min(
+                1,
+                department.metrics.efficiency + 0.05
+              );
+
+              // Send system message about completion
+              sendWebSocketMessage(
+                ws,
+                ws.data.messageHistory,
+                "system_message",
+                {
+                  content:
+                    `✨ Collaboration Successfully Completed!\n` +
+                    `🎯 Topic: ${data.topic}\n` +
+                    `📊 Impact:\n` +
+                    `- Community Impact: ${data.impact.social * 100}%\n` +
+                    `- Economic Growth: ${data.impact.economic * 100}%\n` +
+                    `- Environmental Benefit: ${
+                      data.impact.environmental * 100
+                    }%\n` +
+                    `📈 Department Metrics:\n` +
+                    `- Collaboration Score: ${(
+                      department.metrics.collaborationScore * 100
+                    ).toFixed(1)}%\n` +
+                    `- Efficiency: ${(
+                      department.metrics.efficiency * 100
+                    ).toFixed(1)}%`,
+                }
+              );
+            }
+          };
           store.services.collaborationService.on(
             "collaborationCompleted",
-            async (data) => {
-              const department =
-                await store.services.departmentService.getDepartment(
-                  data.departmentId
-                );
-              if (department) {
-                // Update department metrics
-                department.metrics.collaborationScore = Math.min(
-                  1,
-                  department.metrics.collaborationScore + 0.1
-                );
-                department.metrics.efficiency = Math.min(
-                  1,
-                  department.metrics.efficiency + 0.05
-                );
-
-                // Send system message about completion
-                ws.send(
-                  JSON.stringify({
-                    type: "system_message",
-                    timestamp: Date.now(),
-                    data: {
-                      content:
-                        `✨ Collaboration Successfully Completed!\n` +
-                        `🎯 Topic: ${data.topic}\n` +
-                        `📊 Impact:\n` +
-                        `- Community Impact: ${data.impact.social * 100}%\n` +
-                        `- Economic Growth: ${data.impact.economic * 100}%\n` +
-                        `- Environmental Benefit: ${
-                          data.impact.environmental * 100
-                        }%\n` +
-                        `📈 Department Metrics:\n` +
-                        `- Collaboration Score: ${(
-                          department.metrics.collaborationScore * 100
-                        ).toFixed(1)}%\n` +
-                        `- Efficiency: ${(
-                          department.metrics.efficiency * 100
-                        ).toFixed(1)}%`,
-                    },
-                  })
-                );
-              }
-            }
+            collaborationCompletedListener
+          );
+          eventListeners.set(
+            "collaborationCompleted",
+            collaborationCompletedListener
           );
 
           // Listen to collaboration failures
+          const collaborationFailedListener = (data: any) => {
+            sendWebSocketMessage(ws, ws.data.messageHistory, "system_message", {
+              content:
+                `❌ Collaboration Failed\n` +
+                `📋 Topic: ${data.topic}\n` +
+                `❗ Reason: ${data.reason}\n` +
+                `🔄 Status: The department will reassess and try again with adjusted parameters.`,
+            });
+          };
           store.services.collaborationService.on(
             "collaborationFailed",
-            (data) => {
-              ws.send(
-                JSON.stringify({
-                  type: "system_message",
-                  timestamp: Date.now(),
-                  data: {
-                    content:
-                      `❌ Collaboration Failed\n` +
-                      `📋 Topic: ${data.topic}\n` +
-                      `❗ Reason: ${data.reason}\n` +
-                      `🔄 Status: The department will reassess and try again with adjusted parameters.`,
-                  },
-                })
-              );
-            }
+            collaborationFailedListener
           );
+          eventListeners.set(
+            "collaborationFailed",
+            collaborationFailedListener
+          );
+
+          // Store event listeners in WebSocket data for cleanup
+          ws.data.eventListeners = eventListeners;
         },
         message: async (ws, message) => {
           try {
             const data = JSON.parse(String(message));
             console.log("📩 Received message:", data);
 
-            if (data.type === "user_message") {
+            if (data.type === "join_conversation") {
+              console.log("👥 User joining conversation:", data.conversationId);
+              await sendConversationHistory(ws, data.conversationId);
+              // Subscribe to conversation updates
+              ws.subscribe(`conversation:${data.conversationId}`);
+            } else if (data.type === "leave_conversation") {
+              console.log("👋 User leaving conversation:", data.conversationId);
+              ws.data.activeConversations.delete(data.conversationId);
+              ws.unsubscribe(`conversation:${data.conversationId}`);
+              sendWebSocketMessage(
+                ws,
+                ws.data.messageHistory,
+                "conversation_left",
+                {
+                  conversationId: data.conversationId,
+                }
+              );
+            } else if (data.type === "user_message") {
               console.log("👤 User sent message:", data.content);
 
               // Get 2-3 random agents to respond
@@ -516,20 +678,37 @@ initializeAISystem()
                     data.content
                   );
 
-                ws.send(
-                  JSON.stringify({
-                    type: "agent_response",
-                    timestamp: Date.now(),
-                    data: {
+                // If conversation ID is provided, broadcast to that conversation
+                if (data.conversationId) {
+                  broadcastToConversation(
+                    server,
+                    data.conversationId,
+                    "agent_response",
+                    {
                       agentId: agent.id,
                       agentName: agent.name,
                       agentRole: agent.role,
                       personality: agent.personality,
                       content: response,
                       replyTo: data.content,
-                    },
-                  })
-                );
+                    }
+                  );
+                } else {
+                  // Otherwise send directly to this connection
+                  sendWebSocketMessage(
+                    ws,
+                    ws.data.messageHistory,
+                    "agent_response",
+                    {
+                      agentId: agent.id,
+                      agentName: agent.name,
+                      agentRole: agent.role,
+                      personality: agent.personality,
+                      content: response,
+                      replyTo: data.content,
+                    }
+                  );
+                }
 
                 // Add small delay between responses
                 await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -545,20 +724,42 @@ initializeAISystem()
               }
             }
           } catch (error) {
-            console.error("Error handling message:", error);
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                timestamp: Date.now(),
-                message: "Failed to process message",
-                error: (error as Error).message,
-              })
-            );
+            console.error("Error handling WebSocket message:", error);
           }
         },
         close(ws) {
           console.log(`WebSocket closed for ${ws.data.url}`);
-          ws.unsubscribe("agent_conversations");
+
+          // Unsubscribe from all conversations
+          for (const conversationId of ws.data.activeConversations) {
+            ws.unsubscribe(`conversation:${conversationId}`);
+          }
+          ws.data.activeConversations.clear();
+
+          // Clean up event listeners
+          if (ws.data.eventListeners) {
+            for (const [event, listener] of ws.data.eventListeners.entries()) {
+              if (event === "donationReaction") {
+                store.services.donationService.off(
+                  "donationReaction",
+                  listener
+                );
+              } else if (event === "message:added") {
+                store.services.agentConversationService.off(
+                  "message:added",
+                  listener
+                );
+              } else if (
+                [
+                  "collaborationStarted",
+                  "collaborationCompleted",
+                  "collaborationFailed",
+                ].includes(event)
+              ) {
+                store.services.collaborationService.off(event, listener);
+              }
+            }
+          }
         },
       },
     });

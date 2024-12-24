@@ -264,6 +264,5 @@ export class AnalyticsService extends EventEmitter {
 
   trackEvent(eventName: string, data: Record<string, any>) {
     // Implementation
-    console.log(`Analytics event: ${eventName}`, data);
   }
 }

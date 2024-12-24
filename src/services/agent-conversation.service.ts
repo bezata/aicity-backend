@@ -91,13 +91,13 @@ export class AgentConversationService extends EventEmitter {
   private agentProfiles: Map<string, AgentSocialProfile> = new Map();
   private districtActivities: Map<string, Map<string, string[]>> = new Map();
   private registeredAgents: Map<string, Agent> = new Map();
-  private readonly maxConversationDuration = 10 * 60 * 1000; // 10 minutes
+  private readonly maxConversationDuration = 20 * 60 * 1000; // 10 minutes
   private readonly messageInterval = 60000; // 1 minute between messages
-  private readonly maxConcurrentConversations = 1; // Only 1 conversation at a time
-  private readonly minConversationCooldown = 5 * 60 * 1000; // 5 minutes cooldown between conversations
+  private readonly maxConcurrentConversations = 10; // Only 1 conversation at a time
+  private readonly minConversationCooldown = 1 * 60 * 1000; // 5 minutes cooldown between conversations
   private lastConversationTime: number = 0;
   private dailyAPICallCount: number = 0;
-  private readonly maxDailyAPICalls: number = 100; // Limit daily API calls
+  private readonly maxDailyAPICalls: number = 1000; // Limit daily API calls
   private readonly conversationStartHour: number = 8; // Start conversations at 8 AM
   private readonly conversationEndHour: number = 22; // End conversations at 10 PM
   private messageCache: Map<string, { content: string; timestamp: number }> =
@@ -107,7 +107,7 @@ export class AgentConversationService extends EventEmitter {
     string,
     { count: number; lastTime: number }
   > = new Map();
-  private readonly maxDailyConversationsPerAgent = 5;
+  private readonly maxDailyConversationsPerAgent = 10000;
   private conversationTopics: string[] = [
     "district_development",
     "local_events",
@@ -116,7 +116,7 @@ export class AgentConversationService extends EventEmitter {
     "neighborhood_improvements",
   ];
   private currentTopicIndex = 0;
-  private readonly dynamicCooldownMultiplier = 1.5; // Increases cooldown when API usage is high
+  private readonly dynamicCooldownMultiplier = 0.1; // Increases cooldown when API usage is high
   private conversationQualityScores: Map<string, number> = new Map();
   private readonly minQualityThreshold = 0.6;
 

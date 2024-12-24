@@ -158,6 +158,7 @@ export class TogetherService {
 
   async generateText(prompt: string): Promise<string> {
     const maxRetries = 3;
+    const timeout = 30000; // 30 seconds timeout
     let retryCount = 0;
 
     while (retryCount < maxRetries) {
@@ -168,71 +169,91 @@ export class TogetherService {
 
         await this.waitForRateLimit();
 
-        // Add completion signal to prompt
-        const enhancedPrompt = prompt + "\nEND_OF_RESPONSE";
+        // Create a promise that rejects after timeout
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Request timeout")), timeout);
+        });
 
-        const formattedMessages = [
-          {
-            role: "system" as const,
-            content:
-              "You are a helpful AI assistant. Provide clear and concise responses. Always complete your JSON responses fully.",
-          },
-          {
-            role: "user" as const,
-            content: enhancedPrompt,
-          },
-        ];
-
-        const response = await this.client.chat.completions.create({
+        // Create the API request promise
+        const requestPromise = this.client.chat.completions.create({
           model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-          messages: formattedMessages,
+          messages: [
+            {
+              role: "system" as const,
+              content:
+                "You are a helpful AI assistant. Provide clear and concise responses. Always complete your responses fully.",
+            },
+            {
+              role: "user" as const,
+              content: prompt,
+            },
+          ],
           temperature: 0.7,
-          max_tokens: 1000, // Increased token limit
+          max_tokens: 1000,
           top_p: 0.9,
           frequency_penalty: 0.3,
           presence_penalty: 0.2,
-          stop: ["END_OF_RESPONSE"], // Stop at completion signal
         });
 
+        // Race between timeout and request
+        const response = (await Promise.race([
+          requestPromise,
+          timeoutPromise,
+        ])) as any;
+
+        // If we get here, the request completed before timeout
         console.log("\n📥 API Response:");
         console.log("Response ID:", response.id);
         console.log("Tokens used:", response.usage);
         console.log("Finish reason:", response.choices[0]?.finish_reason);
+        console.log("Raw content:", response.choices[0]?.message?.content);
+
+        // Wait a bit longer for incomplete responses
+        if (response.choices[0]?.finish_reason === "length") {
+          console.log("⚠️ Response may be incomplete, waiting longer...");
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          continue; // Retry
+        }
 
         if (!response?.choices?.[0]?.message?.content?.trim()) {
           throw new Error("Empty response from language model");
         }
 
-        const result = response.choices[0].message.content
-          .replace("END_OF_RESPONSE", "")
-          .trim();
+        const result = response.choices[0].message.content.trim();
 
         // Validate JSON if the prompt asks for JSON
         if (prompt.toLowerCase().includes("json")) {
           try {
-            JSON.parse(result); // Test if it's valid JSON
+            JSON.parse(result);
           } catch (e) {
-            throw new Error("Invalid JSON response");
+            console.log("⚠️ Invalid JSON response, retrying...");
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            continue; // Retry for invalid JSON
           }
         }
 
         console.log("✅ Generated text:", result);
         return result;
-      } catch (error) {
+      } catch (error: any) {
         console.error(`\n❌ Attempt ${retryCount + 1} failed:`, error);
-        retryCount++;
 
+        if (error?.message === "Request timeout") {
+          console.log("⏳ Request timed out, waiting before retry...");
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        } else {
+          const waitTime = 2000 * (retryCount + 1); // Linear backoff
+          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
+
+        retryCount++;
         if (retryCount === maxRetries) {
           console.log("⚠️ All retries failed, using fallback text");
           if (prompt.toLowerCase().includes("json")) {
-            return "[]"; // Return empty JSON array as fallback for JSON requests
+            return "[]";
           }
           return "I apologize, but I am unable to generate a response at the moment.";
         }
-
-        const waitTime = 1000 * Math.pow(2, retryCount);
-        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     }
 

@@ -42,11 +42,9 @@ export class TogetherService {
     systemPrompt?: string
   ): Promise<string> {
     let attempt = 1;
-    const maxAttempts = 5;
     const maxWaitTime = 30000;
-    const globalStartTime = Date.now();
 
-    while (attempt <= maxAttempts) {
+    while (true) {
       try {
         await this.waitForRateLimit();
 
@@ -55,7 +53,6 @@ export class TogetherService {
           content: string;
         };
 
-        // Format messages for the API
         const formattedMessages: ApiMessage[] = [
           {
             role: "system",
@@ -69,12 +66,10 @@ export class TogetherService {
           ),
         ];
 
-        // Create a promise that rejects after timeout
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error("Request timeout")), maxWaitTime);
         });
 
-        // Create the API request promise
         const requestPromise = this.client.chat.completions.create({
           model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
           messages: formattedMessages,
@@ -92,25 +87,19 @@ export class TogetherService {
           timeoutPromise,
         ])) as any;
 
-        // Add immediate response validation
         if (!response || typeof response !== "object") {
           throw new Error("Invalid response structure from API");
         }
-        // Validate response content
         if (!response?.choices?.[0]?.message?.content?.trim()) {
           throw new Error("Empty response from API");
         }
 
-        const result = response.choices[0].message.content.trim();
-
-        return result;
+        return response.choices[0].message.content.trim();
       } catch (error: any) {
-        attempt++;
-        const waitTime = Math.min(1000 * Math.pow(2, attempt), 10000);
-
-        new Date(Date.now() + waitTime).toISOString();
-
+        console.error(`\n❌ Attempt ${attempt} failed:`, error.message);
+        const waitTime = Math.min(1000 * Math.pow(2, attempt), 30000);
         await new Promise((resolve) => setTimeout(resolve, waitTime));
+        attempt++;
       }
     }
   }
@@ -122,6 +111,7 @@ export class TogetherService {
     while (true) {
       try {
         await this.waitForRateLimit();
+        console.log(`\n🔄 Attempt ${attempt} to generate text...`);
 
         // Create a promise that rejects after timeout
         const timeoutPromise = new Promise((_, reject) => {
@@ -155,18 +145,20 @@ export class TogetherService {
           timeoutPromise,
         ])) as any;
 
-        // Wait a bit longer for incomplete responses
+        // If response is incomplete, retry
         if (response.choices[0]?.finish_reason === "length") {
+          console.log("⚠️ Incomplete response, retrying...");
           await new Promise((resolve) => setTimeout(resolve, 5000));
           attempt++;
           continue;
         }
 
+        // If response is empty, retry
         if (!response?.choices?.[0]?.message?.content?.trim()) {
-          attempt++;
-          const waitTime = 1000 * Math.pow(2, Math.min(attempt, 10));
-
+          console.log("⚠️ Empty response, retrying...");
+          const waitTime = Math.min(1000 * Math.pow(2, attempt), 30000); // Cap at 30 seconds
           await new Promise((resolve) => setTimeout(resolve, waitTime));
+          attempt++;
           continue;
         }
 
@@ -177,21 +169,24 @@ export class TogetherService {
           try {
             JSON.parse(result);
           } catch (e) {
+            console.log("⚠️ Invalid JSON response, retrying...");
             await new Promise((resolve) => setTimeout(resolve, 2000));
             attempt++;
             continue;
           }
         }
 
+        console.log(`✅ Success on attempt ${attempt}`);
         return result;
       } catch (error: any) {
-        console.error(`\n❌ Attempt ${attempt} failed:`, error);
+        console.error(`\n❌ Attempt ${attempt} failed:`, error.message);
 
         if (error?.message === "Request timeout") {
+          console.log("⏳ Request timed out, retrying after 5 seconds...");
           await new Promise((resolve) => setTimeout(resolve, 5000));
         } else {
-          const waitTime = 2000 * attempt; // Linear backoff
-
+          const waitTime = Math.min(2000 * attempt, 30000); // Cap at 30 seconds
+          console.log(`⏳ Waiting ${waitTime / 1000} seconds before retry...`);
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         }
         attempt++;

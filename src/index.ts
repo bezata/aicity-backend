@@ -15,7 +15,7 @@ import { AIController } from "./controllers/ai.controller";
 import { AIIntegrationController } from "./controllers/ai-integration.controller";
 import { DepartmentController } from "./controllers/department.controller";
 import { createStore } from "./services/app.services";
-import { DistrictController } from "./controllers/district.controller";
+import { createDistrictController } from "./controllers/district.controller";
 import { DonationController } from "./controllers/donation.controller";
 import { DistrictMetricsController } from "./controllers/district-metrics.controller";
 
@@ -142,7 +142,7 @@ const apiGroup = app.group("/api", ((app: any) => {
       // Pre-configured Elysia instances
       .use(DistrictMetricsController)
       .use(DepartmentController)
-      .use(DistrictController)
+      .use(createDistrictController)
       .use(AIController)
       // Class-style controllers with setup method
       .use((app: any) => new AdaptiveLearningController(store).setup(app))

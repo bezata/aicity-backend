@@ -18,6 +18,7 @@ import { TogetherService } from "./together.service";
 import { VectorStoreType } from "../types/vector-store.types";
 import { AnalyticsService } from "./analytics.service";
 import { DistrictCultureService } from "./district-culture.service";
+import type { WebSocket } from "ws";
 
 export interface DistrictAnalytics {
   totalEvents: number;
@@ -62,6 +63,9 @@ export class DistrictService extends EventEmitter {
     transport: "economic",
     environmental: "environmental",
   };
+
+  // Track WebSocket connections per district
+  private districtConnections: Map<string, any[]> = new Map();
 
   constructor(
     private cityService: CityService,
@@ -1274,6 +1278,48 @@ export class DistrictService extends EventEmitter {
       hourly[hour]++;
     });
     return hourly;
+  }
+
+  public async broadcastMessage(districtId: string, message: any) {
+    const district = await this.getDistrict(districtId);
+    if (!district) return;
+
+    // Get all WebSocket connections for this district
+    const connections = this.districtConnections.get(districtId) || [];
+
+    // Broadcast to all connections
+    for (const ws of connections) {
+      try {
+        if (ws.readyState === 1) {
+          // WebSocket.OPEN
+          ws.send(
+            JSON.stringify({
+              type: "message",
+              data: message,
+            })
+          );
+        }
+      } catch (error) {
+        console.error("Error broadcasting message:", error);
+      }
+    }
+  }
+
+  // Add connection to district
+  public addConnection(districtId: string, ws: any) {
+    const connections = this.districtConnections.get(districtId) || [];
+    connections.push(ws);
+    this.districtConnections.set(districtId, connections);
+  }
+
+  // Remove connection from district
+  public removeConnection(districtId: string, ws: any) {
+    const connections = this.districtConnections.get(districtId) || [];
+    const index = connections.indexOf(ws);
+    if (index > -1) {
+      connections.splice(index, 1);
+    }
+    this.districtConnections.set(districtId, connections);
   }
 }
 

@@ -20,504 +20,257 @@ interface WebSocketContext {
   lastActivity?: number;
 }
 
-export const DistrictController = new Elysia({ prefix: "/districts" })
-  .get("/", async ({ store }) => {
-    const appStore = store as AppStore;
-    try {
-      const districts =
-        await appStore.services.districtService.getAllDistricts();
-      return { success: true, data: districts };
-    } catch (error) {
-      console.error("Failed to fetch districts:", error);
-      throw error;
-    }
-  })
-  .post(
-    "/",
-    async ({ body, store }) => {
-      const appStore = store as AppStore;
-      try {
-        const district: District = {
-          id: crypto.randomUUID(),
-          name: body.name,
-          type: body.type,
-          population: body.population,
-          density: 0,
-          economicActivity: 0,
-          boundaries: [
-            [0, 0],
-            [0, 1],
-            [1, 1],
-            [1, 0],
-          ] as Array<[number, number]>,
-          area: 0,
-          currentEvents: [],
-          transportHubs: [],
-          residentAgents: [],
-          visitorAgents: [],
-          amenities: {
-            schools: 0,
-            hospitals: 0,
-            parks: 0,
-            shops: 0,
-          },
-          metrics: {
-            education: 0.8,
-            healthcare: 0.7,
-            environment: 0.6,
-            safety: 0.8,
-            cleanliness: 0.7,
-            noise: 0.3,
-            crowding: 0.4,
-            ambiance: 0.5,
-            economicGrowth: 0.6,
-            propertyValues: 0.7,
-            businessActivity: 0.6,
-            infrastructureQuality: 0.7,
-            publicServiceAccess: 0.6,
-            transportEfficiency: 0.7,
-            culturalVibrancy: 0.8,
-            communityWellbeing: 0.7,
-            socialCohesion: 0.8,
-            energyEfficiency: 0.7,
-            greenSpaceCoverage: 0.6,
-            environmentalHealth: 0.7,
-          },
-          socialMetrics: {
-            communityEngagement: 0.7,
-            culturalDiversity: 0.8,
-            socialCohesion: 0.75,
-            publicServices: 0.7,
-            index: 0.75,
-          },
-          economicMetrics: {
-            employmentRate: 0.85,
-            averageIncome: 65000,
-            businessActivity: 0.8,
-            employment: 0.85,
-            index: 0.8,
-          },
-        };
+interface EventBody {
+  category: string;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+}
 
-        await appStore.services.districtService.addDistrict(district);
-        return { success: true, data: district };
-      } catch (error) {
-        console.error("Failed to create district:", error);
-        throw error;
-      }
-    },
-    {
-      body: t.Object({
-        name: t.String(),
-        type: t.Union([
-          t.Literal("residential"),
-          t.Literal("commercial"),
-          t.Literal("industrial"),
-          t.Literal("mixed"),
-        ]),
-        population: t.Number(),
-      }),
-    }
-  )
-  .get("/:id", async ({ params: { id }, store }) => {
-    const appStore = store as AppStore;
-    try {
-      const district = await appStore.services.districtService.getDistrict(id);
-      if (!district) throw new Error("District not found");
-      return { success: true, data: district };
-    } catch (error) {
-      console.error(`Failed to fetch district ${id}:`, error);
-      throw error;
-    }
-  })
-  .post(
-    "/:id/events",
-    async ({ params: { id }, body, store }) => {
-      const appStore = store as AppStore;
-      try {
-        // Convert the body category to match CityEventCategory
-        const eventData = {
-          ...body,
-          category: mapToCityEventCategory(body.category),
-        };
+interface TransportHub {
+  name: string;
+  type: TransportType;
+  location: {
+    lat: number;
+    lng: number;
+  };
+  capacity: number;
+}
 
-        const event =
-          await appStore.services.districtService.addEventToDistrict(
-            id,
-            eventData
-          );
-        return { success: true, data: event };
-      } catch (error) {
-        console.error(`Failed to add event to district ${id}:`, error);
-        throw error;
-      }
-    },
-    {
-      body: t.Object({
-        title: t.String(),
-        description: t.String(),
-        category: t.Union([
-          t.Literal("community"),
-          t.Literal("emergency"),
-          t.Literal("development"),
-          t.Literal("cultural"),
-          t.Literal("social"),
-          t.Literal("transport"),
-          t.Literal("environmental"),
-        ]),
-        severity: t.Number(),
-        duration: t.Number(),
-        impact: t.Object({
-          environmental: t.Number(),
-          social: t.Number(),
-          economic: t.Number(),
-        }),
-        requiredAgents: t.Array(t.String()),
-      }),
-    }
-  )
-  .get("/:id/analytics", async ({ params: { id }, store }) => {
-    const appStore = store as AppStore;
-    try {
-      const analytics =
-        await appStore.services.districtService.getDistrictAnalytics(id);
-      return { success: true, data: analytics };
-    } catch (error) {
-      console.error(`Failed to fetch analytics for district ${id}:`, error);
-      throw error;
-    }
-  })
-  .post(
-    "/:id/transport-hubs",
-    async ({ params: { id }, body, store }) => {
-      const appStore = store as AppStore;
-      try {
-        const scheduleData = {
-          weekday: generateSchedule(
-            body.schedule.startTime,
-            body.schedule.endTime,
-            body.schedule.frequency
-          ),
-          weekend: generateSchedule(
-            body.schedule.startTime,
-            body.schedule.endTime,
-            body.schedule.frequency * 1.5
-          ),
-          holidays: [],
-        };
+interface Interaction {
+  agentId: string;
+  type: string;
+  data: Record<string, any>;
+}
 
-        const hub = await appStore.services.districtService.addTransportHub(
-          id,
-          {
-            type: body.type,
-            capacity: body.capacity,
-            schedule: scheduleData,
-          }
-        );
+interface Memory {
+  content: string;
+  type: VectorStoreType;
+  metadata: Record<string, any>;
+}
 
-        return { success: true, data: hub };
-      } catch (error) {
-        console.error(`Failed to add transport hub to district ${id}:`, error);
-        throw error;
-      }
-    },
-    {
-      body: t.Object({
-        type: t.Union([
-          t.Literal("bus"),
-          t.Literal("train"),
-          t.Literal("subway"),
-        ]),
-        capacity: t.Number(),
-        schedule: t.Object({
-          frequency: t.Number(),
-          startTime: t.String(),
-          endTime: t.String(),
-        }),
-      }),
-    }
-  )
-  .get("/:id/conversations", async ({ params: { id }, store }) => {
-    const appStore = store as AppStore;
-    try {
-      // Get recent conversations in this district
-      const embedding = await appStore.services.vectorStore.createEmbedding(
-        `district ${id} conversations`
-      );
+interface InteractionBody {
+  agentId1: string;
+  agentId2: string;
+  content: string;
+}
 
-      const conversations = await appStore.services.vectorStore.query({
-        vector: embedding,
-        filter: {
-          type: { $eq: "district" as VectorStoreType },
-          districtId: { $eq: id },
-        },
-        topK: 10,
-      });
-
-      return { success: true, data: conversations.matches };
-    } catch (error) {
-      console.error(`Failed to fetch district conversations:`, error);
-      throw error;
-    }
-  })
-  .post(
-    "/:id/interactions",
-    async ({ params: { id }, body, store }) => {
-      const appStore = store as AppStore;
-      try {
-        const { agentId1, agentId2, content } = body;
-
-        // Record interaction in vector store
-        const embedding = await appStore.services.vectorStore.createEmbedding(
-          content
-        );
-
-        await appStore.services.vectorStore.upsert({
-          id: `interaction-${Date.now()}`,
-          values: embedding,
-          metadata: {
-            type: "district" as VectorStoreType,
-            districtId: id,
-            agents: [agentId1, agentId2],
-            content,
-            timestamp: Date.now(),
-          },
-        });
-
-        return { success: true };
-      } catch (error) {
-        console.error(`Failed to record interaction:`, error);
-        throw error;
-      }
-    },
-    {
-      body: t.Object({
-        agentId1: t.String(),
-        agentId2: t.String(),
-        content: t.String(),
-      }),
-    }
-  )
-  .post(
-    "/:id/memories",
-    async ({ body, params: { id }, store }) => {
-      const appStore = store as AppStore;
-      try {
-        const memory = {
-          type: body.type as
-            | "environmental"
-            | "cultural"
-            | "social"
-            | "historical",
-          description: body.description,
-          districtId: id,
-          timestamp: Date.now(),
-          emotionalImpact: body.emotionalImpact,
-          participants: body.participants,
-          culturalSignificance: body.culturalSignificance,
-          tags: body.tags,
-          location: body.coordinates
-            ? {
-                coordinates: [body.coordinates[0], body.coordinates[1]] as [
-                  number,
-                  number
-                ],
-                landmark: body.landmark,
-              }
-            : undefined,
-        };
-
-        await appStore.services.cityMemory.storeCollectiveMemory(memory);
-
-        return {
-          success: true,
-          message: "Memory stored successfully",
-          data: memory,
-        };
-      } catch (error) {
-        console.error("Failed to store memory:", error);
-        throw error;
-      }
-    },
-    {
-      body: t.Object({
-        type: t.Union([
-          t.Literal("environmental"),
-          t.Literal("cultural"),
-          t.Literal("social"),
-          t.Literal("historical"),
-        ]),
-        description: t.String(),
-        emotionalImpact: t.Number(),
-        participants: t.Array(t.String()),
-        culturalSignificance: t.Number(),
-        tags: t.Optional(t.Array(t.String())),
-        coordinates: t.Optional(t.Array(t.Number())),
-        landmark: t.Optional(t.String()),
-      }),
-    }
-  )
-  .get("/:id/memories", async ({ params: { id }, query, store }) => {
-    const appStore = store as AppStore;
-    try {
-      const memories = await appStore.services.cityMemory.getDistrictMemories(
-        id,
-        {
-          type: query.type as
-            | "environmental"
-            | "cultural"
-            | "social"
-            | "historical"
-            | undefined,
-          fromTimestamp: query.fromTimestamp
-            ? parseInt(query.fromTimestamp)
-            : undefined,
-          toTimestamp: query.toTimestamp
-            ? parseInt(query.toTimestamp)
-            : undefined,
-          minSignificance: query.minSignificance
-            ? parseFloat(query.minSignificance)
-            : undefined,
-          includedTags: query.includedTags
-            ? query.includedTags.split(",")
-            : undefined,
-          excludedTags: query.excludedTags
-            ? query.excludedTags.split(",")
-            : undefined,
+export const createDistrictController = (app: Elysia) => {
+  app.group("/districts", (app) =>
+    app
+      .get("/", async ({ store }) => {
+        const appStore = store as AppStore;
+        try {
+          const districts =
+            await appStore.services.districtService.getAllDistricts();
+          return { success: true, data: districts };
+        } catch (error: any) {
+          throw error;
         }
-      );
-      return { success: true, data: memories };
-    } catch (error) {
-      console.error(`Failed to fetch memories for district ${id}:`, error);
-      throw error;
-    }
-  })
-  .ws("/:id/ws", {
-    body: t.Object({
-      type: t.Union([
-        t.Literal("join"),
-        t.Literal("leave"),
-        t.Literal("message"),
-        t.Literal("activity"),
-      ]),
-      agentId: t.String(),
-      content: t.Optional(t.String()),
-      location: t.Optional(t.String()),
-      activity: t.Optional(t.String()),
-    }),
-
-    beforeHandle: ({ body }) => {
-      if (body.type === "message" && (!body.content || !body.location)) {
-        throw new Error("Missing required message data");
-      }
-      if (body.type === "activity" && (!body.location || !body.activity)) {
-        throw new Error("Missing required activity data");
-      }
-    },
-
-    open(ws) {
-      console.log("District conversation WebSocket connected");
-      const districtId = ws.data.params.id;
-      console.log("Connected to district:", districtId);
-      ws.subscribe(districtId);
-    },
-
-    message(ws, message) {
-      try {
-        const appStore = ws.data.store as AppStore;
-        const districtId = ws.data.params.id;
-        const data = message;
-
-        console.log("Received message:", data);
-
-        switch (data.type) {
-          case "join":
-            appStore.services.districtService.recordAgentVisit(
+      })
+      .get("/:districtId", async ({ params: { districtId }, store }) => {
+        const appStore = store as AppStore;
+        try {
+          const district = await appStore.services.districtService.getDistrict(
+            districtId
+          );
+          return { success: true, data: district };
+        } catch (error: any) {
+          throw error;
+        }
+      })
+      .post(
+        "/:districtId/events",
+        async ({ params: { districtId }, body, store }) => {
+          const appStore = store as AppStore;
+          const eventBody = body as EventBody;
+          try {
+            const event =
+              await appStore.services.districtService.addEventToDistrict(
+                districtId,
+                {
+                  ...eventBody,
+                  category: mapToCityEventCategory(eventBody.category),
+                }
+              );
+            return { success: true, data: event };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .get(
+        "/:districtId/analytics",
+        async ({ params: { districtId }, store }) => {
+          const appStore = store as AppStore;
+          try {
+            const analytics =
+              await appStore.services.districtService.getDistrictAnalytics(
+                districtId
+              );
+            return { success: true, data: analytics };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .post(
+        "/:districtId/transport-hubs",
+        async ({ params: { districtId }, body, store }) => {
+          const appStore = store as AppStore;
+          const hubBody = body as TransportHub;
+          try {
+            const hub = await appStore.services.districtService.addTransportHub(
               districtId,
-              data.agentId
+              hubBody
             );
-            ws.publish(
-              districtId,
-              JSON.stringify({
-                type: "agent_joined",
+            return { success: true, data: hub };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .get(
+        "/:districtId/conversations",
+        async ({ params: { districtId }, store }) => {
+          const appStore = store as AppStore;
+          try {
+            const conversations =
+              await appStore.services.districtService.getDistrictConversations(
+                districtId
+              );
+            return { success: true, data: conversations };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .post(
+        "/:districtId/interactions",
+        async ({ body, params: { districtId }, store }) => {
+          const appStore = store as AppStore;
+          const { agentId1, agentId2, content } = body as InteractionBody;
+          try {
+            const interaction =
+              await appStore.services.collaborationService.recordAgentInteraction(
+                agentId1,
+                agentId2,
+                content
+              );
+            return { success: true, data: interaction };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .post(
+        "/:districtId/memories",
+        async ({ body, params: { districtId }, store }) => {
+          const appStore = store as AppStore;
+          const memoryBody = body as Memory;
+          try {
+            const memory =
+              await appStore.services.cityMemory.storeCollectiveMemory({
+                type: memoryBody.type as any,
+                description: memoryBody.content,
+                districtId,
+                timestamp: Date.now(),
+                emotionalImpact: 0.7,
+                participants: [],
+                culturalSignificance: 0.7,
+              });
+            return { success: true, data: memory };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .get(
+        "/:districtId/memories",
+        async ({ params: { districtId }, query, store }) => {
+          const appStore = store as AppStore;
+          try {
+            const memories =
+              await appStore.services.cityMemory.getDistrictMemories(
+                districtId,
+                {
+                  type: query.type as any,
+                }
+              );
+            return { success: true, data: memories };
+          } catch (error: any) {
+            throw error;
+          }
+        }
+      )
+      .ws("/:districtId/ws", {
+        open: (ws) => {
+          const districtId = ws.data.params.districtId;
+          const store = ws.data.store as AppStore;
+          store.services.districtService.addConnection(districtId, ws);
+          console.log(`WebSocket opened for district ${districtId}`);
+        },
+        message: (ws, message) => {
+          const districtId = ws.data.params.districtId;
+          const store = ws.data.store as AppStore;
+          const data = JSON.parse(message as string);
+
+          // Handle different message types
+          switch (data.type) {
+            case "join":
+              console.log(
+                `Agent ${data.agentId} joined district ${districtId}`
+              );
+              store.services.districtService.broadcastMessage(districtId, {
+                type: "join",
                 agentId: data.agentId,
                 timestamp: Date.now(),
-              })
-            );
-            break;
+              });
+              break;
 
-          case "leave":
-            ws.publish(
-              districtId,
-              JSON.stringify({
-                type: "agent_left",
+            case "leave":
+              console.log(`Agent ${data.agentId} left district ${districtId}`);
+              store.services.districtService.broadcastMessage(districtId, {
+                type: "leave",
                 agentId: data.agentId,
                 timestamp: Date.now(),
-              })
-            );
-            break;
+              });
+              break;
 
-          case "message":
-            appStore.services.districtService.trackConversation(districtId, {
-              id: `msg-${Date.now()}`,
-              participants: [data.agentId],
-              location: data.location!,
-              topic: data.content!.substring(0, 50),
-              startTime: Date.now(),
-              sentiment: 0.5,
-              activity: data.activity || "chatting",
-            });
-
-            ws.publish(
-              districtId,
-              JSON.stringify({
+            case "message":
+              console.log(`Message in district ${districtId}: ${data.content}`);
+              store.services.districtService.broadcastMessage(districtId, {
                 type: "message",
                 agentId: data.agentId,
                 content: data.content,
-                location: data.location,
-                activity: data.activity,
                 timestamp: Date.now(),
-              })
-            );
-            break;
+              });
+              break;
 
-          case "activity":
-            ws.publish(
-              districtId,
-              JSON.stringify({
-                type: "activity_update",
+            case "activity":
+              console.log(`Activity update in district ${districtId}`);
+              store.services.districtService.broadcastMessage(districtId, {
+                type: "activity",
                 agentId: data.agentId,
                 activity: data.activity,
-                location: data.location,
                 timestamp: Date.now(),
-              })
-            );
-            break;
-        }
-      } catch (error) {
-        console.error("Error handling district WebSocket message:", error);
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Failed to process message",
-          })
-        );
-      }
-    },
+              });
+              break;
+          }
+        },
+        close: (ws) => {
+          const districtId = ws.data.params.districtId;
+          const store = ws.data.store as AppStore;
+          store.services.districtService.removeConnection(districtId, ws);
+          console.log(`WebSocket closed for district ${districtId}`);
+        },
+      })
+  );
 
-    close(ws) {
-      const districtId = ws.data.params.id;
-      ws.unsubscribe(districtId);
-      console.log("District conversation WebSocket closed");
-    },
-  })
-  .onError(({ code, error }) => {
-    return {
-      success: false,
-      error: error.message,
-      code,
-    };
-  });
+  return app;
+};
 
 function generateSchedule(
   startTime: string,

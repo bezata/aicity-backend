@@ -2,14 +2,14 @@ import { Elysia, t } from "elysia";
 import type { AppStore } from "../services/app.services";
 
 export const DistrictMetricsController = new Elysia({
-  prefix: "/districts/:id",
+  prefix: "/districts/:districtId",
 })
   // Weather metrics
-  .get("/weather/current", async ({ params: { id }, store }) => {
+  .get("/weather/current", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         temperature: metrics?.weather?.temperature || 22,
@@ -30,11 +30,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Emergency metrics
-  .get("/emergency", async ({ params: { id }, store }) => {
+  .get("/emergency", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         level: metrics?.emergency?.level || "normal",
@@ -51,11 +51,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Vitals metrics
-  .get("/vitals", async ({ params: { id }, store }) => {
+  .get("/vitals", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         populationCount: metrics?.vitals?.populationCount || 15234,
@@ -73,11 +73,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Environmental metrics
-  .get("/metrics/environmental", async ({ params: { id }, store }) => {
+  .get("/metrics/environmental", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         airQuality: metrics?.environmental?.airQuality || 92,
@@ -95,11 +95,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Community activity metrics
-  .get("/activity", async ({ params: { id }, store }) => {
+  .get("/activity", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         activeEvents: metrics?.community?.activeEvents || 12,
@@ -117,11 +117,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Safety metrics
-  .get("/metrics/safety", async ({ params: { id }, store }) => {
+  .get("/metrics/safety", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         overallScore: metrics?.safety?.overallScore || 95,
@@ -139,11 +139,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Resource metrics
-  .get("/resources", async ({ params: { id }, store }) => {
+  .get("/resources", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         energyConsumption: metrics?.resources?.energyConsumption || 72,
@@ -161,11 +161,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Transport metrics
-  .get("/transport", async ({ params: { id }, store }) => {
+  .get("/transport", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         trafficDensity: metrics?.transport?.trafficDensity || 45,
@@ -183,11 +183,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Economic metrics
-  .get("/metrics/economic", async ({ params: { id }, store }) => {
+  .get("/metrics/economic", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         businessActivity: metrics?.economic?.businessActivity || 82,
@@ -205,11 +205,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Cultural metrics
-  .get("/metrics/cultural", async ({ params: { id }, store }) => {
+  .get("/metrics/cultural", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         eventAttendance: metrics?.cultural?.eventAttendance || 89,
@@ -227,11 +227,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Infrastructure metrics
-  .get("/infrastructure", async ({ params: { id }, store }) => {
+  .get("/infrastructure", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         maintenanceRequests: metrics?.infrastructure?.maintenanceRequests || 23,
@@ -249,11 +249,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Budget metrics
-  .get("/budget", async ({ params: { id }, store }) => {
+  .get("/budget", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         currentStatus: metrics?.budget?.currentStatus || 8500000,
@@ -276,11 +276,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Department metrics
-  .get("/departments", async ({ params: { id }, store }) => {
+  .get("/departments", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         responseTimes: metrics?.departments?.responseTimes || 95,
@@ -298,11 +298,11 @@ export const DistrictMetricsController = new Elysia({
   })
 
   // Donation metrics
-  .get("/donations", async ({ params: { id }, store }) => {
+  .get("/donations", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         activeCampaigns: metrics?.donations?.activeCampaigns || 5,
@@ -333,7 +333,7 @@ export const DistrictMetricsController = new Elysia({
           ws.close();
           return;
         }
-        const districtId = ws.data.params.id;
+        const districtId = ws.data.params.districtId;
         console.log(`WebSocket connection opened for district: ${districtId}`);
 
         // Use the DistrictWebSocketService to handle the connection
@@ -366,16 +366,16 @@ export const DistrictMetricsController = new Elysia({
 
     // Add close handler
     close(ws) {
-      const districtId = ws.data.params.id;
+      const districtId = ws.data.params.districtId;
       console.log(`WebSocket connection closed for district: ${districtId}`);
     },
   })
 
-  .get("/metrics", async ({ params: { id }, store }) => {
+  .get("/metrics", async ({ params: { districtId }, store }) => {
     const appStore = store as AppStore;
     try {
       const metrics = await appStore.services.metricsService.getCurrentMetrics(
-        id
+        districtId
       );
       return {
         success: true,

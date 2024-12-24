@@ -630,7 +630,7 @@ export class AgentConversationService extends EventEmitter {
     this.activeConversations.set(conversation.id, conversation);
     await this.addInitialMessage(conversation);
 
-    // Track conversation in district
+    // Track conversation in district and broadcast via WebSocket
     await this.districtService.trackConversation(context.districtId, {
       id: conversation.id,
       participants: agents,
@@ -640,6 +640,27 @@ export class AgentConversationService extends EventEmitter {
       sentiment: conversation.sentiment,
       activity: conversation.activity,
     });
+
+    // Start periodic conversation updates
+    this.scheduleConversationUpdates(conversation.id);
+  }
+
+  private scheduleConversationUpdates(conversationId: string) {
+    const updateInterval = setInterval(async () => {
+      const conversation = this.activeConversations.get(conversationId);
+      if (!conversation || conversation.status !== "active") {
+        clearInterval(updateInterval);
+        return;
+      }
+
+      await this.continueConversation(conversation);
+    }, 10000); // Generate new message every 10 seconds
+
+    // Clear interval after 5 minutes
+    setTimeout(() => {
+      clearInterval(updateInterval);
+      this.endConversation(conversationId);
+    }, 5 * 60 * 1000);
   }
 
   private async addInitialMessage(conversation: AgentConversation) {
@@ -732,19 +753,48 @@ export class AgentConversationService extends EventEmitter {
 
     if (!nextSpeaker) return;
 
-    // Generate contextual response
-    const response = await this.generateContextualResponse(
-      nextSpeaker,
-      conversation
-    );
+    try {
+      // Generate contextual response
+      const response = await this.generateContextualResponse(
+        nextSpeaker,
+        conversation
+      );
 
-    await this.addMessage(conversation.id, {
-      id: `msg-${Date.now()}`,
-      agentId: nextSpeaker.id,
-      content: response,
-      timestamp: Date.now(),
-      role: "assistant",
-    });
+      // Add personality traits to response
+      const personalizedResponse = this.addPersonalityToResponse(
+        response,
+        nextSpeaker
+      );
+
+      const message: Message = {
+        id: `msg-${Date.now()}`,
+        agentId: nextSpeaker.id,
+        content: personalizedResponse,
+        timestamp: Date.now(),
+        role: "assistant",
+        sentiment: 0.7,
+      };
+
+      // Add message to conversation
+      conversation.messages.push(message);
+      conversation.lastUpdateTime = Date.now();
+
+      // Broadcast via district service
+      await this.districtService.broadcastMessage(conversation.districtId, {
+        type: "message",
+        conversationId: conversation.id,
+        message,
+        location: conversation.location,
+        activity: conversation.activity,
+      });
+
+      // Update conversation sentiment
+      conversation.sentiment = this.calculateConversationSentiment(
+        conversation.messages
+      );
+    } catch (error) {
+      console.error("Error continuing conversation:", error);
+    }
   }
   private generateHistoricalResponse(
     agent: Agent,
@@ -1056,7 +1106,7 @@ export class AgentConversationService extends EventEmitter {
 
     // Update sentiment
     conversation.sentiment = await this.calculateConversationSentiment(
-      conversation
+      conversation.messages
     );
 
     this.emit("message:added", { conversationId, message });
@@ -1130,13 +1180,17 @@ export class AgentConversationService extends EventEmitter {
     ).response;
   }
 
-  private async calculateConversationSentiment(
-    conversation: AgentConversation
-  ): Promise<number> {
-    if (conversation.messages.length === 0) return 0.5;
+  private calculateConversationSentiment(messages: Message[]): number {
+    if (messages.length === 0) return 0.5;
 
-    const recentMessages = conversation.messages.slice(-3);
-    const sentiments = recentMessages.map((m) => m.sentiment || 0.5);
-    return sentiments.reduce((a, b) => a + b, 0) / sentiments.length;
+    // Calculate average sentiment from messages that have sentiment
+    const sentiments = messages
+      .map((m) => m.sentiment)
+      .filter((s): s is number => typeof s === "number");
+
+    if (sentiments.length === 0) return 0.5;
+
+    const sum = sentiments.reduce((acc, val) => acc + val, 0);
+    return sum / sentiments.length;
   }
 }

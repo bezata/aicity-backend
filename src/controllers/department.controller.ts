@@ -306,4 +306,107 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
       departmentName: department.name,
       performanceHistory: history,
     };
+  })
+  .get("/:id/events", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+    const events =
+      await appStore.services.departmentService.getDepartmentEvents(id);
+    return events;
+  })
+  .post(
+    "/:id/events",
+    async ({ params: { id }, body, store }) => {
+      const appStore = store as AppStore;
+      return await appStore.services.departmentService.createDepartmentEvent(
+        id,
+        {
+          type: body.type,
+          title: body.title,
+          description: body.description,
+          requiredBudget: body.requiredBudget,
+          departmentId: id,
+          districtId: body.districtId,
+          participants: body.participants,
+          startDate: Date.now(),
+        }
+      );
+    },
+    {
+      body: t.Object({
+        type: t.Union([
+          t.Literal("infrastructure"),
+          t.Literal("cultural"),
+          t.Literal("educational"),
+          t.Literal("environmental"),
+          t.Literal("social"),
+        ]),
+        title: t.String(),
+        description: t.String(),
+        requiredBudget: t.Number(),
+        districtId: t.String(),
+        participants: t.Array(t.String()),
+      }),
+    }
+  )
+  .post(
+    "/:id/events/:eventId/donate",
+    async ({ params: { id, eventId }, body, store }) => {
+      const appStore = store as AppStore;
+
+      // First process the donation through department
+      await appStore.services.departmentService.addDonation(id, {
+        id: crypto.randomUUID(),
+        amount: body.amount,
+        donorId: body.donorId,
+        message: body.message,
+        timestamp: Date.now(),
+        transactionHash: body.transactionHash,
+      });
+
+      // Then update the event progress
+      await appStore.services.departmentService.updateEventProgress(eventId, {
+        id: crypto.randomUUID(),
+        amount: body.amount,
+        donorId: body.donorId || "anonymous",
+        message: body.message || "",
+        timestamp: Date.now(),
+        transactionHash: body.transactionHash || "",
+      });
+
+      return { success: true };
+    },
+    {
+      body: t.Object({
+        amount: t.Number(),
+        donorId: t.Optional(t.String()),
+        message: t.Optional(t.String()),
+        transactionHash: t.Optional(t.String()),
+      }),
+    }
+  )
+  .ws("/events/subscribe", {
+    open(ws: any) {
+      const appStore = ws.data.store as AppStore;
+      const departmentService = appStore.services.departmentService;
+
+      // Listen for event updates
+      departmentService.on("eventCreated", (data) => {
+        ws.send({ type: "event_created", data });
+      });
+
+      departmentService.on("eventProgressUpdated", (data) => {
+        ws.send({ type: "event_progress", data });
+      });
+
+      departmentService.on("eventStarted", (data) => {
+        ws.send({ type: "event_started", data });
+      });
+
+      departmentService.on("departmentMetricsUpdated", (data) => {
+        ws.send({ type: "metrics_updated", data });
+      });
+    },
+    message(ws, message) {
+      // Handle any incoming messages if needed
+    },
   });

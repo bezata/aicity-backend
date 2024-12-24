@@ -18,6 +18,7 @@ import { createStore } from "./services/app.services";
 import { createDistrictController } from "./controllers/district.controller";
 import { DonationController } from "./controllers/donation.controller";
 import { DistrictMetricsController } from "./controllers/district-metrics.controller";
+import { AgentCollaborationController } from "./controllers/agent-collaboration.controller";
 
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
@@ -154,6 +155,7 @@ const apiGroup = app.group("/api", ((app: any) => {
           store.services.agentCultureService
         ).setup(app)
       )
+      .use(AgentCollaborationController)
       .group("ai", (app: any) => {
         return app
           .post(
@@ -408,6 +410,74 @@ initializeAISystem()
                             ?.name
                       )
                       .join(", ")}`,
+                  },
+                })
+              );
+            }
+          );
+
+          // Listen to collaboration completion
+          store.services.collaborationService.on(
+            "collaborationCompleted",
+            async (data) => {
+              const department =
+                await store.services.departmentService.getDepartment(
+                  data.departmentId
+                );
+              if (department) {
+                // Update department metrics
+                department.metrics.collaborationScore = Math.min(
+                  1,
+                  department.metrics.collaborationScore + 0.1
+                );
+                department.metrics.efficiency = Math.min(
+                  1,
+                  department.metrics.efficiency + 0.05
+                );
+
+                // Send system message about completion
+                ws.send(
+                  JSON.stringify({
+                    type: "system_message",
+                    timestamp: Date.now(),
+                    data: {
+                      content:
+                        `✨ Collaboration Successfully Completed!\n` +
+                        `🎯 Topic: ${data.topic}\n` +
+                        `📊 Impact:\n` +
+                        `- Community Impact: ${data.impact.social * 100}%\n` +
+                        `- Economic Growth: ${data.impact.economic * 100}%\n` +
+                        `- Environmental Benefit: ${
+                          data.impact.environmental * 100
+                        }%\n` +
+                        `📈 Department Metrics:\n` +
+                        `- Collaboration Score: ${(
+                          department.metrics.collaborationScore * 100
+                        ).toFixed(1)}%\n` +
+                        `- Efficiency: ${(
+                          department.metrics.efficiency * 100
+                        ).toFixed(1)}%`,
+                    },
+                  })
+                );
+              }
+            }
+          );
+
+          // Listen to collaboration failures
+          store.services.collaborationService.on(
+            "collaborationFailed",
+            (data) => {
+              ws.send(
+                JSON.stringify({
+                  type: "system_message",
+                  timestamp: Date.now(),
+                  data: {
+                    content:
+                      `❌ Collaboration Failed\n` +
+                      `📋 Topic: ${data.topic}\n` +
+                      `❗ Reason: ${data.reason}\n` +
+                      `🔄 Status: The department will reassess and try again with adjusted parameters.`,
                   },
                 })
               );

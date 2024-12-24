@@ -25,6 +25,8 @@ export interface CityEvent {
     environmental: number;
     cultural?: number;
   };
+  status: "pending" | "in_progress" | "completed" | "failed";
+  timestamp: number;
 }
 
 export interface TransportEvent {

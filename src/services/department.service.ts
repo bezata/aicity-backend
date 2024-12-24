@@ -21,9 +21,36 @@ export interface DepartmentActivity {
   [key: string]: any;
 }
 
+// Add new interface for department events
+interface DepartmentEvent {
+  id: string;
+  type:
+    | "infrastructure"
+    | "cultural"
+    | "educational"
+    | "environmental"
+    | "social";
+  title: string;
+  description: string;
+  requiredBudget: number;
+  currentBudget: number;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  departmentId: string;
+  districtId: string;
+  participants: string[];
+  startDate: number;
+  endDate?: number;
+  metrics: {
+    communityImpact: number;
+    progress: number;
+    participation: number;
+  };
+}
+
 export class DepartmentService extends EventEmitter {
   private departments: Map<string, Department> = new Map();
   private departmentAgents: Map<string, DepartmentAgent[]> = new Map();
+  private departmentEvents: Map<string, DepartmentEvent[]> = new Map();
   private healthUpdateInterval!: NodeJS.Timer;
 
   constructor(
@@ -36,6 +63,7 @@ export class DepartmentService extends EventEmitter {
     this.initializeHealthMonitoring();
     this.initializePerformanceMonitoring();
     this.initializeDefaultDepartments();
+    this.initializeDefaultEvents();
   }
 
   private initializeHealthMonitoring() {
@@ -956,5 +984,354 @@ export class DepartmentService extends EventEmitter {
         };
       }
     }
+  }
+
+  async initiateCollaboration(
+    departmentId: string,
+    collaborationData: {
+      type: string;
+      description: string;
+      requiredBudget: number;
+      participants: string[];
+    }
+  ): Promise<boolean> {
+    const department = await this.getDepartment(departmentId);
+    if (!department) throw new Error("Department not found");
+
+    // Check if department has enough available budget
+    const availableBudget = department.budget.total - department.budget.spent;
+    if (availableBudget < collaborationData.requiredBudget) {
+      // Emit event about insufficient funds
+      this.emit("collaborationFailed", {
+        departmentId,
+        reason: "insufficient_budget",
+        required: collaborationData.requiredBudget,
+        available: availableBudget,
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+
+    // Create collaboration expense
+    await this.addExpense(departmentId, {
+      id: crypto.randomUUID(),
+      amount: collaborationData.requiredBudget,
+      category: "operations",
+      description: collaborationData.description,
+      timestamp: Date.now(),
+      approvedBy: "system",
+    });
+
+    // Emit collaboration started event
+    this.emit("collaborationStarted", {
+      departmentId,
+      type: collaborationData.type,
+      participants: collaborationData.participants,
+      budget: collaborationData.requiredBudget,
+      timestamp: Date.now(),
+    });
+
+    return true;
+  }
+
+  async createDepartmentEvent(
+    departmentId: string,
+    eventData: Omit<
+      DepartmentEvent,
+      "id" | "status" | "currentBudget" | "metrics"
+    >
+  ): Promise<DepartmentEvent> {
+    const department = await this.getDepartment(departmentId);
+    if (!department) throw new Error("Department not found");
+
+    const event: DepartmentEvent = {
+      id: crypto.randomUUID(),
+      ...eventData,
+      status: "pending",
+      currentBudget: 0,
+      metrics: {
+        communityImpact: 0,
+        progress: 0,
+        participation: 0,
+      },
+    };
+
+    const events = this.departmentEvents.get(departmentId) || [];
+    events.push(event);
+    this.departmentEvents.set(departmentId, events);
+
+    // Emit event creation
+    this.emit("eventCreated", {
+      departmentId,
+      event,
+      timestamp: Date.now(),
+    });
+
+    return event;
+  }
+
+  async updateEventProgress(
+    eventId: string,
+    donation: Donation
+  ): Promise<void> {
+    for (const [departmentId, events] of this.departmentEvents) {
+      const event = events.find((e) => e.id === eventId);
+      if (event) {
+        event.currentBudget += donation.amount;
+
+        // Update progress
+        event.metrics.progress = Math.min(
+          1,
+          event.currentBudget / event.requiredBudget
+        );
+
+        // If enough budget is collected, mark as in progress or complete
+        if (event.currentBudget >= event.requiredBudget) {
+          event.status = "in_progress";
+
+          // Start the event activities
+          await this.startEventActivities(event);
+        }
+
+        // Update event in the map
+        this.departmentEvents.set(departmentId, events);
+
+        // Emit progress update
+        this.emit("eventProgressUpdated", {
+          departmentId,
+          eventId,
+          currentBudget: event.currentBudget,
+          progress: event.metrics.progress,
+          status: event.status,
+          timestamp: Date.now(),
+        });
+
+        break;
+      }
+    }
+  }
+
+  private async startEventActivities(event: DepartmentEvent): Promise<void> {
+    // Get participating agents
+    const agents = await this.getDepartmentAgents(event.departmentId);
+    const participants = agents.filter((a) =>
+      event.participants.includes(a.id)
+    );
+
+    // Boost agent moods and motivation more significantly
+    for (const agent of participants) {
+      agent.mood.enthusiasm = Math.min(1, agent.mood.enthusiasm + 0.3);
+      agent.mood.satisfaction = Math.min(1, agent.mood.satisfaction + 0.25);
+      agent.health.motivation = Math.min(1, agent.health.motivation + 0.2);
+      agent.health.energy = Math.min(1, agent.health.energy + 0.15);
+      agent.performance.efficiency = Math.min(
+        1,
+        agent.performance.efficiency + 0.1
+      );
+    }
+
+    // Update department metrics based on event type with enhanced impacts
+    const department = await this.getDepartment(event.departmentId);
+    if (department) {
+      switch (event.type) {
+        case "infrastructure":
+          department.metrics.efficiency += 0.08;
+          department.metrics.responseTime -= 0.05;
+          department.metrics.successRate += 0.03;
+          break;
+        case "cultural":
+          department.metrics.collaborationScore += 0.08;
+          department.metrics.successRate += 0.04;
+          department.metrics.efficiency += 0.02;
+          break;
+        case "educational":
+          department.metrics.successRate += 0.08;
+          department.metrics.collaborationScore += 0.05;
+          department.metrics.efficiency += 0.04;
+          break;
+        case "environmental":
+          department.metrics.efficiency += 0.06;
+          department.metrics.collaborationScore += 0.06;
+          department.metrics.successRate += 0.04;
+          break;
+        case "social":
+          department.metrics.collaborationScore += 0.08;
+          department.metrics.responseTime -= 0.04;
+          department.metrics.successRate += 0.05;
+          break;
+      }
+
+      // Normalize metrics
+      department.metrics = Object.fromEntries(
+        Object.entries(department.metrics).map(([key, value]) => [
+          key,
+          Math.min(1, Math.max(0, value)),
+        ])
+      ) as typeof department.metrics;
+
+      // Update department in the map
+      this.departments.set(event.departmentId, department);
+
+      // Emit metrics update
+      this.emit("departmentMetricsUpdated", {
+        departmentId: event.departmentId,
+        metrics: department.metrics,
+        eventType: event.type,
+        timestamp: Date.now(),
+      });
+    }
+
+    // Emit event started with more details
+    this.emit("eventStarted", {
+      departmentId: event.departmentId,
+      event,
+      participants: participants.map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.role,
+        performance: p.performance,
+      })),
+      expectedImpact: {
+        communityWellbeing: 0.1,
+        departmentEfficiency: 0.08,
+        agentMotivation: 0.2,
+      },
+      timestamp: Date.now(),
+    });
+  }
+
+  private async initializeDefaultEvents() {
+    const defaultEvents: Omit<
+      DepartmentEvent,
+      "id" | "status" | "currentBudget" | "metrics"
+    >[] = [
+      // Infrastructure Events
+      {
+        type: "infrastructure",
+        title: "Smart Traffic System Implementation",
+        description:
+          "Implement AI-powered traffic management system to reduce congestion and improve traffic flow",
+        requiredBudget: 500000,
+        departmentId: "transportation-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+      {
+        type: "infrastructure",
+        title: "Emergency Response Center Upgrade",
+        description:
+          "Modernize emergency response center with advanced communication systems",
+        requiredBudget: 750000,
+        departmentId: "emergency-response-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+
+      // Cultural Events
+      {
+        type: "cultural",
+        title: "Community Arts Festival",
+        description:
+          "Organize a district-wide arts and culture festival celebrating local talent",
+        requiredBudget: 150000,
+        departmentId: "social-services-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+      {
+        type: "cultural",
+        title: "Heritage Preservation Project",
+        description:
+          "Restore and preserve historical landmarks in the district",
+        requiredBudget: 300000,
+        departmentId: "urban-planning-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+
+      // Environmental Events
+      {
+        type: "environmental",
+        title: "Green Energy Initiative",
+        description:
+          "Install solar panels in public buildings and implement smart grid solutions",
+        requiredBudget: 300000,
+        departmentId: "environmental-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+      {
+        type: "environmental",
+        title: "Urban Forest Development",
+        description:
+          "Create new green spaces and plant trees throughout the district",
+        requiredBudget: 200000,
+        departmentId: "environmental-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+
+      // Educational Events
+      {
+        type: "educational",
+        title: "Digital Learning Centers",
+        description:
+          "Establish community digital learning centers with free internet access",
+        requiredBudget: 400000,
+        departmentId: "education-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+      {
+        type: "educational",
+        title: "Youth Innovation Program",
+        description:
+          "Launch a program to teach coding and entrepreneurship to young residents",
+        requiredBudget: 250000,
+        departmentId: "education-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+
+      // Social Events
+      {
+        type: "social",
+        title: "Community Health Initiative",
+        description:
+          "Provide free health screenings and wellness programs for residents",
+        requiredBudget: 350000,
+        departmentId: "healthcare-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+      {
+        type: "social",
+        title: "Senior Care Program",
+        description:
+          "Establish support services and social activities for elderly residents",
+        requiredBudget: 280000,
+        departmentId: "social-services-dept",
+        districtId: "central-district",
+        participants: [],
+        startDate: Date.now(),
+      },
+    ];
+
+    for (const eventData of defaultEvents) {
+      await this.createDepartmentEvent(eventData.departmentId, eventData);
+    }
+  }
+
+  async getDepartmentEvents(departmentId: string): Promise<DepartmentEvent[]> {
+    return this.departmentEvents.get(departmentId) || [];
   }
 }

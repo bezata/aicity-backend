@@ -22,7 +22,7 @@ interface AgentInteraction {
   timestamp: number;
 }
 
-interface AgentConversation {
+export interface AgentConversation {
   id: string;
   participants: Agent[];
   messages: Message[];
@@ -115,6 +115,60 @@ export class AgentConversationService extends EventEmitter {
         communityOrientation: agent.traits.empathy || 0.5,
       },
     });
+  }
+
+  public async getActiveConversations(): Promise<AgentConversation[]> {
+    return Array.from(this.activeConversations.values()).filter(
+      (conv) => conv.status === "active"
+    );
+  }
+
+  public async initiateAgentActivity(agent: Agent): Promise<void> {
+    const profile = this.agentProfiles.get(agent.id);
+    if (!profile) return;
+
+    const currentHour = new Date().getHours();
+    const currentActivity = profile.routines.find(
+      (r) => r.timeSlot === currentHour
+    );
+
+    if (!currentActivity) return;
+
+    // Check if agent is already in a conversation
+    if (this.isAgentInConversation(agent.id)) return;
+
+    // Find potential conversation partners in the same location
+    const potentialPartners = Array.from(this.agentProfiles.entries())
+      .filter(([otherId, otherProfile]) => {
+        const otherActivity = otherProfile.routines.find(
+          (r) => r.timeSlot === currentHour
+        );
+        return (
+          otherId !== agent.id &&
+          otherActivity?.location === currentActivity.location &&
+          !this.isAgentInConversation(otherId)
+        );
+      })
+      .map(([id]) => id);
+
+    if (potentialPartners.length === 0) return;
+
+    // Start a contextual conversation
+    const districtId = profile.regularLocations[0] || "central";
+    const culturalContext = await this.cultureService.getDistrictCulture(
+      districtId
+    );
+    const socialMood = await this.socialDynamics.getCommunityMood(districtId);
+
+    await this.startContextualConversation(
+      [agent.id, ...potentialPartners.slice(0, 2)],
+      {
+        activity: currentActivity.activity,
+        districtId,
+        culturalContext,
+        socialMood,
+      }
+    );
   }
 
   private generateInitialRoutines(): AgentActivity[] {

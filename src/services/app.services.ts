@@ -40,6 +40,7 @@ import { cityManagementAgents, allCityAgents } from "../config/city-agents";
 import type { Agent } from "../types/agent.types";
 import { SocialCohesionService } from "./social-cohesion.service";
 import { AgentConversationService } from "./agent-conversation.service";
+import type { AgentConversation } from "./agent-conversation.service";
 
 // Define store type
 export type AppStore = {
@@ -392,7 +393,9 @@ const startAgentActivities = () => {
 
     // Find agents not in conversations
     const busyAgents = new Set(
-      activeConversations.flatMap((conv) => conv.participants.map((p) => p.id))
+      activeConversations.flatMap((conv: AgentConversation) =>
+        conv.participants.map((p: Agent) => p.id)
+      )
     );
 
     const availableAgents = allCityAgents.filter(

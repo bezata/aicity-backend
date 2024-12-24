@@ -105,10 +105,6 @@ export class TogetherService {
 
         return result;
       } catch (error: any) {
-        if (attempt === maxAttempts) {
-          return this.generateDefaultResponse(agent, messages);
-        }
-
         attempt++;
         const waitTime = Math.min(1000 * Math.pow(2, attempt), 10000);
 
@@ -117,22 +113,6 @@ export class TogetherService {
         await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     }
-
-    return this.generateDefaultResponse(agent, messages);
-  }
-
-  private generateDefaultResponse(agent: Agent, messages: Message[]): string {
-    const defaultResponses = [
-      `As ${agent.name}, I acknowledge what's been said and would like to contribute thoughtfully to our discussion.`,
-      `From my perspective as ${agent.role}, I find this conversation engaging and would like to share my thoughts.`,
-      `Given my background as ${agent.role}, I have some relevant insights to share with the group.`,
-      `I appreciate the points being made, and as ${agent.name}, I'd like to add to this discussion.`,
-      `Based on my experience as ${agent.role}, I can offer a unique perspective on this topic.`,
-    ];
-
-    return defaultResponses[
-      Math.floor(Math.random() * defaultResponses.length)
-    ];
   }
 
   async generateText(prompt: string): Promise<string> {

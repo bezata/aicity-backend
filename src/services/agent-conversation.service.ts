@@ -122,10 +122,10 @@ export class AgentConversationService extends EventEmitter {
 
   // Add new delay configuration
   private messageDelayConfig = {
-    minDelay: 1000, // Minimum delay between messages (5 seconds)
-    maxDelay: 2000, // Maximum delay between messages (10 seconds)
-    responseDelay: 1000, // Delay before agent responds (3 seconds)
-    typingSpeed: 50, // Milliseconds per character for typing simulation
+    minDelay: 5000, // Minimum delay between messages (5 seconds)
+    maxDelay: 10000, // Maximum delay between messages (10 seconds)
+    responseDelay: 5000, // Delay before agent responds (3 seconds)
+    typingSpeed: 100, // Milliseconds per character for typing simulation
   };
 
   // Add method to update delay configuration

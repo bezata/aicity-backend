@@ -233,7 +233,25 @@ export class VectorStoreService {
   }
 
   async createEmbedding(text: string): Promise<number[]> {
-    return this.togetherService.createEmbedding(text);
+    try {
+      // Ensure text is not empty and has valid content
+      if (!text || text.trim().length === 0) {
+        // Return a default embedding vector if input is empty
+        return new Array(768).fill(0); // Using standard embedding size
+      }
+
+      const response = await this.togetherService.createEmbedding(text.trim());
+      if (!response || !Array.isArray(response)) {
+        console.warn("Invalid embedding response, using default vector");
+        return new Array(768).fill(0);
+      }
+
+      return response;
+    } catch (error) {
+      console.error("Error creating embedding:", error);
+      // Return a default embedding vector on error
+      return new Array(768).fill(0);
+    }
   }
 
   async ping(): Promise<boolean> {

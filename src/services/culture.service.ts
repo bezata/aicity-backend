@@ -122,6 +122,15 @@ export class CultureService extends EventEmitter {
   private religions: Map<string, Religion> = new Map();
   private culturalMetrics: CulturalMetrics;
   private initialized = false;
+  private agentInteractions: Map<
+    string,
+    Array<{
+      interactionType: string;
+      partnerId?: string;
+      timestamp: number;
+      context?: any;
+    }>
+  > = new Map();
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -1749,6 +1758,47 @@ export class CultureService extends EventEmitter {
         heritage: [],
         traditions: [],
       };
+    }
+  }
+
+  async recordAgentInteraction(data: {
+    agentId: string;
+    interactionType: string;
+    partnerId?: string;
+    timestamp: number;
+    context?: any;
+  }): Promise<void> {
+    const { agentId, ...interactionData } = data;
+
+    // Get or initialize agent's interaction history
+    const interactions = this.agentInteractions.get(agentId) || [];
+
+    // Add new interaction
+    interactions.push(interactionData);
+
+    // Keep only last 100 interactions
+    if (interactions.length > 100) {
+      interactions.shift();
+    }
+
+    // Update the map
+    this.agentInteractions.set(agentId, interactions);
+
+    // Store in vector store for cultural analysis
+    if (data.context) {
+      await this.vectorStore.upsert({
+        id: `culture-interaction-${Date.now()}-${agentId}`,
+        values: await this.vectorStore.createEmbedding(
+          JSON.stringify(data.context)
+        ),
+        metadata: {
+          type: "cultural_interaction",
+          agentId,
+          partnerId: data.partnerId,
+          interactionType: data.interactionType,
+          timestamp: data.timestamp,
+        },
+      });
     }
   }
 }

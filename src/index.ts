@@ -343,7 +343,8 @@ initializeAISystem()
             JSON.stringify({
               type: "connected",
               timestamp: Date.now(),
-              message: "Connected to AI City Agent Conversations",
+              message:
+                "Connected to AI City Agent Conversations - Send a message to interact with agents!",
             })
           );
 
@@ -385,7 +386,7 @@ initializeAISystem()
                   timestamp: Date.now(),
                   data: {
                     conversationId: data.id,
-                    participants: data.participants.map((p) => ({
+                    participants: data.participants.map((p: any) => ({
                       name: p.name,
                       role: p.role,
                     })),
@@ -397,8 +398,68 @@ initializeAISystem()
             }
           );
         },
-        message(ws, message) {
-          console.log("Received message:", message);
+        message: async (ws, message) => {
+          try {
+            const data = JSON.parse(String(message));
+            console.log("📩 Received message:", data);
+
+            if (data.type === "user_message") {
+              console.log("👤 User sent message:", data.content);
+
+              // Get 2-3 random agents to respond
+              const allAgents = Array.from(
+                store.services.agentConversationService
+                  .getRegisteredAgents()
+                  .values()
+              );
+              const respondingAgents = allAgents
+                .sort(() => Math.random() - 0.5)
+                .slice(0, 2 + Math.floor(Math.random() * 2));
+
+              console.log(
+                "🤖 Selected agents for response:",
+                respondingAgents.map((a) => a.name)
+              );
+
+              // Get responses from each agent
+              for (const agent of respondingAgents) {
+                const response =
+                  await store.services.agentConversationService.generateRandomResponse(
+                    "a42ed892-3878-45a5-9a1a-4ceaf9524f1c",
+                    agent.id,
+                    data.content
+                  );
+
+                ws.send(
+                  JSON.stringify({
+                    type: "agent_response",
+                    timestamp: Date.now(),
+                    data: {
+                      agentId: agent.id,
+                      agentName: agent.name,
+                      agentRole: agent.role,
+                      personality: agent.personality,
+                      content: response,
+                      replyTo: data.content,
+                    },
+                  })
+                );
+
+                // Add small delay between responses
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
+            }
+          } catch (error) {
+            console.error("Error handling message:", error);
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                timestamp: Date.now(),
+                message: "Failed to process message",
+                error: (error as Error).message,
+              })
+            );
+          }
         },
         close(ws) {
           console.log(`WebSocket closed for ${ws.data.url}`);

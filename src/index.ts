@@ -373,7 +373,37 @@ const sendWebSocketMessage = (
   }
 };
 
-// Helper function to send conversation history
+// Add function to retrieve past conversations
+const getPastConversations = async (conversationId: string) => {
+  try {
+    const query = `conversation-${conversationId}`;
+    const embedding = await store.services.vectorStore.createEmbedding(query);
+
+    const results = await store.services.vectorStore.query({
+      vector: embedding,
+      filter: {
+        type: { $eq: "conversation" },
+        conversationId: { $eq: conversationId },
+      },
+      topK: 100,
+      includeMetadata: true,
+    });
+
+    return results.matches.map((match: any) => ({
+      content: match.metadata.content,
+      agentName: match.metadata.agentName,
+      agentRole: match.metadata.agentRole,
+      timestamp: parseInt(match.metadata.timestamp),
+      sentiment: parseFloat(match.metadata.sentiment || "0"),
+      topics: match.metadata.topics?.split(",") || [],
+    }));
+  } catch (error) {
+    console.error("Error retrieving past conversations:", error);
+    return [];
+  }
+};
+
+// Modify sendConversationHistory to include past messages
 const sendConversationHistory = async (
   ws: ServerWebSocket<WebSocketData>,
   conversationId: string
@@ -390,6 +420,27 @@ const sendConversationHistory = async (
       return;
     }
 
+    // Get past messages from vector store
+    const pastMessages = await getPastConversations(conversationId);
+
+    // Combine current and past messages
+    const allMessages = [
+      ...pastMessages,
+      ...conversation.messages.map((m) => ({
+        content: m.content,
+        agentName: store.services.agentConversationService.getAgent(m.agentId)
+          ?.name,
+        agentRole: store.services.agentConversationService.getAgent(m.agentId)
+          ?.role,
+        timestamp: m.timestamp,
+        sentiment: m.sentiment,
+        topics: m.topics,
+      })),
+    ];
+
+    // Sort messages by timestamp
+    allMessages.sort((a, b) => a.timestamp - b.timestamp);
+
     // Send conversation details
     sendWebSocketMessage(ws, ws.data.messageHistory, "conversation_joined", {
       conversationId: conversation.id,
@@ -401,14 +452,7 @@ const sendConversationHistory = async (
         name: p.name,
         role: p.role,
       })),
-      messages: conversation.messages.map((m) => ({
-        content: m.content,
-        agentName: store.services.agentConversationService.getAgent(m.agentId)
-          ?.name,
-        agentRole: store.services.agentConversationService.getAgent(m.agentId)
-          ?.role,
-        timestamp: m.timestamp,
-      })),
+      messages: allMessages,
     });
 
     // Add conversation to active subscriptions
@@ -421,13 +465,24 @@ const sendConversationHistory = async (
   }
 };
 
-// Helper function to broadcast message to all subscribers of a conversation
-const broadcastToConversation = (
+// Modify the broadcastToConversation function to properly await the conversation
+const broadcastToConversation = async (
   server: Server,
   conversationId: string,
   type: string,
   data: any
 ) => {
+  // Add location if not present in data
+  if (data.location === undefined) {
+    const conversations =
+      await store.services.agentConversationService.getActiveConversations();
+    const conversation = conversations.find((c) => c.id === conversationId);
+
+    if (conversation) {
+      data.location = conversation.location;
+    }
+  }
+
   server.publish(
     `conversation:${conversationId}`,
     JSON.stringify({
@@ -507,8 +562,39 @@ initializeAISystem()
           eventListeners.set("donationReaction", donationReactionListener);
 
           // Listen to agent conversation events
-          const messageAddedListener = (data: any) => {
+          const messageAddedListener = async (data: any) => {
             if (!data.message?.content) return; // Skip empty messages
+
+            // Get the conversation to access location, activity, and topic
+            const conversation = await store.services.agentConversationService
+              .getActiveConversations()
+              .then((convs) => convs.find((c) => c.id === data.conversationId));
+
+            // Store conversation in vector store
+            await store.services.vectorStore.upsert({
+              id: `conversation-${data.conversationId}-${Date.now()}`,
+              values: await store.services.vectorStore.createEmbedding(
+                data.message.content
+              ),
+              metadata: {
+                type: "conversation",
+                conversationId: data.conversationId,
+                agentId: data.message.agentId,
+                agentName: store.services.agentConversationService.getAgent(
+                  data.message.agentId
+                )?.name,
+                agentRole: store.services.agentConversationService.getAgent(
+                  data.message.agentId
+                )?.role,
+                content: data.message.content,
+                timestamp: data.message.timestamp,
+                sentiment: data.message.sentiment,
+                topics: data.message.topics?.join(",") || "",
+                location: conversation?.location,
+                activity: conversation?.activity,
+                topic: conversation?.topic,
+              },
+            });
 
             sendWebSocketMessage(
               ws,
@@ -526,6 +612,9 @@ initializeAISystem()
                   )?.role,
                   timestamp: data.message.timestamp,
                 },
+                location: conversation?.location,
+                activity: conversation?.activity,
+                topic: conversation?.topic,
               }
             );
           };
@@ -684,98 +773,75 @@ initializeAISystem()
             } else if (data.type === "user_message") {
               console.log("👤 User sent message:", data.content);
 
-              let respondingAgents: any[] = [];
-
-              // If message is in a conversation, get the conversation's agents
-              if (data.conversationId) {
-                const conversation =
-                  await store.services.agentConversationService
-                    .getActiveConversations()
-                    .then((convs) =>
-                      convs.find((c) => c.id === data.conversationId)
-                    );
-
-                if (conversation) {
-                  // Check if message mentions specific agent
-                  const mentionedAgentName = data.content
-                    .toLowerCase()
-                    .match(/hey\s+(\w+)/)?.[1];
-                  if (mentionedAgentName) {
-                    const mentionedAgent = conversation.participants.find(
-                      (p) => p.name.toLowerCase() === mentionedAgentName
-                    );
-                    if (mentionedAgent) {
-                      respondingAgents = [mentionedAgent];
-                    }
-                  }
-
-                  // If no specific agent mentioned, use conversation participants
-                  if (respondingAgents.length === 0) {
-                    respondingAgents = conversation.participants;
-                  }
-                }
-              }
-
-              // If no conversation or no agents found, fall back to random selection
-              if (respondingAgents.length === 0) {
-                const allAgents = Array.from(
-                  store.services.agentConversationService
-                    .getRegisteredAgents()
-                    .values()
-                );
-                respondingAgents = allAgents
-                  .sort(() => Math.random() - 0.5)
-                  .slice(0, 2 + Math.floor(Math.random() * 2));
-              }
-
-              console.log(
-                "🤖 Selected agents for response:",
-                respondingAgents.map((a) => a.name)
-              );
-
-              // Get responses from each agent
-              for (const agent of respondingAgents) {
-                const response =
-                  await store.services.agentConversationService.generateRandomResponse(
-                    "a42ed892-3878-45a5-9a1a-4ceaf9524f1c",
-                    agent.id,
+              try {
+                if (data.conversationId) {
+                  // If message is in a conversation, use the new handleUserMessage method
+                  await store.services.agentConversationService.handleUserMessage(
+                    data.conversationId,
                     data.content
                   );
-
-                // If conversation ID is provided, broadcast to that conversation
-                if (data.conversationId) {
-                  broadcastToConversation(
-                    server,
-                    data.conversationId,
-                    "agent_response",
-                    {
-                      agentId: agent.id,
-                      agentName: agent.name,
-                      agentRole: agent.role,
-                      personality: agent.personality,
-                      content: response,
-                      replyTo: data.content,
-                    }
-                  );
                 } else {
-                  // Otherwise send directly to this connection
-                  sendWebSocketMessage(
-                    ws,
-                    ws.data.messageHistory,
-                    "agent_response",
-                    {
+                  // For messages outside conversations, keep existing random agent selection logic
+                  const allAgents = Array.from(
+                    store.services.agentConversationService
+                      .getRegisteredAgents()
+                      .values()
+                  );
+                  const respondingAgents = allAgents
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, 2 + Math.floor(Math.random() * 2));
+
+                  console.log(
+                    "🤖 Selected random agents for response:",
+                    respondingAgents.map((agent) => agent.name)
+                  );
+
+                  // Get responses from each agent
+                  for (const agent of respondingAgents) {
+                    const response =
+                      await store.services.agentConversationService.generateRandomResponse(
+                        "a42ed892-3878-45a5-9a1a-4ceaf9524f1c",
+                        agent.id,
+                        data.content
+                      );
+
+                    if ("error" in response) {
+                      console.error(
+                        "Error generating response:",
+                        response.error
+                      );
+                      continue;
+                    }
+
+                    const messageData = {
                       agentId: agent.id,
                       agentName: agent.name,
                       agentRole: agent.role,
                       personality: agent.personality,
-                      content: response,
+                      content: response.response,
                       replyTo: data.content,
-                    }
-                  );
-                }
+                      conversationId: response.conversationId,
+                    };
 
-                // Add small delay between responses
-                await new Promise((resolve) => setTimeout(resolve, 2000));
+                    // Send directly to this connection
+                    sendWebSocketMessage(
+                      ws,
+                      ws.data.messageHistory,
+                      "agent_response",
+                      messageData
+                    );
+
+                    // Add small delay between responses
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                  }
+                }
+              } catch (error) {
+                console.error("Error handling user message:", error);
+                sendWebSocketMessage(ws, ws.data.messageHistory, "error", {
+                  message: "Failed to process user message",
+                  error:
+                    error instanceof Error ? error.message : "Unknown error",
+                });
               }
             } else if (data.type === "add_reaction") {
               console.log("👍 Adding reaction:", data);
@@ -827,7 +893,6 @@ initializeAISystem()
         },
       },
     });
-
     console.log(
       `🦊 AI City server is running at ${server.hostname}:${server.port}`
     );

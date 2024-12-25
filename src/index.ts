@@ -22,6 +22,8 @@ import { DistrictMetricsController } from "./controllers/district-metrics.contro
 import { AgentCollaborationController } from "./controllers/agent-collaboration.controller";
 import { ChroniclesController } from "./controllers/chronicles.controller";
 import { CCTVController } from "./controllers/cctv.controller";
+import { AgentController } from "./controllers/agent.controller";
+import { CultureController } from "./controllers/culture.controller";
 
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
@@ -164,6 +166,7 @@ const apiGroup = app.group("/api", ((app: any) => {
       )
       .use((app: any) => new ChroniclesController(store).routes(app))
       .use(CCTVController)
+      .use(AgentController)
       .use(AgentCollaborationController)
       .group("ai", (app: any) => {
         return app
@@ -317,18 +320,39 @@ const apiGroup = app.group("/api", ((app: any) => {
 
 app.use(apiGroup as any);
 
+// Register culture routes
+const cultureController = new CultureController(store);
+app.group("/api/culture", (app) => {
+  app.get("/expressions", cultureController.getDailyExpressions);
+  app.get("/expressions/:id", cultureController.getExpressionById);
+  app.post(
+    "/expressions/:id/participate",
+    cultureController.participateInExpression
+  );
+  app.get("/popular", cultureController.getPopularExpressions);
+  app.get("/events", cultureController.getCulturalEvents);
+  return app;
+});
+
 // Helper function to check for duplicate messages
 const isDuplicateMessage = (
   messageHistory: Map<string, { content: string; timestamp: number }>,
   type: string,
-  content: string
+  content: string,
+  data: any
 ): boolean => {
-  const key = `${type}-${content}`;
+  // For agent conversations, include the message content in the key
+  const key =
+    type === "agent_conversation"
+      ? `${type}-${data.conversationId}-${data.message.content}`
+      : `${type}-${content}`;
+
   const lastMessage = messageHistory.get(key);
   const now = Date.now();
 
-  if (lastMessage && now - lastMessage.timestamp < 10000) {
-    // 10 seconds
+  if (lastMessage && now - lastMessage.timestamp < 5000) {
+    // Reduced to 5 seconds
+    console.log(`Skipping duplicate message: ${key}`);
     return true;
   }
 
@@ -337,7 +361,8 @@ const isDuplicateMessage = (
 
   // Clean up old messages
   for (const [key, msg] of messageHistory.entries()) {
-    if (now - msg.timestamp > 10000) {
+    if (now - msg.timestamp > 5000) {
+      // Reduced to 5 seconds
       messageHistory.delete(key);
     }
   }
@@ -355,8 +380,7 @@ const sendWebSocketMessage = (
   const content = JSON.stringify(data);
   if (!content || content === "{}") return; // Skip empty messages
 
-  if (isDuplicateMessage(messageHistory, type, content)) {
-    console.log(`Skipping duplicate message of type: ${type}`);
+  if (isDuplicateMessage(messageHistory, type, content, data)) {
     return;
   }
 

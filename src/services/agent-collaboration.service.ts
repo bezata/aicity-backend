@@ -84,6 +84,16 @@ type AgentTrait = keyof AgentTraits;
 
 export class AgentCollaborationService extends EventEmitter {
   private activeSessions = new Map<string, CollaborationSession>();
+  private responseCache = new Map<
+    string,
+    { content: string; timestamp: number }
+  >();
+  private readonly responseCacheDuration = 30 * 60 * 1000; // 30 minutes
+  private readonly decisionCache = new Map<
+    string,
+    { decision: any; timestamp: number }
+  >();
+  private readonly decisionCacheDuration = 5 * 60 * 1000; // 5 minutes
 
   private config: CollaborationConfig = {
     minConsensusThreshold: 0.7,
@@ -111,6 +121,7 @@ export class AgentCollaborationService extends EventEmitter {
   private setupPeriodicMaintenance() {
     setInterval(() => this.maintainSessions(), 60 * 60 * 1000); // Every hour
     setInterval(() => this.monitorActiveSessions(), 5 * 60 * 1000); // Every 5 minutes
+    setInterval(() => this.cleanupCaches(), 15 * 60 * 1000); // Every 15 minutes
   }
 
   private setupEventHandlers() {
@@ -647,10 +658,32 @@ export class AgentCollaborationService extends EventEmitter {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
+  private generateCacheKey(sessionId: string, context: any): string {
+    return `${sessionId}:${JSON.stringify(context)}`;
+  }
+
   private async simulateDecisionRound(
     session: CollaborationSession,
     event: CityEvent
   ) {
+    const cacheKey = this.generateCacheKey(session.id, {
+      eventId: event.id,
+      status: session.status,
+      agentCount: session.agents.length,
+      messageCount: session.messages.length,
+      consensusLevel: session.metrics.consensusLevel,
+    });
+
+    // Check cache for recent decision
+    const cachedDecision = this.decisionCache.get(cacheKey);
+    if (
+      cachedDecision &&
+      Date.now() - cachedDecision.timestamp < this.decisionCacheDuration
+    ) {
+      console.log("Using cached decision for session:", session.id);
+      return cachedDecision.decision;
+    }
+
     // Simulate response delay for more realistic agent interactions
     await this.simulateResponseDelay();
 
@@ -673,6 +706,12 @@ export class AgentCollaborationService extends EventEmitter {
       timestamp: Date.now(),
     };
 
+    // Cache the decision
+    this.decisionCache.set(cacheKey, {
+      decision,
+      timestamp: Date.now(),
+    });
+
     // Update session metrics
     session.metrics.consensusLevel =
       decision.supportedBy.length / session.agents.length;
@@ -691,14 +730,58 @@ export class AgentCollaborationService extends EventEmitter {
     return decision;
   }
 
+  private async generateResponse(prompt: string) {
+    const cacheKey = `response:${prompt}`;
+    const cachedResponse = this.responseCache.get(cacheKey);
+
+    if (
+      cachedResponse &&
+      Date.now() - cachedResponse.timestamp < this.responseCacheDuration
+    ) {
+      console.log("Using cached response for prompt");
+      return cachedResponse.content;
+    }
+
+    // Add delay before generating response
+    await this.delay();
+
+    const response = await this.togetherService.generateText(prompt);
+
+    // Cache the response
+    this.responseCache.set(cacheKey, {
+      content: response,
+      timestamp: Date.now(),
+    });
+
+    return response;
+  }
+
   private async storeSessionContext(sessionId: string, event: CityEvent) {
     try {
+      const contextKey = `context:${sessionId}:${event.id}`;
+      const contextVector = await this.vectorStore.createEmbedding(
+        `${event.title} ${event.description} ${event.category}`
+      );
+
+      const cachedContext = await this.vectorStore.query({
+        vector: contextVector,
+        filter: {
+          type: { $eq: "collaboration" },
+          sessionId: { $eq: sessionId },
+          eventId: { $eq: event.id },
+        },
+        topK: 1,
+      });
+
+      if (cachedContext.matches.length > 0) {
+        console.log("Context already stored for session:", sessionId);
+        return;
+      }
+
       // Store event context
       await this.vectorStore.upsert({
         id: `collab-context-${sessionId}`,
-        values: await this.vectorStore.createEmbedding(
-          `${event.title} ${event.description} ${event.category}`
-        ),
+        values: contextVector,
         metadata: {
           type: "collaboration",
           subtype: "context",
@@ -936,25 +1019,30 @@ export class AgentCollaborationService extends EventEmitter {
     }
   }
 
-  private async generateResponse(prompt: string) {
-    // Add delay before generating response
-    await this.delay();
-
-    return await this.togetherService.generateText(prompt);
-  }
-
-  private async generateText(content: string) {
-    // Add delay before generating text
-    await this.delay();
-
-    return await this.togetherService.generateText(content);
-  }
-
   private async delay() {
     const minDelay = 15000; // 15 seconds
     const maxDelay = 30000; // 30 seconds
     const delay =
       Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
     await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  // Add cache cleanup method
+  private cleanupCaches() {
+    const now = Date.now();
+
+    // Clean response cache
+    for (const [key, value] of this.responseCache.entries()) {
+      if (now - value.timestamp > this.responseCacheDuration) {
+        this.responseCache.delete(key);
+      }
+    }
+
+    // Clean decision cache
+    for (const [key, value] of this.decisionCache.entries()) {
+      if (now - value.timestamp > this.decisionCacheDuration) {
+        this.decisionCache.delete(key);
+      }
+    }
   }
 }

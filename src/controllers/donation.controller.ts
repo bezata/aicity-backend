@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { swagger } from "@elysiajs/swagger";
 import { DonationService } from "../services/donation.service";
-import { AppStore } from "../types/store.types";
+import { AppStore } from "../services/app.services";
 import { TextVectorQuery } from "../types/vector-store.types";
 
 // Schema definitions
@@ -530,11 +530,20 @@ export const DonationController = (donationService: DonationService) =>
           limit: body.limit || 10,
         };
 
-        const results = await appStore.services.vectorStore.semanticSearch(
-          query
+        // Create embedding for the search query
+        const embedding = await appStore.services.vectorStore.createEmbedding(
+          query.textQuery
         );
 
-        return results.matches.map((match) => ({
+        // Use the embedding in the query
+        const results = await appStore.services.vectorStore.query({
+          vector: embedding,
+          filter: query.filter,
+          topK: query.limit,
+          includeMetadata: true,
+        });
+
+        return results.matches.map((match: any) => ({
           donationId: match.metadata.donationId,
           donorName: match.metadata.donorName,
           amount: match.metadata.amount,

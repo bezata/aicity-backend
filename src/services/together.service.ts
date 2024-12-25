@@ -13,6 +13,7 @@ interface MessageCache {
   timestamp: number;
   attempts: number;
   conversationLength?: number;
+  hash?: string;
 }
 
 interface ConversationMessage {
@@ -79,17 +80,39 @@ export class TogetherService {
     return exponentialDelay * (0.75 + Math.random() * 0.5);
   }
 
-  private isDuplicateMessage(conversationId: string, content: string): boolean {
+  private generateMessageHash(messages: Message[]): string {
+    return messages.map((m) => `${m.role}:${m.content}`).join("|");
+  }
+
+  private isDuplicateMessage(
+    conversationId: string,
+    content: string,
+    messages?: Message[]
+  ): boolean {
     const key = `${conversationId}:${content}`;
+    const messageHash = messages ? this.generateMessageHash(messages) : "";
     const cached = this.messageCache.get(key);
     const now = Date.now();
 
     if (cached && now - cached.timestamp < this.cacheDuration) {
+      if (messageHash && cached.hash === messageHash) {
+        console.log(
+          "Exact conversation state match detected, preventing duplicate API call"
+        );
+        return true;
+      }
+      if (cached.attempts > 2) {
+        console.log(
+          "Multiple attempts detected for same message, preventing API call"
+        );
+        return true;
+      }
       cached.attempts++;
       this.messageCache.set(key, cached);
-      return true;
+      return false;
     }
 
+    // Cleanup old cache entries
     for (const [key, value] of this.messageCache.entries()) {
       if (now - value.timestamp > this.cacheDuration) {
         this.messageCache.delete(key);
@@ -100,6 +123,7 @@ export class TogetherService {
       content,
       timestamp: now,
       attempts: 1,
+      hash: messageHash,
       conversationLength: conversationId
         ? this.messageCache.get(`${conversationId}:length`)
             ?.conversationLength || 1
@@ -118,9 +142,29 @@ export class TogetherService {
       messages[messages.length - 1]?.metadata?.conversationId;
     const maxRetries = this.retryConfig.maxRetries;
 
+    // Check for exact conversation state duplicates
+    if (
+      conversationId &&
+      this.isDuplicateMessage(
+        conversationId,
+        messages[messages.length - 1].content,
+        messages
+      )
+    ) {
+      console.log(
+        "Duplicate conversation state detected, using cached response"
+      );
+      const cachedResponse = this.messageCache.get(
+        `${conversationId}:response`
+      );
+      if (cachedResponse) {
+        return cachedResponse.content;
+      }
+    }
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        await this.delay(5000);
+        await this.delay(attempt === 0 ? 2000 : 5000);
         await this.waitForRateLimit();
 
         const effectiveSystemPrompt = (
@@ -181,7 +225,7 @@ export class TogetherService {
 
         if (
           conversationId &&
-          this.isDuplicateMessage(conversationId, cleanedContent)
+          this.isDuplicateMessage(conversationId, cleanedContent, messages)
         ) {
           console.log("Detected duplicate message, retrying...");
           const backoffTime = this.calculateBackoff(attempt);
@@ -193,6 +237,15 @@ export class TogetherService {
           length: cleanedContent.length,
           preview: cleanedContent.substring(0, 50) + "...",
         });
+
+        // Cache the successful response
+        if (conversationId) {
+          this.messageCache.set(`${conversationId}:response`, {
+            content: cleanedContent,
+            timestamp: Date.now(),
+            attempts: 1,
+          });
+        }
 
         return cleanedContent;
       } catch (error: any) {

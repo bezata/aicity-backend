@@ -4,7 +4,8 @@ export type VectorStoreType =
   | "district"
   | "transport"
   | "agent_residence"
-  | "agent_visit";
+  | "agent_visit"
+  | "donation";
 
 export interface VectorRecord<T> {
   id: string;
@@ -33,4 +34,10 @@ export interface VectorQuery<T> {
 
 export interface TextVectorQuery<T> extends Omit<VectorQuery<T>, "vector"> {
   textQuery: string;
+}
+
+export interface VectorStore {
+  semanticSearch<T>(query: TextVectorQuery<T>): Promise<{
+    matches: Array<VectorRecord<T>>;
+  }>;
 }

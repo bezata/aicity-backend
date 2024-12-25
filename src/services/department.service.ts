@@ -14,6 +14,15 @@ import { VectorStoreService } from "./vector-store.service";
 import { TogetherService } from "./together.service";
 import { AnalyticsService } from "./analytics.service";
 import { MetricsService } from "./metrics.service";
+import { AgentCollaborationService } from "./agent-collaboration.service";
+import { CityEvent, CityEventCategory } from "../types/city-events";
+import { Agent, AgentTraits } from "../types/agent.types";
+import { getAgent } from "../config/city-agents";
+import { CityService } from "./city.service";
+import type { WeatherState, CityMood } from "../types/city.types";
+import { Message } from "../types/conversation.types";
+import _ from "lodash";
+import { CulturalEvent } from "../types/culture.types";
 
 export interface DepartmentActivity {
   type: string;
@@ -57,7 +66,8 @@ export class DepartmentService extends EventEmitter {
     private vectorStore: VectorStoreService,
     private togetherService: TogetherService,
     private analyticsService: AnalyticsService,
-    private metricsService: MetricsService
+    private metricsService: MetricsService,
+    private collaborationService: AgentCollaborationService
   ) {
     super();
     this.initializeHealthMonitoring();
@@ -337,29 +347,120 @@ export class DepartmentService extends EventEmitter {
     department.budget.total += donation.amount;
     department.budget.donations_history.push(donation);
 
-    // Apply donation effects to agents
+    // Calculate budget health and efficiency metrics
+    const budgetHealth =
+      (department.budget.total - department.budget.spent) /
+      department.budget.total;
+    const significantDonation =
+      donation.amount >= department.budget.total * 0.1; // 10% or more of total budget
+
+    // Apply efficiency improvements to department
+    if (significantDonation) {
+      // Improve department operational metrics
+      department.metrics.efficiency = Math.min(
+        1,
+        department.metrics.efficiency + 0.15
+      );
+      department.metrics.responseTime = Math.min(
+        1,
+        department.metrics.responseTime + 0.1
+      );
+      department.metrics.successRate = Math.min(
+        1,
+        department.metrics.successRate + 0.12
+      );
+      department.metrics.collaborationScore = Math.min(
+        1,
+        department.metrics.collaborationScore + 0.08
+      );
+
+      // Create a collaboration event for budget allocation planning
+      const collaborationEvent = {
+        id: `budget-planning-${donation.id}`,
+        title: `Budget Allocation Planning - ${department.name}`,
+        description: `Strategic planning session for allocating significant donation of $${donation.amount.toLocaleString()}`,
+        category: "development" as CityEventCategory,
+        severity: 0.4,
+        urgency: 0.6,
+        duration: 3600000, // 1 hour
+        impact: {
+          social: 0.7,
+          economic: 0.9,
+          cultural: 0.5,
+          environmental: 0.6,
+        },
+        affectedDistricts: ["central-district"],
+        requiredAgents: department.assignedAgents.slice(0, 5), // Top 5 agents
+        timestamp: Date.now(),
+        status: "pending" as const,
+      };
+
+      // Trigger collaboration for budget planning
+      await this.collaborationService.initiateCollaboration(collaborationEvent);
+    }
+
+    // Apply donation effects to agents with focus on performance
     const agents = this.departmentAgents.get(departmentId) || [];
     for (const agent of agents) {
+      // Calculate impact based on donation size relative to budget
+      const donationImpact = donation.amount / department.budget.total;
+
+      // Update agent performance metrics
+      agent.performance.efficiency = Math.min(
+        1,
+        agent.performance.efficiency + donationImpact * 0.2
+      );
+      agent.performance.responseTime = Math.min(
+        1,
+        agent.performance.responseTime + donationImpact * 0.15
+      );
+      agent.performance.resolutionRate = Math.min(
+        1,
+        agent.performance.resolutionRate + donationImpact * 0.15
+      );
+      agent.performance.citizenSatisfaction = Math.min(
+        1,
+        agent.performance.citizenSatisfaction + donationImpact * 0.1
+      );
+
+      // Update agent health and motivation
+      agent.health.energy = Math.min(
+        1,
+        agent.health.energy + donationImpact * 0.3
+      );
+      agent.health.motivation = Math.min(
+        1,
+        agent.health.motivation + donationImpact * 0.4
+      );
+      agent.health.physical = Math.min(
+        1,
+        agent.health.physical + donationImpact * 0.2
+      );
+      agent.health.mental = Math.min(
+        1,
+        agent.health.mental + donationImpact * 0.2
+      );
+
+      // Update mood with focus on work satisfaction
+      agent.mood.satisfaction = Math.min(
+        1,
+        agent.mood.satisfaction + donationImpact * 0.3
+      );
+      agent.mood.enthusiasm = Math.min(
+        1,
+        agent.mood.enthusiasm + donationImpact * 0.25
+      );
+      agent.mood.stress = Math.max(0, agent.mood.stress - donationImpact * 0.3);
+      agent.mood.lastUpdate = Date.now();
+
+      // Track donation impact for future reference
       agent.donationImpact = {
-        recoveryRate: Math.min(
-          1,
-          (donation.amount / department.budget.total) * 2
-        ),
-        motivationBoost: Math.min(
-          1,
-          (donation.amount / department.budget.total) * 3
-        ),
+        recoveryRate: Math.min(1, donationImpact * 2),
+        motivationBoost: Math.min(1, donationImpact * 2.5),
         lastDonationEffect: Date.now(),
       };
 
-      // Immediate mood boost
-      agent.mood.happiness = Math.min(1, agent.mood.happiness + 0.3);
-      agent.mood.satisfaction = Math.min(1, agent.mood.satisfaction + 0.25);
-      agent.mood.enthusiasm = Math.min(1, agent.mood.enthusiasm + 0.35);
-      agent.mood.stress = Math.max(0, agent.mood.stress - 0.3);
-      agent.mood.lastUpdate = Date.now();
-
-      // Start recovery if agent was sick or stressed
+      // Improve agent status if needed
       if (
         agent.health.status === "sick" ||
         agent.health.status === "stressed"
@@ -369,24 +470,59 @@ export class DepartmentService extends EventEmitter {
     }
     this.departmentAgents.set(departmentId, agents);
 
+    // Store donation impact in vector store
     await this.vectorStore.upsert({
       id: `department-donation-${donation.id}`,
       values: await this.vectorStore.createEmbedding(
-        `Donation of ${donation.amount} to ${department.name} department`
+        `Donation of ${donation.amount} to ${department.name} department improving budget health to ${budgetHealth} and operational efficiency`
       ),
       metadata: {
         type: "district",
         departmentId,
         donationId: donation.id,
         amount: donation.amount,
+        budgetHealth,
+        efficiencyGain: significantDonation
+          ? 0.15
+          : (donation.amount / department.budget.total) * 0.1,
         timestamp: donation.timestamp,
       },
     });
 
+    // Emit enhanced donation event with focus on operational improvements
     this.emit("donationReceived", {
       departmentId,
       donation,
       agentImpact: agents.length,
+      budgetHealth,
+      operationalImprovements: {
+        efficiency: department.metrics.efficiency,
+        responseTime: department.metrics.responseTime,
+        successRate: department.metrics.successRate,
+        collaborationScore: department.metrics.collaborationScore,
+      },
+      agentPerformance: {
+        averageEfficiency:
+          agents.reduce((sum, agent) => sum + agent.performance.efficiency, 0) /
+          agents.length,
+        averageResponseTime:
+          agents.reduce(
+            (sum, agent) => sum + agent.performance.responseTime,
+            0
+          ) / agents.length,
+        averageSatisfaction:
+          agents.reduce((sum, agent) => sum + agent.mood.satisfaction, 0) /
+          agents.length,
+      },
+      collaborationScheduled: significantDonation
+        ? {
+            type: "budget_planning",
+            participants: department.assignedAgents.length,
+            scheduledTime: Date.now(),
+            expectedDuration: "1 hour",
+            priority: "high",
+          }
+        : undefined,
     });
   }
 

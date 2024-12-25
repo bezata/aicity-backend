@@ -270,61 +270,26 @@ export class VectorStoreService {
 
   async analyzeSentiment(content: string): Promise<number> {
     try {
-      const prompt = `Analyze the sentiment and significance of this interaction. Rate it from 0 to 1 where 1 is extremely significant/emotional and 0 is mundane/neutral. Only respond with the number.
-      
-      Content: "${content}"
-      
-      Rating:`;
+      // Simple rule-based sentiment analysis
+      const positiveWords =
+        /good|great|excellent|happy|positive|agree|thanks|appreciate|helpful|wonderful|excited|love/gi;
+      const negativeWords =
+        /bad|poor|terrible|sad|negative|disagree|unfortunately|sorry|problem|issue|concerned|worried/gi;
+      const neutralWords = /okay|fine|normal|usual|typical|standard|regular/gi;
 
-      const sentimentAnalyzer = {
-        id: "sentiment-analyzer",
-        name: "Sentiment Analyzer",
-        role: "System",
-        personality: "analytical",
-        systemPrompt:
-          "You are a sentiment analyzer that only responds with a number between 0 and 1.",
-        interests: ["sentiment analysis"],
-        preferredStyle: "professional" as ConversationStyle,
-        traits: {
-          curiosity: 0.5,
-          enthusiasm: 0.5,
-          formality: 1,
-          empathy: 0.8,
-          analyticalThinking: 1,
-          creativity: 0.3,
-        },
-        contextualResponses: {
-          rain: ["Analyzing sentiment in rainy conditions."],
-          sunny: ["Analyzing sentiment in sunny conditions."],
-        },
-        memoryWindowSize: 1,
-        emotionalRange: {
-          min: 0,
-          max: 1,
-        },
-      };
+      const positiveCount = (content.match(positiveWords) || []).length;
+      const negativeCount = (content.match(negativeWords) || []).length;
+      const neutralCount = (content.match(neutralWords) || []).length;
 
-      const message: Message = {
-        id: crypto.randomUUID(),
-        agentId: "user",
-        content: prompt,
-        timestamp: Date.now(),
-        role: "user",
-        topics: [],
-        sentiment: undefined,
-      };
+      const total = positiveCount + negativeCount + neutralCount || 1;
+      const baseScore =
+        (positiveCount - negativeCount + neutralCount * 0.5) / total;
 
-      const response = await this.togetherService.generateResponse(
-        sentimentAnalyzer,
-        [message],
-        "You are a sentiment analyzer that only responds with a number between 0 and 1."
-      );
-
-      const significance = parseFloat(response.trim());
-      return isNaN(significance) ? 0.5 : Math.max(0, Math.min(1, significance));
+      // Normalize to 0-1 range
+      return Math.max(0, Math.min(1, (baseScore + 1) / 2));
     } catch (error) {
-      console.error("Failed to analyze sentiment:", error);
-      return 0.5;
+      console.error("Error in sentiment analysis:", error);
+      return 0.5; // Default neutral sentiment
     }
   }
 }

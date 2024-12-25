@@ -98,11 +98,31 @@ const metricsService = new MetricsService(vectorStore);
 
 // Initialize core services
 const cityService = new CityService(metricsService);
+
+// Initialize temporary AI integration service
+let aiIntegration = new AIIntegrationService(
+  vectorStore,
+  undefined as unknown as CultureService,
+  undefined as unknown as DistrictCultureService,
+  undefined as unknown as AgentCultureService
+);
+
+// Initialize collaboration service
+const initialCollaborationService = new AgentCollaborationService(
+  togetherService,
+  vectorStore,
+  cityService,
+  analyticsService,
+  aiIntegration
+);
+
+// Initialize department service
 const departmentService = new DepartmentService(
   vectorStore,
   togetherService,
   analyticsService,
-  metricsService
+  metricsService,
+  initialCollaborationService
 );
 
 // Initialize district and culture services
@@ -220,8 +240,8 @@ const districtCultureService = new DistrictCultureService(
   vectorStore
 );
 
-// Initialize AI integration service
-const aiIntegration = new AIIntegrationService(
+// Update AI integration service with actual dependencies
+aiIntegration = new AIIntegrationService(
   vectorStore,
   cultureService,
   districtCultureService,
@@ -427,7 +447,8 @@ const donationService = new DonationService(
   vectorStore,
   departmentService,
   initialDistrictService,
-  socialDynamicsService
+  socialDynamicsService,
+  initialCollaborationService
 );
 
 // Initialize AI system with all agents

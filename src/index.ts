@@ -561,6 +561,64 @@ initializeAISystem()
           );
           eventListeners.set("donationReaction", donationReactionListener);
 
+          // Listen to donation goal progress
+          const donationGoalListener = (data: {
+            goal: {
+              id: string;
+              title: string;
+              currentAmount: number;
+              targetAmount: number;
+            };
+            donation: {
+              donorName: string;
+              amount: number;
+            };
+            celebrationEvent: {
+              title: string;
+              description: string;
+            };
+          }) => {
+            // Send goal progress update
+            sendWebSocketMessage(
+              ws,
+              ws.data.messageHistory,
+              "donation_goal_progress",
+              {
+                goalId: data.goal.id,
+                title: data.goal.title,
+                progress: {
+                  current: data.goal.currentAmount,
+                  target: data.goal.targetAmount,
+                  percentage:
+                    (data.goal.currentAmount / data.goal.targetAmount) * 100,
+                },
+              }
+            );
+
+            // If goal is reached, send celebration announcement
+            if (data.goal.currentAmount >= data.goal.targetAmount) {
+              sendWebSocketMessage(
+                ws,
+                ws.data.messageHistory,
+                "system_message",
+                {
+                  content:
+                    `🎉 Donation Goal Reached! ${data.goal.title}\n` +
+                    `Thanks to a generous donation of $${data.donation.amount.toLocaleString()} from ${
+                      data.donation.donorName
+                    }!\n\n` +
+                    `🎊 Upcoming Celebration: ${data.celebrationEvent.title}\n` +
+                    `${data.celebrationEvent.description}`,
+                }
+              );
+            }
+          };
+          store.services.donationService.on(
+            "donationGoalReached",
+            donationGoalListener
+          );
+          eventListeners.set("donationGoalReached", donationGoalListener);
+
           // Listen to agent conversation events
           const messageAddedListener = async (data: any) => {
             if (!data.message?.content) return; // Skip empty messages
@@ -714,6 +772,78 @@ initializeAISystem()
             "collaborationFailed",
             collaborationFailedListener
           );
+
+          // Listen to new donations
+          const donationProcessedListener = async (data: {
+            donation: {
+              donorName: string;
+              amount: number;
+              purpose: string;
+              districtId: string;
+            };
+          }) => {
+            const { donation } = data;
+            sendWebSocketMessage(ws, ws.data.messageHistory, "system_message", {
+              content: `💝 New Donation Alert!\n${
+                donation.donorName
+              } has donated $${donation.amount.toLocaleString()} for ${
+                donation.purpose
+              }`,
+            });
+
+            // Make agents react to the donation
+            try {
+              const agents =
+                store.services.agentConversationService.getRegisteredAgents();
+              const nearbyAgents = Array.from(agents.values())
+                .filter((agent) => agent.districtId === donation.districtId)
+                .slice(0, 3);
+
+              if (nearbyAgents.length > 0) {
+                // Start a new conversation about the donation
+                const conversation =
+                  await store.services.agentConversationService.startNewConversation(
+                    nearbyAgents.map((agent) => agent.id),
+                    {
+                      districtId: donation.districtId,
+                      activity: "discussing_donation",
+                      socialMood: {
+                        positivity: 0.8,
+                        engagement: 0.7,
+                      },
+                      culturalContext: {
+                        events: [],
+                        traditions: [],
+                      },
+                    }
+                  );
+
+                // Let the first agent react through the conversation system
+                const message = `I just heard about the generous donation from ${
+                  donation.donorName
+                }! They've contributed $${donation.amount.toLocaleString()} for ${
+                  donation.purpose
+                }. This will really help our community!`;
+
+                // Use the conversation system to handle the message
+                await store.services.agentConversationService.handleUserMessage(
+                  conversation.id,
+                  message
+                );
+              }
+            } catch (error) {
+              console.error(
+                "Error creating agent reaction to donation:",
+                error
+              );
+            }
+          };
+
+          store.services.donationService.on(
+            "donationProcessed",
+            donationProcessedListener
+          );
+          eventListeners.set("donationProcessed", donationProcessedListener);
 
           // Store event listeners in WebSocket data for cleanup
           ws.data.eventListeners = eventListeners;

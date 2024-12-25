@@ -4,6 +4,8 @@ import { DepartmentService } from "./department.service";
 import { DistrictService } from "./district.service";
 import { EventBus } from "./event-bus.service";
 import { SocialDynamicsService } from "./social-dynamics.service";
+import { DONATION_GOALS, DonationGoal } from "../types/donation-goals";
+import { AgentCollaborationService } from "./agent-collaboration.service";
 
 interface Donation {
   id: string;
@@ -146,12 +148,14 @@ export class DonationService extends EventEmitter {
   private readonly eventBus: EventBus;
   private challenges: Map<string, DonationChallenge> = new Map();
   private culturalMilestones: Map<string, CulturalMilestone> = new Map();
+  private donationGoals: DonationGoal[] = [...DONATION_GOALS];
 
   constructor(
     private vectorStore: VectorStoreService,
     private departmentService: DepartmentService,
     private districtService: DistrictService,
-    private socialDynamicsService: SocialDynamicsService
+    private socialDynamicsService: SocialDynamicsService,
+    private collaborationService: AgentCollaborationService
   ) {
     super();
     this.eventBus = EventBus.getInstance();
@@ -185,6 +189,9 @@ export class DonationService extends EventEmitter {
     const impact = await this.assessDonationImpact(donation);
     this.donationImpacts.set(donationId, impact);
 
+    // Update donation goals and check for celebrations
+    await this.updateDonationGoals(donation);
+
     // Emit event for tracking
     this.eventBus.emit("donationProcessed", {
       donationId,
@@ -194,10 +201,82 @@ export class DonationService extends EventEmitter {
       timestamp: donation.timestamp,
     });
 
+    // Emit event for agent reactions
+    this.emit("donationProcessed", {
+      donation: {
+        donorName: donation.donorName,
+        amount: donation.amount,
+        purpose: donation.purpose,
+        districtId: donation.districtId,
+      },
+    });
+
     // Create and store announcement
     await this.createDonationAnnouncement(donation);
 
     return donationId;
+  }
+
+  private async updateDonationGoals(donation: Donation) {
+    // Find relevant goals for this department
+    const departmentGoals = this.donationGoals.filter(
+      (goal) => goal.departmentId === donation.departmentId
+    );
+
+    for (const goal of departmentGoals) {
+      // Update current amount
+      goal.currentAmount += donation.amount;
+
+      // Check if goal is reached
+      if (
+        goal.currentAmount >= goal.targetAmount &&
+        goal.currentAmount - donation.amount < goal.targetAmount
+      ) {
+        // Goal just reached! Create celebration event
+        const celebrationEvent = {
+          id: `celebration-${goal.id}-${Date.now()}`,
+          title: goal.celebrationEvent.title,
+          description: goal.celebrationEvent.description,
+          category: goal.celebrationEvent.category,
+          severity: 0.3,
+          urgency: 0.3,
+          duration: goal.celebrationEvent.duration,
+          impact: goal.celebrationEvent.impact,
+          affectedDistricts: [donation.districtId],
+          requiredAgents: [],
+          timestamp: Date.now(),
+          status: "pending" as const,
+        };
+
+        // Emit celebration event
+        this.emit("donationGoalReached", {
+          goal,
+          donation,
+          celebrationEvent,
+        });
+
+        // Trigger collaboration for celebration planning
+        await this.collaborationService.initiateCollaboration(celebrationEvent);
+
+        // Reset the goal for the next milestone
+        goal.currentAmount = 0;
+      }
+    }
+  }
+
+  getDonationGoals(): DonationGoal[] {
+    return this.donationGoals;
+  }
+
+  getDonationGoalProgress(
+    goalId: string
+  ): { current: number; target: number } | null {
+    const goal = this.donationGoals.find((g) => g.id === goalId);
+    if (!goal) return null;
+    return {
+      current: goal.currentAmount,
+      target: goal.targetAmount,
+    };
   }
 
   async createDonationAnnouncement(donation: Donation): Promise<void> {

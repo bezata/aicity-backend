@@ -1,6 +1,8 @@
 import { Elysia, t } from "elysia";
 import { swagger } from "@elysiajs/swagger";
 import { DonationService } from "../services/donation.service";
+import { AppStore } from "../types/store.types";
+import { TextVectorQuery } from "../types/vector-store.types";
 
 // Schema definitions
 const DonationSchema = t.Object({
@@ -121,6 +123,18 @@ const SimpleDonationSchema = t.Object({
   districtId: t.String(),
   departmentId: t.String(),
 });
+
+interface DonationMetadata {
+  type: string;
+  category: string;
+  departmentId?: string;
+  districtId?: string;
+  donationId: string;
+  donorName: string;
+  amount: number;
+  purpose: string;
+  timestamp: number;
+}
 
 export const DonationController = (donationService: DonationService) =>
   new Elysia({ prefix: "/donations" })
@@ -496,6 +510,51 @@ export const DonationController = (donationService: DonationService) =>
         detail: {
           tags: ["Donations"],
           summary: "Process a simple donation",
+        },
+      }
+    )
+    .post(
+      "/search/semantic",
+      async ({ body, store }) => {
+        const appStore = store as AppStore;
+        const query: TextVectorQuery<DonationMetadata> = {
+          textQuery: body.query,
+          filter: {
+            type: { $eq: "donation" },
+            ...(body.category && { category: { $eq: body.category } }),
+            ...(body.departmentId && {
+              departmentId: { $eq: body.departmentId },
+            }),
+            ...(body.districtId && { districtId: { $eq: body.districtId } }),
+          },
+          limit: body.limit || 10,
+        };
+
+        const results = await appStore.services.vectorStore.semanticSearch(
+          query
+        );
+
+        return results.matches.map((match) => ({
+          donationId: match.metadata.donationId,
+          donorName: match.metadata.donorName,
+          amount: match.metadata.amount,
+          purpose: match.metadata.purpose,
+          category: match.metadata.category,
+          score: match.score,
+          timestamp: match.metadata.timestamp,
+        }));
+      },
+      {
+        body: t.Object({
+          query: t.String(),
+          category: t.Optional(t.String()),
+          departmentId: t.Optional(t.String()),
+          districtId: t.Optional(t.String()),
+          limit: t.Optional(t.Number()),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Semantic search through donations",
         },
       }
     );

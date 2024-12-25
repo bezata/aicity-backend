@@ -409,4 +409,203 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
     message(ws, message) {
       // Handle any incoming messages if needed
     },
+  })
+  .get("/active", async ({ store }) => {
+    const appStore = store as AppStore;
+    const departments =
+      await appStore.services.departmentService.getAllDepartments();
+
+    // Filter active departments based on recent activity and metrics
+    const activeDepartments = departments.filter((dept) => {
+      const hasRecentActivity =
+        dept.activeChats.length > 0 || dept.currentProjects.length > 0;
+      const isEfficient = dept.metrics.efficiency > 0.7;
+      const hasGoodResponse = dept.metrics.responseTime > 0.7;
+      return hasRecentActivity || (isEfficient && hasGoodResponse);
+    });
+
+    return activeDepartments.map((dept) => ({
+      id: dept.id,
+      name: dept.name,
+      type: dept.type,
+      metrics: dept.metrics,
+      activeChats: dept.activeChats.length,
+      currentProjects: dept.currentProjects.length,
+      budget: {
+        total: dept.budget.total,
+        available: dept.budget.total - dept.budget.spent,
+        efficiency: (dept.budget.total - dept.budget.spent) / dept.budget.total,
+      },
+    }));
+  })
+  .get("/:id/collaboration-history", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+
+    // Create embedding for the department's collaboration query
+    const embedding = await appStore.services.vectorStore.createEmbedding(
+      `Department ${id} collaboration sessions and discussions`
+    );
+
+    // Query vector store for collaboration history
+    const results = await appStore.services.vectorStore.query({
+      vector: embedding,
+      filter: {
+        type: { $eq: "collaboration" },
+        departmentId: { $eq: id },
+      },
+      topK: 50,
+    });
+
+    return results.matches.map(
+      (
+        match: VectorRecord<{
+          sessionId: string;
+          topic: string;
+          participants: string;
+          timestamp: string;
+          decisions: string;
+          outcome: string;
+          consensusLevel: string;
+          participation: string;
+          effectiveness: string;
+        }>
+      ) => ({
+        sessionId: match.metadata.sessionId,
+        topic: match.metadata.topic,
+        participants: match.metadata.participants?.split(",") || [],
+        timestamp: match.metadata.timestamp,
+        decisions: match.metadata.decisions,
+        outcome: match.metadata.outcome,
+        metrics: {
+          consensusLevel: parseFloat(match.metadata.consensusLevel || "0"),
+          participation: parseFloat(match.metadata.participation || "0"),
+          effectiveness: parseFloat(match.metadata.effectiveness || "0"),
+        },
+      })
+    );
+  })
+  .post(
+    "/:id/schedule-collaboration",
+    async ({ params: { id }, body, store }) => {
+      const appStore = store as AppStore;
+      const department =
+        await appStore.services.departmentService.getDepartment(id);
+      if (!department) throw new Error("Department not found");
+
+      // Create collaboration event
+      const collaborationEvent = {
+        id: crypto.randomUUID(),
+        title: body.title,
+        description: body.description,
+        category: body.category,
+        severity: 0.5,
+        urgency: 0.6,
+        duration: body.duration || 3600000, // Default 1 hour
+        impact: {
+          social: body.impact?.social || 0.7,
+          economic: body.impact?.economic || 0.6,
+          cultural: body.impact?.cultural || 0.5,
+          environmental: body.impact?.environmental || 0.4,
+        },
+        affectedDistricts: [body.districtId || "central-district"],
+        requiredAgents: body.agentIds || department.assignedAgents.slice(0, 5),
+        timestamp: body.scheduledTime || Date.now(),
+        status: "pending" as const,
+      };
+
+      // Store collaboration details in vector store
+      await appStore.services.vectorStore.upsert({
+        id: `collab-schedule-${collaborationEvent.id}`,
+        values: await appStore.services.vectorStore.createEmbedding(
+          `${collaborationEvent.title} ${collaborationEvent.description} scheduled for department ${department.name}`
+        ),
+        metadata: {
+          type: "collaboration",
+          departmentId: id,
+          sessionId: collaborationEvent.id,
+          topic: collaborationEvent.title,
+          participants: collaborationEvent.requiredAgents.join(","),
+          timestamp: collaborationEvent.timestamp,
+          category: collaborationEvent.category,
+          status: "scheduled",
+        },
+      });
+
+      // Initiate collaboration
+      await appStore.services.collaborationService.initiateCollaboration(
+        collaborationEvent
+      );
+
+      return {
+        collaborationId: collaborationEvent.id,
+        scheduledTime: collaborationEvent.timestamp,
+        participants: collaborationEvent.requiredAgents.length,
+        status: "scheduled",
+      };
+    },
+    {
+      body: t.Object({
+        title: t.String(),
+        description: t.String(),
+        category: t.Union([
+          t.Literal("development"),
+          t.Literal("cultural"),
+          t.Literal("emergency"),
+          t.Literal("social"),
+          t.Literal("transport"),
+          t.Literal("environmental"),
+          t.Literal("community"),
+        ]),
+        duration: t.Optional(t.Number()),
+        scheduledTime: t.Optional(t.Number()),
+        districtId: t.Optional(t.String()),
+        agentIds: t.Optional(t.Array(t.String())),
+        impact: t.Optional(
+          t.Object({
+            social: t.Number(),
+            economic: t.Number(),
+            cultural: t.Number(),
+            environmental: t.Number(),
+          })
+        ),
+      }),
+    }
+  )
+  .get("/:id/scheduled-collaborations", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+
+    // Query vector store for scheduled collaborations
+    const embedding = await appStore.services.vectorStore.createEmbedding(
+      `Department ${id} scheduled collaboration sessions`
+    );
+
+    const results = await appStore.services.vectorStore.query({
+      vector: embedding,
+      filter: {
+        type: { $eq: "collaboration" },
+        departmentId: { $eq: id },
+        status: { $eq: "scheduled" },
+      },
+      topK: 20,
+    });
+
+    return results.matches.map(
+      (
+        match: VectorRecord<{
+          sessionId: string;
+          topic: string;
+          participants: string;
+          timestamp: string;
+          category: string;
+          status: string;
+        }>
+      ) => ({
+        sessionId: match.metadata.sessionId,
+        topic: match.metadata.topic,
+        participants: match.metadata.participants?.split(",") || [],
+        scheduledTime: parseInt(match.metadata.timestamp),
+        category: match.metadata.category,
+        status: match.metadata.status,
+      })
+    );
   });

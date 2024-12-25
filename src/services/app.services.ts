@@ -338,7 +338,7 @@ const conversationService = new ConversationService(
 );
 
 // Initialize chronicles service
-const chroniclesService = new ChroniclesService(togetherService);
+const chroniclesService = new ChroniclesService(togetherService, vectorStore);
 
 // Register city agents for autonomous conversations
 const registerCityAgents = async () => {

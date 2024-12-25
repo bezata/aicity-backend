@@ -1,4 +1,5 @@
 import { TogetherService } from "./together.service";
+import { VectorStoreService as VectorService } from "./vector-store.service";
 
 interface CityNews {
   headline: string;
@@ -144,8 +145,144 @@ Incident:`;
 export class ChroniclesService {
   private lastUpdate: number = 0;
   private currentChronicle: DailyChronicle | null = null;
+  private readonly UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
+  private readonly NEWS_PER_UPDATE = 3;
+  private readonly EVENTS_PER_UPDATE = 2;
 
-  constructor(private togetherService: TogetherService) {}
+  constructor(
+    private togetherService: TogetherService,
+    private vectorService: VectorService
+  ) {
+    // Initialize chronicles data immediately
+    console.log("🗞️ Initializing Chronicles Service...");
+    this.initializeChronicles().catch((error) => {
+      console.error("Failed to initialize chronicles:", error);
+    });
+  }
+
+  private async initializeChronicles() {
+    // Generate initial context
+    const context = `
+Initial City Status Report
+Date: ${new Date().toLocaleDateString()}
+Time: ${new Date().toLocaleTimeString()}
+Status: City initialization phase
+Focus: Setting up initial monitoring and reporting systems
+Activities: System calibration and baseline data collection
+Conditions: Standard operating parameters
+    `.trim();
+
+    // Generate initial data
+    const [news, events, incidents] = await Promise.all([
+      this.generateDailyNews(context),
+      this.generateRandomEvents(context),
+      this.generateIncidents(context),
+    ]);
+
+    this.currentChronicle = {
+      date: new Date().toISOString(),
+      headlines: news,
+      events,
+      incidents,
+      departmentBudgets: this.generateDepartmentBudgets(),
+      metrics: this.generateRandomMetrics(),
+    };
+
+    // Store initial data in vector DB
+    await this.storeInVectorDB(this.currentChronicle);
+    this.lastUpdate = Date.now();
+
+    console.log(`🗞️ Chronicles initialized with:
+- ${news.length} news articles
+- ${events.length} events
+- ${incidents.length} incidents
+Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
+  }
+
+  private async storeInVectorDB(chronicle: DailyChronicle) {
+    const timestamp = Date.now();
+
+    // Store news articles
+    for (const news of chronicle.headlines) {
+      const embedding = await this.togetherService.createEmbedding(
+        `${news.headline}\n${news.content}`
+      );
+      await this.vectorService.upsert({
+        id: `news-${timestamp}-${news.headline.slice(0, 20)}`,
+        values: embedding,
+        metadata: {
+          type: "city_news",
+          headline: news.headline,
+          content: news.content,
+          category: news.category,
+          timestamp: news.timestamp,
+          importance: news.importance,
+          relatedDistricts: news.relatedDistricts,
+          relatedAgents: news.relatedAgents,
+        },
+      });
+    }
+
+    // Store events
+    for (const event of chronicle.events) {
+      const embedding = await this.togetherService.createEmbedding(
+        `${event.title}\n${event.description}`
+      );
+      await this.vectorService.upsert({
+        id: `event-${timestamp}-${event.title.slice(0, 20)}`,
+        values: embedding,
+        metadata: {
+          type: "city_event",
+          title: event.title,
+          description: event.description,
+          eventType: event.type,
+          location: event.location,
+          timestamp: event.timestamp,
+          impact: event.impact,
+          participants: event.participants,
+        },
+      });
+    }
+
+    // Store incidents
+    for (const incident of chronicle.incidents) {
+      const embedding = await this.togetherService.createEmbedding(
+        `${incident.description}`
+      );
+      await this.vectorService.upsert({
+        id: `incident-${incident.id}`,
+        values: embedding,
+        metadata: {
+          type: "city_incident",
+          description: incident.description,
+          severity: incident.severity,
+          location: incident.location,
+          timestamp: incident.timestamp,
+          incidentType: incident.type,
+          status: incident.status,
+          involvedAgents: incident.involvedAgents,
+          responseTeam: incident.responseTeam,
+        },
+      });
+    }
+  }
+
+  private async retrieveFromVectorDB(
+    type: "city_news" | "city_event" | "city_incident",
+    limit: number
+  ) {
+    const embedding = await this.togetherService.createEmbedding(
+      `Recent ${type.replace("_", " ")} in the city`
+    );
+
+    const results = await this.vectorService.query({
+      vector: embedding,
+      filter: { type: { $eq: type } },
+      topK: limit,
+    });
+
+    return results.matches.map((match: any) => match.metadata);
+  }
 
   private generateRandomMetrics(): DetailedMetrics {
     const generateScore = (base: number, variance: number) =>
@@ -274,8 +411,8 @@ export class ChroniclesService {
   async generateDailyNews(context: string): Promise<CityNews[]> {
     const news: CityNews[] = [];
 
-    // Generate 10 news articles
-    for (let i = 0; i < 10; i++) {
+    // Generate fewer news articles per update
+    for (let i = 0; i < this.NEWS_PER_UPDATE; i++) {
       const response = await this.togetherService.generateText(
         generateNewsPrompt(context)
       );
@@ -314,8 +451,8 @@ export class ChroniclesService {
   async generateRandomEvents(context: string): Promise<CityEvent[]> {
     const events: CityEvent[] = [];
 
-    // Generate 5 random events
-    for (let i = 0; i < 5; i++) {
+    // Generate fewer events per update
+    for (let i = 0; i < this.EVENTS_PER_UPDATE; i++) {
       const response = await this.togetherService.generateText(
         generateEventPrompt(context)
       );
@@ -355,10 +492,9 @@ export class ChroniclesService {
 
   async getDailyChronicle(): Promise<DailyChronicle> {
     const now = Date.now();
-    const oneDayMs = 24 * 60 * 60 * 1000;
 
-    // Return cached chronicle if it's from today
-    if (this.currentChronicle && now - this.lastUpdate < oneDayMs) {
+    // Return cached chronicle if it's within update interval
+    if (this.currentChronicle && now - this.lastUpdate < this.UPDATE_INTERVAL) {
       return this.currentChronicle;
     }
 
@@ -388,11 +524,21 @@ Environmental Conditions: Stable and monitored
       metrics: this.generateRandomMetrics(),
     };
 
+    // Store the new chronicle in vector DB
+    await this.storeInVectorDB(this.currentChronicle);
+
     this.lastUpdate = now;
     return this.currentChronicle;
   }
 
   async getLatestNews(limit: number = 5): Promise<CityNews[]> {
+    // First try to get from vector DB
+    const storedNews = await this.retrieveFromVectorDB("city_news", limit);
+    if (storedNews.length > 0) {
+      return storedNews as CityNews[];
+    }
+
+    // Fallback to current chronicle
     const chronicle = await this.getDailyChronicle();
     return chronicle.headlines
       .sort((a, b) => b.importance - a.importance)
@@ -400,11 +546,28 @@ Environmental Conditions: Stable and monitored
   }
 
   async getLatestEvents(limit: number = 3): Promise<CityEvent[]> {
+    // First try to get from vector DB
+    const storedEvents = await this.retrieveFromVectorDB("city_event", limit);
+    if (storedEvents.length > 0) {
+      return storedEvents as CityEvent[];
+    }
+
+    // Fallback to current chronicle
     const chronicle = await this.getDailyChronicle();
     return chronicle.events.sort((a, b) => b.impact - a.impact).slice(0, limit);
   }
 
   async getLatestIncidents(limit: number = 5): Promise<CityIncident[]> {
+    // First try to get from vector DB
+    const storedIncidents = await this.retrieveFromVectorDB(
+      "city_incident",
+      limit
+    );
+    if (storedIncidents.length > 0) {
+      return storedIncidents as CityIncident[];
+    }
+
+    // Fallback to current chronicle
     const chronicle = await this.getDailyChronicle();
     return chronicle.incidents
       .sort((a, b) => b.timestamp - a.timestamp)

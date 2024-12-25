@@ -51,7 +51,19 @@ Generate a brief surveillance report describing the target's current activities 
 Report:`;
 
 export const CCTVController = new Elysia({ prefix: "/cctv" })
-  .use(swagger())
+  .use(
+    swagger({
+      documentation: {
+        tags: [
+          {
+            name: "CCTV Surveillance",
+            description:
+              "Endpoints for monitoring and tracking agent activities through CCTV",
+          },
+        ],
+      },
+    })
+  )
   .post(
     "/observe/:agentId",
     async ({ params: { agentId }, store }) => {

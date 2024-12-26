@@ -99,9 +99,9 @@ export class AgentCollaborationService extends EventEmitter {
 
   private config: CollaborationConfig = {
     minConsensusThreshold: 0.7,
-    maxDiscussionRounds: 5,
+    maxDiscussionRounds: 2,
     decisionTimeoutMs: 30000,
-    emergencyProtocolThreshold: 0.8,
+    emergencyProtocolThreshold: 1.5,
   };
 
   constructor(

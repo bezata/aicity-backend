@@ -2959,7 +2959,7 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
     const messageObj: Message = {
       id: `msg-${Date.now()}`,
       agentId: senderAgentId || "user",
-      content: userMessage,
+      content: userMessage.replace(/^"|"$/g, ""), // Remove surrounding quotes if present
       timestamp: Date.now(),
       role: senderAgentId ? "assistant" : "user",
       topics: [],
@@ -2989,10 +2989,10 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
         `You are ${agent.name}, ${agent.role}, who is ${agent.personality}.
         ${
           senderAgentId ? `Another agent` : `A user`
-        } has sent this message: "${userMessage}"
+        } has sent this message: ${userMessage}
         Previous messages: ${conversation.messages
           .slice(-3)
-          .map((m) => `${m.agentId}: ${m.content}`)
+          .map((m) => `${this.getAgentName(m.agentId)}: ${m.content}`)
           .join("\n")}
         
         Respond naturally in your character's voice, keeping in mind your personality and role.

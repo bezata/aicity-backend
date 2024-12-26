@@ -84,6 +84,7 @@ export class DepartmentService extends EventEmitter {
   ) {
     super();
     this.eventBus = EventBus.getInstance();
+    this.departmentEvents = new Map();
     this.initializeHealthMonitoring();
     this.initializePerformanceMonitoring();
     this.initializeDefaultDepartments().then(() => {
@@ -1272,9 +1273,37 @@ export class DepartmentService extends EventEmitter {
       },
     };
 
+    // Initialize the events array for this department if it doesn't exist
+    if (!this.departmentEvents.has(departmentId)) {
+      this.departmentEvents.set(departmentId, []);
+    }
+
+    // Get current events and add the new one
     const events = this.departmentEvents.get(departmentId) || [];
     events.push(event);
     this.departmentEvents.set(departmentId, events);
+
+    // Store event in vector store for persistence
+    await this.vectorStore.upsert({
+      id: `dept-event-${event.id}`,
+      values: await this.vectorStore.createEmbedding(
+        `${event.title} ${event.description} ${event.type}`
+      ),
+      metadata: {
+        type: "department_event",
+        departmentId,
+        eventId: event.id,
+        title: event.title,
+        description: event.description,
+        eventType: event.type,
+        requiredBudget: event.requiredBudget,
+        currentBudget: 0,
+        status: event.status,
+        participants: event.participants.join(","),
+        startDate: event.startDate,
+        timestamp: Date.now(),
+      },
+    });
 
     // Emit event creation
     this.emit("eventCreated", {
@@ -1283,6 +1312,7 @@ export class DepartmentService extends EventEmitter {
       timestamp: Date.now(),
     });
 
+    console.log(`Created new event for department ${departmentId}:`, event);
     return event;
   }
 
@@ -1430,7 +1460,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 500000,
         departmentId: "transportation-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
       {
@@ -1441,7 +1471,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 750000,
         departmentId: "emergency-response-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
 
@@ -1454,7 +1484,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 150000,
         departmentId: "social-services-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
       {
@@ -1465,7 +1495,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 300000,
         departmentId: "urban-planning-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
 
@@ -1478,7 +1508,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 300000,
         departmentId: "environmental-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
       {
@@ -1489,7 +1519,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 200000,
         departmentId: "environmental-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
 
@@ -1502,7 +1532,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 400000,
         departmentId: "education-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
       {
@@ -1513,7 +1543,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 250000,
         departmentId: "education-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
 
@@ -1526,7 +1556,7 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 350000,
         departmentId: "healthcare-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
       {
@@ -1537,14 +1567,52 @@ export class DepartmentService extends EventEmitter {
         requiredBudget: 280000,
         departmentId: "social-services-dept",
         districtId: "central-district",
-        participants: [],
+        participants: ["sophia", "raj", "vision", "nexus"],
+        startDate: Date.now(),
+      },
+      // Economy Department Events
+      {
+        type: "infrastructure",
+        title: "Economic Development Hub",
+        description:
+          "Create a centralized hub for economic development and business support",
+        requiredBudget: 600000,
+        departmentId: "economy-dept",
+        districtId: "central-district",
+        participants: ["sophia", "raj", "vision", "nexus"],
+        startDate: Date.now(),
+      },
+      {
+        type: "social",
+        title: "Business Innovation Forum",
+        description:
+          "Organize a forum for local businesses to share ideas and innovations",
+        requiredBudget: 150000,
+        departmentId: "economy-dept",
+        districtId: "central-district",
+        participants: ["sophia", "raj", "vision", "nexus"],
         startDate: Date.now(),
       },
     ];
 
+    console.log("Initializing default events...");
     for (const eventData of defaultEvents) {
-      await this.createDepartmentEvent(eventData.departmentId, eventData);
+      try {
+        const event = await this.createDepartmentEvent(
+          eventData.departmentId,
+          eventData
+        );
+        console.log(
+          `Created event: ${event.title} for department: ${event.departmentId}`
+        );
+      } catch (error) {
+        console.error(
+          `Failed to create event ${eventData.title} for department ${eventData.departmentId}:`,
+          error
+        );
+      }
     }
+    console.log("Finished initializing default events");
   }
 
   async getDepartmentEvents(departmentId: string): Promise<DepartmentEvent[]> {

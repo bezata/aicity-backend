@@ -12,6 +12,7 @@ import { SocialDynamicsService } from "./social-dynamics.service";
 import { CultureService } from "./culture.service";
 import { TogetherService } from "./together.service";
 import { DistrictService } from "./district.service";
+import crypto from "crypto";
 
 interface SystemProtocol {
   name: string;
@@ -190,29 +191,46 @@ export class AgentConversationService extends EventEmitter {
     await new Promise((resolve) => setTimeout(resolve, typingDuration));
   }
 
-  private async addMessageWithDelay(conversationId: string, message: Message) {
+  private async addMessage(conversationId: string, message: Message) {
     const conversation = this.activeConversations.get(conversationId);
     if (!conversation) return;
 
-    // Add initial response delay
-    await new Promise((resolve) =>
-      setTimeout(resolve, this.messageDelayConfig.responseDelay)
-    );
+    // Cache the message
+    this.messageCache.set(message.id, {
+      content: message.content,
+      timestamp: Date.now(),
+    });
 
-    // Simulate typing
-    await this.simulateTyping(message.content.length);
+    // Clean old cache entries
+    for (const [id, data] of this.messageCache.entries()) {
+      if (Date.now() - data.timestamp > this.cacheDuration) {
+        this.messageCache.delete(id);
+      }
+    }
 
     conversation.messages.push(message);
     conversation.lastUpdateTime = Date.now();
+
+    // Update conversation counts for non-system messages
+    if (message.agentId !== "system") {
+      const agentCounts = this.agentConversationCounts.get(message.agentId) || {
+        count: 0,
+        lastTime: 0,
+      };
+      agentCounts.count++;
+      agentCounts.lastTime = Date.now();
+      this.agentConversationCounts.set(message.agentId, agentCounts);
+    }
 
     // Update sentiment
     conversation.sentiment = await this.calculateConversationSentiment(
       conversation.messages
     );
 
-    // Broadcast message
+    // Immediately broadcast the individual message
     this.districtService.broadcastMessage(conversation.districtId, {
-      type: "agent_conversation",
+      type:
+        message.agentId === "system" ? "system_message" : "agent_conversation",
       data: {
         conversationId,
         message: {
@@ -228,17 +246,18 @@ export class AgentConversationService extends EventEmitter {
     });
 
     this.emit("message:added", { conversationId, message });
+  }
 
-    // Add random delay before next message
-    const nextMessageDelay =
-      Math.floor(
-        Math.random() *
-          (this.messageDelayConfig.maxDelay -
-            this.messageDelayConfig.minDelay +
-            1)
-      ) + this.messageDelayConfig.minDelay;
+  private async addMessageWithDelay(conversationId: string, message: Message) {
+    // First broadcast the message immediately
+    await this.addMessage(conversationId, message);
 
-    await new Promise((resolve) => setTimeout(resolve, nextMessageDelay));
+    // Then simulate typing delay for the next message
+    const typingDelay = Math.min(
+      message.content.length * 30, // 30ms per character
+      2000 // Max 2 seconds
+    );
+    await new Promise((resolve) => setTimeout(resolve, typingDelay));
   }
 
   constructor(
@@ -602,7 +621,7 @@ export class AgentConversationService extends EventEmitter {
         "a42ed892-3878-45a5-9a1a-4ceaf9524f1c"
       );
       if (!district) {
-        console.error("��� District not found");
+        console.error(" District not found");
         return;
       }
 
@@ -1437,57 +1456,6 @@ export class AgentConversationService extends EventEmitter {
 
   public getAgent(agentId: string): Agent | undefined {
     return this.registeredAgents.get(agentId);
-  }
-
-  private async addMessage(conversationId: string, message: Message) {
-    const conversation = this.activeConversations.get(conversationId);
-    if (!conversation) return;
-
-    // Cache the message
-    this.messageCache.set(message.id, {
-      content: message.content,
-      timestamp: Date.now(),
-    });
-
-    // Clean old cache entries
-    for (const [id, data] of this.messageCache.entries()) {
-      if (Date.now() - data.timestamp > this.cacheDuration) {
-        this.messageCache.delete(id);
-      }
-    }
-
-    conversation.messages.push(message);
-    conversation.lastUpdateTime = Date.now();
-
-    // Update conversation counts for non-system messages
-    if (message.agentId !== "system") {
-      const agentCounts = this.agentConversationCounts.get(message.agentId) || {
-        count: 0,
-        lastTime: 0,
-      };
-      agentCounts.count++;
-      agentCounts.lastTime = Date.now();
-      this.agentConversationCounts.set(message.agentId, agentCounts);
-    }
-
-    // Update sentiment
-    conversation.sentiment = await this.calculateConversationSentiment(
-      conversation.messages
-    );
-
-    // Broadcast message
-    this.districtService.broadcastMessage(conversation.districtId, {
-      type:
-        message.agentId === "system" ? "system_message" : "conversation_update",
-      data: {
-        conversationId,
-        messages: conversation.messages,
-        sentiment: conversation.sentiment,
-        lastUpdateTime: conversation.lastUpdateTime,
-      },
-    });
-
-    this.emit("message:added", { conversationId, message });
   }
 
   private getAgentName(agentId: string): string {
@@ -2970,98 +2938,66 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
 
   public async handleUserMessage(
     conversationId: string,
-    userMessage: string
+    userMessage: string,
+    senderAgentId?: string
   ): Promise<void> {
     const conversation = this.activeConversations.get(conversationId);
     if (!conversation) {
       throw new Error("Conversation not found");
     }
 
-    // Add user message to conversation
-    const userMessageObj: Message = {
-      id: `msg-${Date.now()}`,
-      agentId: "user",
-      content: userMessage,
-      timestamp: Date.now(),
-      role: "user",
-      topics: conversation.topics,
-    };
-
-    await this.addMessage(conversationId, userMessageObj);
-
-    // Get conversation state and context for enhanced responses
-    const state = await this.analyzeConversationState(conversation);
-    const context = await this.getEnvironmentalContext(conversation);
-
-    // Get all active conversations to check agent availability
-    const activeConversations = await this.getActiveConversations();
-
-    // Get the last few speakers to ensure variety
-    const recentSpeakers = conversation.messages
-      .slice(-3)
-      .map((msg) => msg.agentId);
-
-    // Sort participants by their availability and last message time
-    // Exclude recent speakers to ensure conversation variety
-    const availableParticipants = conversation.participants.filter(
-      (participant) => !recentSpeakers.includes(participant.id)
-    );
-
-    if (availableParticipants.length === 0) {
-      // If all participants have spoken recently, reset with all participants except the last speaker
-      const lastSpeaker = recentSpeakers[recentSpeakers.length - 1];
-      availableParticipants.push(
-        ...conversation.participants.filter(
-          (participant) => participant.id !== lastSpeaker
-        )
+    // Check if this agent was the last speaker
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    if (lastMessage && lastMessage.agentId === senderAgentId) {
+      console.log(
+        `Preventing ${senderAgentId} from responding to their own message`
       );
+      return;
     }
 
-    // Randomly select 1-2 participants to respond
-    const respondingParticipants = availableParticipants
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 1 + Math.floor(Math.random() * 2));
+    // Create and add user/agent message immediately
+    const messageObj: Message = {
+      id: `msg-${Date.now()}`,
+      agentId: senderAgentId || "user",
+      content: userMessage,
+      timestamp: Date.now(),
+      role: senderAgentId ? "assistant" : "user",
+      topics: [],
+    };
 
-    // Process responses from selected participants
-    for (const agent of respondingParticipants) {
-      const isBusy = activeConversations.some(
-        (conv) =>
-          conv.id !== conversationId &&
-          conv.participants.some((p) => p.id === agent.id)
-      );
+    await this.addMessage(conversationId, messageObj);
 
-      if (isBusy) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, this.USER_MESSAGE_RESPONSE_DELAY * 2)
-        );
-        console.log(
-          `Waiting for ${agent.name} to finish their other conversation...`
-        );
-      }
+    // Get conversation state
+    const state = await this.analyzeConversationState(conversation);
 
-      // Generate enhanced system prompt with rich context
-      const systemPrompt = await this.generateEnhancedSystemPrompt(
-        agent,
-        conversation,
-        state,
-        context
-      );
+    // Select 2-3 random agents to respond, excluding the sender and last speaker
+    const respondingAgents = this.selectRespondingAgents(
+      conversation,
+      2,
+      3,
+      senderAgentId,
+      lastMessage?.agentId
+    );
 
-      // Add initial response delay
-      await new Promise((resolve) =>
-        setTimeout(resolve, this.messageDelayConfig.responseDelay)
-      );
+    // Have each selected agent respond
+    for (const agentId of respondingAgents) {
+      const agent = this.getAgent(agentId);
+      if (!agent) continue;
 
       // Generate response using enhanced context
-      const response = await this.generateEnhancedResponse(
-        agent,
-        conversation,
-        systemPrompt,
-        state
+      const response = await this.togetherService.generateText(
+        `You are ${agent.name}, ${agent.role}, who is ${agent.personality}.
+        ${
+          senderAgentId ? `Another agent` : `A user`
+        } has sent this message: "${userMessage}"
+        Previous messages: ${conversation.messages
+          .slice(-3)
+          .map((m) => `${m.agentId}: ${m.content}`)
+          .join("\n")}
+        
+        Respond naturally in your character's voice, keeping in mind your personality and role.
+        Format: Just the response, no additional text.`
       );
-
-      // Simulate typing time
-      await this.simulateTyping(response.length);
 
       // Create and add agent's response message
       const agentMessage: Message = {
@@ -3071,21 +3007,47 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
         timestamp: Date.now(),
         role: "assistant",
         sentiment: await this.vectorStore.analyzeSentiment(response),
+        topics: [],
       };
 
+      // Add message with natural typing delay
       await this.addMessageWithDelay(conversation.id, agentMessage);
-
-      // Add natural delay between agent responses
-      await new Promise((resolve) =>
-        setTimeout(
-          resolve,
-          Math.random() *
-            (this.USER_MESSAGE_RESPONSE_DELAY * 1.5 -
-              this.USER_MESSAGE_RESPONSE_DELAY) +
-            this.USER_MESSAGE_RESPONSE_DELAY
-        )
-      );
     }
+  }
+
+  private selectRespondingAgents(
+    conversation: any,
+    min: number,
+    max: number,
+    excludeAgentId?: string,
+    lastSpeakerId?: string
+  ): string[] {
+    // Get available agents from the conversation, excluding the message sender and last speaker
+    const availableAgents = conversation.participants
+      .map((p: any) => p.id)
+      .filter(
+        (id: string) =>
+          id !== "system" && id !== excludeAgentId && id !== lastSpeakerId
+      );
+
+    // If no available agents after exclusion, return empty array
+    if (availableAgents.length === 0) {
+      return [];
+    }
+
+    // Randomly select between min and max agents
+    const count = Math.floor(Math.random() * (max - min + 1)) + min;
+    const selectedAgents = [];
+
+    // Shuffle available agents
+    const shuffled = [...availableAgents].sort(() => Math.random() - 0.5);
+
+    // Select the first 'count' agents
+    for (let i = 0; i < Math.min(count, shuffled.length); i++) {
+      selectedAgents.push(shuffled[i]);
+    }
+
+    return selectedAgents;
   }
 
   public async broadcastSystemMessage(content: string) {
@@ -3101,6 +3063,15 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
     // Get all active conversations
     const activeConvs = await this.getActiveConversations();
 
+    // Generate a response prompt for important system messages
+    const isDonationMessage = content.includes("Donation Alert");
+    const prompt = isDonationMessage
+      ? `You are an AI agent in the city. You just received this system message: "${content}". 
+      Generate an enthusiastic and grateful response about this donation, mentioning how it will help the city. 
+      Be specific about potential uses of the funds.`
+      : `You are an AI agent in the city. You just received this system message: "${content}". 
+      Generate a relevant and thoughtful response.`;
+
     // Add the system message to each active conversation
     for (const conversation of activeConvs) {
       await this.addMessage(conversation.id, systemMessage);
@@ -3115,9 +3086,14 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
         },
       });
 
+      // Select 2-3 random agents to respond
+      const respondingAgents = this.selectRespondingAgents(conversation, 2, 3);
+
       // Trigger agent reactions to the system message
-      const participants = conversation.participants;
-      for (const agent of participants) {
+      for (const agentId of respondingAgents) {
+        const agent = this.getAgent(agentId);
+        if (!agent) continue;
+
         // Add a small delay between agent responses
         await new Promise((resolve) =>
           setTimeout(resolve, 1000 + Math.random() * 2000)
@@ -3127,7 +3103,7 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
         const response = await this.generateEnhancedResponse(
           agent,
           conversation,
-          `You are reacting to this system announcement: ${content}. Express your thoughts or feelings about it.`,
+          `${prompt}\n\nRespond in the voice of ${agent.name}, ${agent.role}, who is ${agent.personality}.`,
           await this.analyzeConversationState(conversation)
         );
 
@@ -3138,6 +3114,7 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
           timestamp: Date.now(),
           role: "assistant",
           sentiment: await this.vectorStore.analyzeSentiment(response),
+          topics: [],
         };
 
         await this.addMessageWithDelay(conversation.id, agentMessage);

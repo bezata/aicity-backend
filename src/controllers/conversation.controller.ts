@@ -27,14 +27,50 @@ export const ConversationController = ({ store }: { store: AppStore }) =>
         activity: conv.activity,
         location: conv.location,
         topic: conv.topic,
+        status: conv.status,
+        lastUpdateTime: conv.lastUpdateTime,
       }));
     })
     .get("/:id", async ({ params: { id } }) => {
       const activeConversations =
         await store.services.agentConversationService.getActiveConversations();
       const conversation = activeConversations.find((conv) => conv.id === id);
+
+      if (!conversation) {
+        // If not in active conversations, try to get from conversation service
+        const messages =
+          await store.services.conversationService.getConversation(id);
+        const state = await store.services.conversationService.getState(id);
+
+        return {
+          messages,
+          status: state.status,
+          lastMessageTimestamp: state.lastMessageTimestamp,
+          lastInteractionTime: state.lastInteractionTime,
+          messageCount: state.messageCount,
+          participants: state.participants,
+          topics: state.topics,
+          sentiment: state.sentiment,
+          isEnded: state.status === "ended" || state.status === "inactive",
+          endReason:
+            state.status === "ended"
+              ? "completed"
+              : state.status === "inactive"
+              ? "timeout"
+              : undefined,
+        };
+      }
+
       return {
-        messages: conversation?.messages || [],
+        messages: conversation.messages,
+        status: conversation.status,
+        lastUpdateTime: conversation.lastUpdateTime,
+        participants: conversation.participants,
+        activity: conversation.activity,
+        location: conversation.location,
+        topic: conversation.topic,
+        isEnded: conversation.status === "ended",
+        endReason: conversation.status === "ended" ? "completed" : undefined,
       };
     })
     .post(

@@ -546,22 +546,23 @@ ${memories.memories
     const sentimentAnalyzer: Agent = {
       id: "group-response",
       name: "Group Response Generator",
-      personality: "analytical",
+      role: "system",
+      personality: "Analytical and objective",
       systemPrompt:
-        "Generate a cohesive group response that maintains consensus.",
-      interests: ["group dynamics"],
-      preferredStyle: "formal" as ConversationStyle,
+        "You analyze group conversations and generate appropriate responses.",
+      interests: ["conversation analysis", "group dynamics"],
+      preferredStyle: "analytical",
       traits: {
-        curiosity: 0.5,
+        curiosity: 0.7,
         enthusiasm: 0.5,
         formality: 0.8,
-        empathy: 0.8,
-        analyticalThinking: 1,
-        creativity: 0.7,
+        empathy: 0.6,
+        analyticalThinking: 0.9,
+        creativity: 0.4,
       },
-      memoryWindowSize: 5,
+      memoryWindowSize: 10,
       emotionalRange: {
-        min: 0,
+        min: -1,
         max: 1,
       },
     };
@@ -624,6 +625,26 @@ ${memories.memories
       currentStyle: "casual",
       emotionalState: 0,
       turnsInCurrentTopic: 0,
+      participantEngagement: new Map<string, number>(),
+      topicHistory: [],
+      contextualRelevance: 0,
+      naturalTransitions: 0,
+      conversationDepth: 0,
+      emotionalDynamics: {
+        tension: 0,
+        agreement: 0,
+        empathy: 0,
+      },
+      interactionPatterns: {
+        turnTakingBalance: 0,
+        responseLatency: [],
+        topicInitiationCount: new Map<string, number>(),
+      },
+      environmentalContext: {
+        noise: 0,
+        crowding: 0,
+        timeConstraints: false,
+      },
     };
   }
 
@@ -652,7 +673,7 @@ ${memories.memories
     const timeSinceLastMessage = Date.now() - lastMessageTime;
 
     if (timeSinceLastMessage > 30 * 60 * 1000) return "inactive"; // 30 minutes
-    if (timeSinceLastMessage > 5 * 60 * 1000) return "idle"; // 5 minutes
+    if (timeSinceLastMessage > 5 * 60 * 1000) return "inactive"; // 5 minutes (changed from "idle")
     return "active";
   }
 

@@ -2802,6 +2802,22 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
       state
     );
 
+    // Send system message about conversation ending
+    const systemMessage: Message = {
+      id: `msg-${Date.now()}`,
+      agentId: "system",
+      content: `Conversation ended after ${
+        conversation.messages.length
+      } messages. Final sentiment: ${
+        state.sentiment >= 0 ? "positive" : "negative"
+      }. Topics discussed: ${state.topics.join(", ")}`,
+      timestamp: Date.now(),
+      role: "system",
+      sentiment: 0,
+      topics: state.topics,
+    };
+    await this.addMessage(conversationId, systemMessage);
+
     // Clean up conversation
     conversation.status = "ended";
     this.activeConversations.delete(conversationId);

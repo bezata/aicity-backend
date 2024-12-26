@@ -268,83 +268,120 @@ export class DonationService extends EventEmitter {
   async processDonation(
     donationData: Omit<Donation, "id" | "status" | "timestamp">
   ): Promise<string> {
-    const donationId = crypto.randomUUID();
-    const donation: Donation = {
-      id: donationId,
-      ...donationData,
-      status: "pending",
-      timestamp: Date.now(),
-    };
+    try {
+      const donationId = crypto.randomUUID();
+      const donation: Donation = {
+        id: donationId,
+        ...donationData,
+        status: "pending",
+        timestamp: Date.now(),
+      };
 
-    // Update department budget through event bus
-    this.eventBus.emit("departmentBudgetUpdate", {
-      departmentId: donation.departmentId,
-      type: "donation",
-      amount: donation.amount,
-      source: donation.donorId,
-      timestamp: donation.timestamp,
-    });
-
-    // Store donation
-    this.donations.set(donationId, donation);
-
-    // Create impact assessment
-    const impact = await this.assessDonationImpact(donation);
-    this.donationImpacts.set(donationId, impact);
-
-    // Update donation goals and check for celebrations
-    await this.updateDonationGoals(donation);
-
-    // Emit event for tracking
-    this.eventBus.emit("donationProcessed", {
-      donationId,
-      amount: donation.amount,
-      department: donation.departmentId,
-      district: donation.districtId,
-      timestamp: donation.timestamp,
-    });
-
-    // Emit event for agent reactions
-    this.emit("donationProcessed", {
-      donation: {
-        donorName: donation.donorName,
-        amount: donation.amount,
-        purpose: donation.purpose,
-        districtId: donation.districtId,
-      },
-    });
-
-    // Create and store announcement
-    await this.createDonationAnnouncement(donation);
-
-    // Broadcast system message about donation
-    const systemMessage = `💝 New Donation Alert!\n${
-      donation.donorName
-    } has donated $${(donation.amount / 1000).toFixed(3)} for ${
-      donation.purpose
-    }`;
-    await this.agentConversationService.broadcastSystemMessage(systemMessage);
-
-    // Store in vector database
-    await this.vectorStore.upsert({
-      id: `donation-${donationId}`,
-      values: await this.vectorStore.createEmbedding(
-        `${donation.donorName} donated ${donation.amount} to ${donation.purpose}`
-      ),
-      metadata: {
-        type: "donation",
-        donationId,
-        donorId: donation.donorId,
-        donorName: donation.donorName,
-        amount: donation.amount,
-        purpose: donation.purpose,
-        timestamp: donation.timestamp,
+      // Update department budget through event bus
+      this.eventBus.emit("departmentBudgetUpdate", {
         departmentId: donation.departmentId,
-        districtId: donation.districtId,
-      },
-    });
+        type: "donation",
+        amount: donation.amount,
+        source: donation.donorId,
+        timestamp: donation.timestamp,
+      });
 
-    return donationId;
+      // Store donation
+      this.donations.set(donationId, donation);
+
+      // Create impact assessment with timeout
+      const impact = await Promise.race<DonationImpact>([
+        this.assessDonationImpact(donation),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Impact assessment timeout")), 5000)
+        ),
+      ]);
+      this.donationImpacts.set(donationId, impact);
+
+      // Update donation goals and check for celebrations
+      await Promise.race([
+        this.updateDonationGoals(donation),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Goal update timeout")), 5000)
+        ),
+      ]);
+
+      // Emit event for tracking
+      this.eventBus.emit("donationProcessed", {
+        donationId,
+        amount: donation.amount,
+        department: donation.departmentId,
+        district: donation.districtId,
+        timestamp: donation.timestamp,
+      });
+
+      // Emit event for agent reactions
+      this.emit("donationProcessed", {
+        donation: {
+          donorName: donation.donorName,
+          amount: donation.amount,
+          purpose: donation.purpose,
+          districtId: donation.districtId,
+        },
+      });
+
+      // Create and store announcement with timeout
+      await Promise.race([
+        this.createDonationAnnouncement(donation),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Announcement creation timeout")),
+            5000
+          )
+        ),
+      ]);
+
+      // Broadcast system message about donation with timeout
+      const systemMessage = `💝 New Donation Alert!\n${
+        donation.donorName
+      } has donated $${(donation.amount / 1000).toFixed(3)} for ${
+        donation.purpose
+      }`;
+      await Promise.race([
+        this.agentConversationService.broadcastSystemMessage(systemMessage),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Broadcast timeout")), 5000)
+        ),
+      ]);
+
+      // Store in vector database with timeout
+      await Promise.race([
+        this.vectorStore.upsert({
+          id: `donation-${donationId}`,
+          values: await this.vectorStore.createEmbedding(
+            `${donation.donorName} donated ${donation.amount} to ${donation.purpose}`
+          ),
+          metadata: {
+            type: "donation",
+            donationId,
+            donorId: donation.donorId,
+            donorName: donation.donorName,
+            amount: donation.amount,
+            purpose: donation.purpose,
+            timestamp: donation.timestamp,
+            departmentId: donation.departmentId,
+            districtId: donation.districtId,
+          },
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Vector store timeout")), 5000)
+        ),
+      ]);
+
+      // Update donation status to completed
+      donation.status = "completed";
+      this.donations.set(donationId, donation);
+
+      return donationId;
+    } catch (error) {
+      console.error("Error processing donation:", error);
+      throw error;
+    }
   }
 
   private async updateDonationGoals(donation: Donation) {

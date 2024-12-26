@@ -3098,6 +3098,34 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
           timestamp: systemMessage.timestamp,
         },
       });
+
+      // Trigger agent reactions to the system message
+      const participants = conversation.participants;
+      for (const agent of participants) {
+        // Add a small delay between agent responses
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 + Math.random() * 2000)
+        );
+
+        // Generate and add agent's response to the system message
+        const response = await this.generateEnhancedResponse(
+          agent,
+          conversation,
+          `You are reacting to this system announcement: ${content}. Express your thoughts or feelings about it.`,
+          await this.analyzeConversationState(conversation)
+        );
+
+        const agentMessage: Message = {
+          id: `msg-${Date.now()}`,
+          agentId: agent.id,
+          content: response,
+          timestamp: Date.now(),
+          role: "assistant",
+          sentiment: await this.vectorStore.analyzeSentiment(response),
+        };
+
+        await this.addMessageWithDelay(conversation.id, agentMessage);
+      }
     }
   }
 }

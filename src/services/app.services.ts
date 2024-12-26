@@ -448,7 +448,8 @@ const donationService = new DonationService(
   departmentService,
   initialDistrictService,
   socialDynamicsService,
-  initialCollaborationService
+  initialCollaborationService,
+  agentConversationService
 );
 
 // Initialize AI system with all agents

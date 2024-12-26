@@ -5,7 +5,7 @@ export interface Message {
   agentId: string;
   content: string;
   timestamp: number;
-  role: "assistant" | "user";
+  role: "assistant" | "user" | "system";
   sentiment?: number;
   topics?: string[];
   metadata?: {

@@ -6,6 +6,7 @@ import { EventBus } from "./event-bus.service";
 import { SocialDynamicsService } from "./social-dynamics.service";
 import { DONATION_GOALS, DonationGoal } from "../types/donation-goals";
 import { AgentCollaborationService } from "./agent-collaboration.service";
+import { AgentConversationService } from "./agent-conversation.service";
 
 interface Donation {
   id: string;
@@ -155,7 +156,8 @@ export class DonationService extends EventEmitter {
     private departmentService: DepartmentService,
     private districtService: DistrictService,
     private socialDynamicsService: SocialDynamicsService,
-    private collaborationService: AgentCollaborationService
+    private collaborationService: AgentCollaborationService,
+    private agentConversationService: AgentConversationService
   ) {
     super();
     this.eventBus = EventBus.getInstance();
@@ -314,6 +316,33 @@ export class DonationService extends EventEmitter {
 
     // Create and store announcement
     await this.createDonationAnnouncement(donation);
+
+    // Broadcast system message about donation
+    const systemMessage = `💝 New Donation Alert!\n${
+      donation.donorName
+    } has donated $${(donation.amount / 1000).toFixed(3)} for ${
+      donation.purpose
+    }`;
+    await this.agentConversationService.broadcastSystemMessage(systemMessage);
+
+    // Store in vector database
+    await this.vectorStore.upsert({
+      id: `donation-${donationId}`,
+      values: await this.vectorStore.createEmbedding(
+        `${donation.donorName} donated ${donation.amount} to ${donation.purpose}`
+      ),
+      metadata: {
+        type: "donation",
+        donationId,
+        donorId: donation.donorId,
+        donorName: donation.donorName,
+        amount: donation.amount,
+        purpose: donation.purpose,
+        timestamp: donation.timestamp,
+        departmentId: donation.departmentId,
+        districtId: donation.districtId,
+      },
+    });
 
     return donationId;
   }

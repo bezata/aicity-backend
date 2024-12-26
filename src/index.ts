@@ -25,6 +25,7 @@ import { CCTVController } from "./controllers/cctv.controller";
 import { AgentController } from "./controllers/agent.controller";
 import { CultureController } from "./controllers/culture.controller";
 import { ConversationController } from "./controllers/conversation.controller";
+import { DonationService } from "./services/donation.service";
 
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];

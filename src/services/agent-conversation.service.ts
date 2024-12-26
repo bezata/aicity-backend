@@ -1459,14 +1459,16 @@ export class AgentConversationService extends EventEmitter {
     conversation.messages.push(message);
     conversation.lastUpdateTime = Date.now();
 
-    // Update conversation counts for the agent
-    const agentCounts = this.agentConversationCounts.get(message.agentId) || {
-      count: 0,
-      lastTime: 0,
-    };
-    agentCounts.count++;
-    agentCounts.lastTime = Date.now();
-    this.agentConversationCounts.set(message.agentId, agentCounts);
+    // Update conversation counts for non-system messages
+    if (message.agentId !== "system") {
+      const agentCounts = this.agentConversationCounts.get(message.agentId) || {
+        count: 0,
+        lastTime: 0,
+      };
+      agentCounts.count++;
+      agentCounts.lastTime = Date.now();
+      this.agentConversationCounts.set(message.agentId, agentCounts);
+    }
 
     // Update sentiment
     conversation.sentiment = await this.calculateConversationSentiment(
@@ -1475,7 +1477,8 @@ export class AgentConversationService extends EventEmitter {
 
     // Broadcast message
     this.districtService.broadcastMessage(conversation.districtId, {
-      type: "conversation_update",
+      type:
+        message.agentId === "system" ? "system_message" : "conversation_update",
       data: {
         conversationId,
         messages: conversation.messages,
@@ -3066,6 +3069,35 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
             this.USER_MESSAGE_RESPONSE_DELAY
         )
       );
+    }
+  }
+
+  public async broadcastSystemMessage(content: string) {
+    const systemMessage: Message = {
+      id: `msg-${Date.now()}`,
+      agentId: "system",
+      content,
+      timestamp: Date.now(),
+      role: "system",
+      topics: [],
+    };
+
+    // Get all active conversations
+    const activeConvs = await this.getActiveConversations();
+
+    // Add the system message to each active conversation
+    for (const conversation of activeConvs) {
+      await this.addMessage(conversation.id, systemMessage);
+
+      // Broadcast to district
+      this.districtService.broadcastMessage(conversation.districtId, {
+        type: "system_message",
+        data: {
+          conversationId: conversation.id,
+          content: systemMessage.content,
+          timestamp: systemMessage.timestamp,
+        },
+      });
     }
   }
 }

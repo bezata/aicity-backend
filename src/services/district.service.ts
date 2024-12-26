@@ -127,56 +127,10 @@ export class DistrictService extends EventEmitter {
         density: 5000,
         economicActivity: 0.8,
       },
-      {
-        id: "a42ed892-3878-45a5-9a1a-4ceaf9524f1d",
-        name: "Cultural Heritage District",
-        type: "mixed" as DistrictType,
-        population: 30000,
-        boundaries: [
-          [1, 0] as [number, number],
-          [2, 0] as [number, number],
-          [2, 1] as [number, number],
-          [1, 1] as [number, number],
-        ],
-        area: 8,
-        density: 3750,
-        economicActivity: 0.7,
-      },
-
-      {
-        id: "a42ed892-3878-45a5-9a1a-4ceaf9524f1e",
-        name: "Garden District",
-        type: "residential" as DistrictType,
-        population: 35000,
-        boundaries: [
-          [0, 1] as [number, number],
-          [1, 1] as [number, number],
-          [1, 2] as [number, number],
-          [0, 2] as [number, number],
-        ],
-        area: 12,
-        density: 2916,
-        economicActivity: 0.6,
-      },
-      {
-        name: "Industrial Park",
-        type: "industrial" as DistrictType,
-        population: 15000,
-        boundaries: [
-          [1, 1] as [number, number],
-          [2, 1] as [number, number],
-          [2, 2] as [number, number],
-          [1, 2] as [number, number],
-        ],
-        area: 15,
-        density: 1000,
-        economicActivity: 0.85,
-      },
     ];
 
     for (const districtData of defaultDistricts) {
       const district: District = {
-        id: crypto.randomUUID(),
         ...districtData,
         currentEvents: [],
         transportHubs: [],

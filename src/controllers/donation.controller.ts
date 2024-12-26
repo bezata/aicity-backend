@@ -542,7 +542,6 @@ export const DonationController = (donationService: DonationService) =>
           topK: query.limit,
           includeMetadata: true,
         });
-
         return results.matches.map((match: any) => ({
           donationId: match.metadata.donationId,
           donorName: match.metadata.donorName,
@@ -565,5 +564,90 @@ export const DonationController = (donationService: DonationService) =>
           tags: ["Donations"],
           summary: "Semantic search through donations",
         },
+      }
+    )
+    .get(
+      "/goals",
+      async () => {
+        return donationService.getDonationGoals();
+      },
+      {
+        detail: {
+          tags: ["Donations"],
+          summary: "Get all donation goals",
+        },
+      }
+    )
+    .get(
+      "/goals/:goalId/progress",
+      async ({ params: { goalId } }) => {
+        const progress = donationService.getDonationGoalProgress(goalId);
+        if (!progress) {
+          throw new Error("Goal not found");
+        }
+        return progress;
+      },
+      {
+        params: t.Object({
+          goalId: t.String(),
+        }),
+        detail: {
+          tags: ["Donations"],
+          summary: "Get progress for a specific donation goal",
+        },
+      }
+    )
+    .post(
+      "/user",
+      async ({ body, store }) => {
+        const appStore = store as AppStore;
+        try {
+          const donationId =
+            await appStore.services.donationService.processDonation({
+              donorId: body.userId,
+              donorName: body.userName,
+              amount: body.amount,
+              departmentId: body.departmentId,
+              districtId: body.districtId,
+              purpose: "User Donation",
+              category: "general",
+              impact: {
+                category: "general",
+                description: "Supporting department operations",
+                beneficiaries: Math.floor(body.amount / 100),
+              },
+            });
+
+          // Also update department budget
+          await appStore.services.departmentService.addDonation(
+            body.departmentId,
+            {
+              id: donationId,
+              amount: body.amount,
+              donorId: body.userId,
+              message: "User Donation",
+              timestamp: Date.now(),
+              transactionHash: "",
+            }
+          );
+
+          return {
+            success: true,
+            donationId,
+            message: "Donation processed successfully",
+          };
+        } catch (error) {
+          console.error("Failed to process donation:", error);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Failed to process donation",
+            }),
+            { status: 500 }
+          );
+        }
+      },
+      {
+        body: SimpleDonationSchema,
       }
     );

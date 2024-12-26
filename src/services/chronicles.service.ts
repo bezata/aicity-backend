@@ -145,7 +145,7 @@ Incident:`;
 export class ChroniclesService {
   private lastUpdate: number = 0;
   private currentChronicle: DailyChronicle | null = null;
-  private readonly UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
+  private readonly UPDATE_INTERVAL = 30 * 60 * 1000; // 30 minutes in milliseconds
   private readonly NEWS_PER_UPDATE = 3;
   private readonly EVENTS_PER_UPDATE = 2;
 

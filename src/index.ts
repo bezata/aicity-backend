@@ -24,6 +24,7 @@ import { ChroniclesController } from "./controllers/chronicles.controller";
 import { CCTVController } from "./controllers/cctv.controller";
 import { AgentController } from "./controllers/agent.controller";
 import { CultureController } from "./controllers/culture.controller";
+import { ConversationController } from "./controllers/conversation.controller";
 
 type ElysiaInstance = InstanceType<typeof Elysia>;
 type ElysiaConfig = Parameters<ElysiaInstance["group"]>[1];
@@ -168,6 +169,7 @@ const apiGroup = app.group("/api", ((app: any) => {
       .use(CCTVController)
       .use(AgentController)
       .use(AgentCollaborationController)
+      .use(ConversationController({ store }))
       .group("ai", (app: any) => {
         return app
           .post(
@@ -707,7 +709,7 @@ initializeAISystem()
           eventListeners.set("message:added", messageAddedListener);
 
           // Listen to collaboration events
-          const collaborationStartedListener = (session: any) => {
+          const collaborationStartedListener = async (session: any) => {
             sendWebSocketMessage(ws, ws.data.messageHistory, "system_message", {
               content: `🚨 Emergency Collaboration Started: A group of agents is working on solving a city problem. Participating agents: ${session.agents
                 .map(
@@ -716,6 +718,41 @@ initializeAISystem()
                 )
                 .join(", ")}`,
             });
+
+            // Start a conversation between the participating agents
+            try {
+              const conversation =
+                await store.services.agentConversationService.startNewConversation(
+                  session.agents,
+                  {
+                    districtId: "a42ed892-3878-45a5-9a1a-4ceaf9524f1c",
+                    activity: "emergency_collaboration",
+                    socialMood: {
+                      positivity: 0.7,
+                      engagement: 0.9,
+                    },
+                    culturalContext: {
+                      events: [],
+                      traditions: [],
+                    },
+                  }
+                );
+
+              // Have the first agent initiate the discussion
+              await store.services.agentConversationService.handleUserMessage(
+                conversation.id,
+                `Urgent matter: ${
+                  session.eventId
+                    ? `We need to address the situation regarding ${session.eventId}. `
+                    : ""
+                }Let's collaborate to find the best solution. What are your initial thoughts on this?`
+              );
+            } catch (error) {
+              console.error(
+                "Failed to start collaboration conversation:",
+                error
+              );
+            }
           };
           store.services.collaborationService.on(
             "collaborationStarted",

@@ -28,7 +28,9 @@ interface CollaborationSession {
     | "implementing"
     | "reviewing"
     | "completed"
-    | "failed";
+    | "failed"
+    | "scheduled"
+    | "pending";
   messages: Array<{
     agentId: string;
     content: string;
@@ -283,12 +285,22 @@ export class AgentCollaborationService extends EventEmitter {
       return this.mergeWithExistingSession(similarSession, event);
     }
 
+    // Map event status to session status
+    let sessionStatus: CollaborationSession["status"] = "planning";
+    if (String(event.status) === "scheduled") {
+      sessionStatus = "scheduled";
+    } else if (String(event.status) === "in_progress") {
+      sessionStatus = "implementing";
+    } else if (String(event.status) === "completed") {
+      sessionStatus = "completed";
+    }
+
     // Create new session
     const session: CollaborationSession = {
       id: sessionId,
       eventId: event.id,
       agents: await this.optimizeAgentSelection(event),
-      status: "planning",
+      status: sessionStatus,
       messages: [],
       decisions: [],
       metrics: {
@@ -303,7 +315,7 @@ export class AgentCollaborationService extends EventEmitter {
       history: [
         {
           action: "session_created",
-          timestamp: Date.now(),
+          timestamp: event.timestamp || Date.now(),
           details: { event, initialAgents: event.requiredAgents },
         },
       ],
@@ -311,7 +323,19 @@ export class AgentCollaborationService extends EventEmitter {
 
     this.activeSessions.set(sessionId, session);
     await this.storeSessionContext(sessionId, event);
-    await this.facilitateDiscussion(sessionId, event);
+
+    // Only start discussion if not scheduled
+    if (sessionStatus !== "scheduled") {
+      await this.facilitateDiscussion(sessionId, event);
+    } else {
+      // Emit event for scheduled collaboration
+      this.emit("collaborationScheduled", {
+        sessionId,
+        event,
+        agents: session.agents,
+        timestamp: event.timestamp,
+      });
+    }
 
     return sessionId;
   }
@@ -763,21 +787,6 @@ export class AgentCollaborationService extends EventEmitter {
         `${event.title} ${event.description} ${event.category}`
       );
 
-      const cachedContext = await this.vectorStore.query({
-        vector: contextVector,
-        filter: {
-          type: { $eq: "collaboration" },
-          sessionId: { $eq: sessionId },
-          eventId: { $eq: event.id },
-        },
-        topK: 1,
-      });
-
-      if (cachedContext.matches.length > 0) {
-        console.log("Context already stored for session:", sessionId);
-        return;
-      }
-
       // Store event context
       await this.vectorStore.upsert({
         id: `collab-context-${sessionId}`,
@@ -791,7 +800,12 @@ export class AgentCollaborationService extends EventEmitter {
           severity: event.severity,
           urgency: event.urgency,
           affectedDistricts: event.affectedDistricts,
-          timestamp: Date.now(),
+          timestamp: event.timestamp,
+          status: event.status || "scheduled",
+          title: event.title,
+          description: event.description,
+          departmentId: event.affectedDistricts[0], // Using first district as department ID
+          participants: event.requiredAgents.join(","),
         },
       });
 
@@ -815,34 +829,11 @@ export class AgentCollaborationService extends EventEmitter {
               sessionId,
               agentId,
               interests: agent.interests,
-              traits: JSON.stringify(agent.traits),
-              timestamp: Date.now(),
+              timestamp: event.timestamp,
             },
           });
         }
       }
-
-      // Store city context
-      const cityContext = await this.getCityContext();
-      await this.vectorStore.upsert({
-        id: `collab-city-${sessionId}`,
-        values: await this.vectorStore.createEmbedding(
-          `City context - Weather: ${cityContext.weather.condition} ${cityContext.weather.temperature}°C, ` +
-            `Mood: ${cityContext.mood.overall} (${Object.entries(
-              cityContext.mood.factors
-            )
-              .map(([factor, value]) => `${factor}=${value}`)
-              .join(", ")})`
-        ),
-        metadata: {
-          type: "collaboration",
-          subtype: "city",
-          sessionId,
-          weather: JSON.stringify(cityContext.weather),
-          mood: JSON.stringify(cityContext.mood),
-          timestamp: Date.now(),
-        },
-      });
     } catch (error: any) {
       console.error(
         `Failed to store context for session ${sessionId}:`,

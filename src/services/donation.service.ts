@@ -160,6 +160,107 @@ export class DonationService extends EventEmitter {
     super();
     this.eventBus = EventBus.getInstance();
     this.initializeImpactTracking();
+    this.initializeAutomaticDonations();
+  }
+
+  private async initializeAutomaticDonations() {
+    // Create initial donations
+    await this.createInitialDonations();
+
+    // Schedule daily donations - run every day at midnight
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const timeUntilMidnight = midnight.getTime() - now.getTime();
+
+    // First run at midnight
+    setTimeout(async () => {
+      await this.createDailyDonations();
+      // Then run every 24 hours
+      setInterval(() => this.createDailyDonations(), 24 * 60 * 60 * 1000);
+    }, timeUntilMidnight);
+  }
+
+  private async createDailyDonations() {
+    const donorNames = [
+      "David Park",
+      "Maria Garcia",
+      "James Wilson",
+      "Aisha Patel",
+      "Robert Chen",
+      "Lisa Murphy",
+      "Carlos Rodriguez",
+      "Emma Thompson",
+      "Michael Zhang",
+      "Sofia Costa",
+      "John Smith",
+      "Priya Sharma",
+    ];
+
+    const purposes = [
+      {
+        purpose: "Youth Education Programs",
+        category: "educational" as const,
+        departmentId: "education",
+      },
+      {
+        purpose: "Community Health Initiative",
+        category: "general" as const,
+        departmentId: "health",
+      },
+      {
+        purpose: "Local Arts Support",
+        category: "cultural" as const,
+        departmentId: "culture",
+      },
+      {
+        purpose: "Green Space Development",
+        category: "environmental" as const,
+        departmentId: "parks",
+      },
+      {
+        purpose: "Infrastructure Improvement",
+        category: "infrastructure" as const,
+        departmentId: "infrastructure",
+      },
+      {
+        purpose: "Cultural Festival Support",
+        category: "cultural" as const,
+        departmentId: "culture",
+      },
+    ];
+
+    const districts = await this.districtService.getAllDistricts();
+
+    // Create 3 donations targeting different goals
+    for (let i = 0; i < 3; i++) {
+      const randomDonor =
+        donorNames[Math.floor(Math.random() * donorNames.length)];
+      const randomPurpose =
+        purposes[Math.floor(Math.random() * purposes.length)];
+      const randomAmount = Math.floor(Math.random() * 7500) + 2500; // Random amount between 2500 and 10000
+      const randomDistrict =
+        districts[Math.floor(Math.random() * districts.length)];
+
+      const donationData = {
+        donorId: `daily_donor_${Date.now()}_${i}`,
+        donorName: randomDonor,
+        amount: randomAmount,
+        purpose: randomPurpose.purpose,
+        category: randomPurpose.category,
+        districtId: randomDistrict.id,
+        departmentId: randomPurpose.departmentId,
+        impact: {
+          category: randomPurpose.category,
+          description: `Supporting ${randomPurpose.purpose.toLowerCase()}`,
+          beneficiaries: Math.floor(randomAmount / 100),
+        },
+      };
+
+      await this.processDonation(donationData);
+    }
+
+    console.log("🎁 Daily donations created successfully");
   }
 
   async processDonation(
@@ -965,5 +1066,121 @@ export class DonationService extends EventEmitter {
       content: message,
       timestamp: Date.now(),
     });
+  }
+
+  private async createInitialDonations() {
+    const initialDonations = [
+      {
+        donorId: "system_donor_1",
+        donorName: "Sarah Chen",
+        amount: 5000,
+        purpose: "Educational Technology Initiative",
+        category: "educational" as const,
+        departmentId: "education",
+        impact: {
+          category: "education",
+          description: "Enhancing classroom technology",
+          beneficiaries: 50,
+        },
+      },
+      {
+        donorId: "system_donor_2",
+        donorName: "Mohammed Al-Rahman",
+        amount: 7500,
+        purpose: "Cultural Heritage Preservation",
+        category: "cultural" as const,
+        departmentId: "culture",
+        subcategory: {
+          cultural: {
+            tradition: "Traditional Arts",
+            artForm: "Classical Music",
+            community: "City Arts Community",
+            festival: "Spring Cultural Festival",
+          },
+        },
+        impact: {
+          category: "cultural",
+          description: "Supporting local artists and preserving traditions",
+          beneficiaries: 75,
+          culturalValue: 0.9,
+          communityEngagement: 0.85,
+        },
+      },
+      {
+        donorId: "system_donor_3",
+        donorName: "Green Future Foundation",
+        amount: 10000,
+        purpose: "Urban Garden Development",
+        category: "environmental" as const,
+        departmentId: "parks",
+        impact: {
+          category: "environment",
+          description: "Creating sustainable urban gardens",
+          beneficiaries: 100,
+        },
+      },
+      {
+        donorId: "system_donor_4",
+        donorName: "Temple Association",
+        amount: 6000,
+        purpose: "Temple Renovation and Ceremonies",
+        category: "religious" as const,
+        departmentId: "culture",
+        subcategory: {
+          religious: {
+            religion: "Buddhism",
+            occasion: "Vesak Festival",
+            ritual: "Morning Chanting",
+            community: "Buddhist Community",
+          },
+        },
+        impact: {
+          category: "religious",
+          description:
+            "Supporting religious ceremonies and community gatherings",
+          beneficiaries: 200,
+          culturalValue: 0.95,
+          communityEngagement: 0.9,
+        },
+      },
+      {
+        donorId: "system_donor_5",
+        donorName: "Cultural Heritage Society",
+        amount: 8500,
+        purpose: "Traditional Dance Festival",
+        category: "cultural" as const,
+        departmentId: "culture",
+        subcategory: {
+          cultural: {
+            tradition: "Traditional Dance",
+            festival: "Summer Dance Festival",
+            artForm: "Classical Dance",
+            community: "Dance Artists Community",
+          },
+        },
+        impact: {
+          category: "cultural",
+          description:
+            "Promoting traditional dance forms and cultural exchange",
+          beneficiaries: 150,
+          culturalValue: 0.9,
+          communityEngagement: 0.85,
+        },
+      },
+    ];
+
+    // Process each initial donation
+    for (const donation of initialDonations) {
+      const districts = await this.districtService.getAllDistricts();
+      const randomDistrict =
+        districts[Math.floor(Math.random() * districts.length)];
+
+      await this.processDonation({
+        ...donation,
+        districtId: randomDistrict.id,
+      });
+    }
+
+    console.log("🎉 Initial donations created successfully");
   }
 }

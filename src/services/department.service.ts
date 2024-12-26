@@ -4,6 +4,7 @@ import {
   DepartmentBudget,
   Donation,
   BudgetExpense,
+  DepartmentType,
 } from "../types/department.types";
 import {
   DepartmentAgent,
@@ -23,6 +24,17 @@ import type { WeatherState, CityMood } from "../types/city.types";
 import { Message } from "../types/conversation.types";
 import _ from "lodash";
 import { CulturalEvent } from "../types/culture.types";
+import { EventBus } from "./event-bus.service";
+
+interface AgentHealthMetrics {
+  physical: number;
+  mental: number;
+  energy: number;
+  motivation: number;
+  happiness: number;
+  satisfaction: number;
+  stress: number;
+}
 
 export interface DepartmentActivity {
   type: string;
@@ -61,6 +73,7 @@ export class DepartmentService extends EventEmitter {
   private departmentAgents: Map<string, DepartmentAgent[]> = new Map();
   private departmentEvents: Map<string, DepartmentEvent[]> = new Map();
   private healthUpdateInterval!: NodeJS.Timer;
+  private readonly eventBus: EventBus;
 
   constructor(
     private vectorStore: VectorStoreService,
@@ -70,10 +83,13 @@ export class DepartmentService extends EventEmitter {
     private collaborationService: AgentCollaborationService
   ) {
     super();
+    this.eventBus = EventBus.getInstance();
     this.initializeHealthMonitoring();
     this.initializePerformanceMonitoring();
-    this.initializeDefaultDepartments();
-    this.initializeDefaultEvents();
+    this.initializeDefaultDepartments().then(() => {
+      this.initializeDefaultEvents();
+      this.initializePeriodicActivities();
+    });
   }
 
   private initializeHealthMonitoring() {
@@ -1081,6 +1097,8 @@ export class DepartmentService extends EventEmitter {
         await this.createDepartment(dept);
         // Create and assign some default agents
         await this.createDefaultAgentsForDepartment(dept.id);
+        // Create initial scheduled events
+        await this.createInitialScheduledEvents(dept.id, dept.type);
       }
     }
 
@@ -1091,6 +1109,52 @@ export class DepartmentService extends EventEmitter {
     const department = await this.getDepartment(departmentId);
     if (!department) return;
 
+    const firstNames = [
+      "John",
+      "Emma",
+      "Michael",
+      "Sarah",
+      "David",
+      "Lisa",
+      "James",
+      "Maria",
+      "Robert",
+      "Jennifer",
+      "William",
+      "Linda",
+      "Richard",
+      "Patricia",
+      "Joseph",
+      "Elizabeth",
+      "Thomas",
+      "Susan",
+      "Charles",
+      "Jessica",
+    ];
+
+    const lastNames = [
+      "Smith",
+      "Johnson",
+      "Williams",
+      "Brown",
+      "Jones",
+      "Garcia",
+      "Miller",
+      "Davis",
+      "Rodriguez",
+      "Martinez",
+      "Hernandez",
+      "Lopez",
+      "Gonzalez",
+      "Wilson",
+      "Anderson",
+      "Thomas",
+      "Taylor",
+      "Moore",
+      "Jackson",
+      "Martin",
+    ];
+
     const numAgents = Math.floor(Math.random() * 5) + 5; // 5-10 agents per department
     const roles = [
       "field_agent",
@@ -1100,15 +1164,31 @@ export class DepartmentService extends EventEmitter {
       "analyst",
     ];
 
+    const usedNames = new Set();
+
     for (let i = 0; i < numAgents; i++) {
-      const agentId = crypto.randomUUID();
+      // Generate unique agent name
+      let fullName;
+      do {
+        const firstName =
+          firstNames[Math.floor(Math.random() * firstNames.length)];
+        const lastName =
+          lastNames[Math.floor(Math.random() * lastNames.length)];
+        fullName = `${firstName} ${lastName}`;
+      } while (usedNames.has(fullName));
+      usedNames.add(fullName);
+
+      // Create agent ID based on name and department
+      const agentId = `${department.type}_${fullName
+        .toLowerCase()
+        .replace(/\s+/g, "_")}`;
       await this.assignAgent(departmentId, agentId);
 
       // Update the agent with more specific details
       const agents = await this.getDepartmentAgents(departmentId);
       const agent = agents.find((a) => a.id === agentId);
       if (agent) {
-        agent.name = `${department.name.split(" ")[0]}-Agent-${i + 1}`;
+        agent.name = fullName;
         agent.role = roles[Math.floor(Math.random() * roles.length)];
 
         // Randomize performance metrics slightly
@@ -1469,5 +1549,228 @@ export class DepartmentService extends EventEmitter {
 
   async getDepartmentEvents(departmentId: string): Promise<DepartmentEvent[]> {
     return this.departmentEvents.get(departmentId) || [];
+  }
+
+  private async createInitialScheduledEvents(
+    departmentId: string,
+    type: DepartmentType
+  ) {
+    const events: CityEvent[] = [
+      {
+        id: crypto.randomUUID(),
+        title: `${type} Monthly Planning Session`,
+        description:
+          "Monthly strategic planning and coordination meeting to discuss department goals and initiatives.",
+        category: "development" as CityEventCategory,
+        severity: 0.6,
+        duration: 2, // 2 hours
+        urgency: 0.7,
+        impact: {
+          environmental: 0.4,
+          social: 0.8,
+          economic: 0.7,
+        },
+        requiredAgents: [], // Will be filled by agent selection
+        affectedDistricts: [departmentId],
+        status: "pending",
+        timestamp: Date.now(), // Start immediately
+      },
+      {
+        id: crypto.randomUUID(),
+        title: `${type} Emergency Response Training`,
+        description:
+          "Collaborative training session to improve emergency response coordination and effectiveness.",
+        category: "emergency" as CityEventCategory,
+        severity: 0.8,
+        duration: 3, // 3 hours
+        urgency: 0.9,
+        impact: {
+          environmental: 0.5,
+          social: 0.9,
+          economic: 0.6,
+        },
+        requiredAgents: [], // Will be filled by agent selection
+        affectedDistricts: [departmentId],
+        status: "pending",
+        timestamp: Date.now() + 60 * 60 * 1000, // Start in 1 hour
+      },
+    ];
+
+    // Store events in vector store
+    for (const event of events) {
+      await this.vectorStore.upsert({
+        id: `scheduled-collab-${event.id}`,
+        values: await this.vectorStore.createEmbedding(
+          `${event.title} ${event.description} ${event.category}`
+        ),
+        metadata: {
+          type: "collaboration",
+          subtype: "scheduled",
+          departmentId,
+          eventId: event.id,
+          sessionId: event.id,
+          topic: event.title,
+          participants: event.requiredAgents.join(","),
+          title: event.title,
+          description: event.description,
+          category: event.category,
+          severity: event.severity,
+          urgency: event.urgency,
+          timestamp: event.timestamp,
+          status: "scheduled",
+          duration: event.duration,
+          impact: JSON.stringify(event.impact),
+        },
+      });
+
+      // Initiate collaboration session immediately
+      await this.collaborationService.initiateCollaboration(event);
+
+      // Emit collaboration started event
+      this.emit("collaborationStarted", {
+        departmentId,
+        type: event.category,
+        title: event.title,
+        description: event.description,
+        timestamp: event.timestamp,
+        severity: event.severity,
+        urgency: event.urgency,
+        impact: event.impact,
+        duration: event.duration,
+        status: "scheduled",
+      });
+    }
+  }
+
+  private async initializePeriodicActivities() {
+    console.log("🔄 Initializing periodic department activities...");
+
+    // Generate initial activities
+    await this.generateDepartmentActivities();
+    console.log("✅ Initial department activities generated successfully");
+
+    // Then set up periodic generation every 30 minutes
+    setInterval(async () => {
+      console.log("🔄 Generating periodic department activities...");
+      try {
+        await this.generateDepartmentActivities();
+        console.log("✅ Department activities generated successfully");
+      } catch (error) {
+        console.error("❌ Failed to generate department activities:", error);
+      }
+    }, 30 * 60 * 1000);
+  }
+
+  private calculateAverageAgentHealth(
+    agents: DepartmentAgent[]
+  ): AgentHealthMetrics {
+    if (!agents.length) {
+      return {
+        physical: 0.8,
+        mental: 0.8,
+        energy: 0.8,
+        motivation: 0.8,
+        happiness: 0.8,
+        satisfaction: 0.8,
+        stress: 0.2,
+      };
+    }
+
+    return {
+      physical:
+        agents.reduce((sum, agent) => sum + agent.health.physical, 0) /
+        agents.length,
+      mental:
+        agents.reduce((sum, agent) => sum + agent.health.mental, 0) /
+        agents.length,
+      energy:
+        agents.reduce((sum, agent) => sum + agent.health.energy, 0) /
+        agents.length,
+      motivation:
+        agents.reduce((sum, agent) => sum + agent.health.motivation, 0) /
+        agents.length,
+      happiness:
+        agents.reduce((sum, agent) => sum + agent.mood.happiness, 0) /
+        agents.length,
+      satisfaction:
+        agents.reduce((sum, agent) => sum + agent.mood.satisfaction, 0) /
+        agents.length,
+      stress:
+        agents.reduce((sum, agent) => sum + agent.mood.stress, 0) /
+        agents.length,
+    };
+  }
+
+  private async generateDepartmentActivities() {
+    const departments = await this.getAllDepartments();
+
+    for (const department of departments) {
+      // Generate 3 activities per department
+      for (let i = 0; i < 3; i++) {
+        // Generate activity description using together service
+        const prompt = `Generate a realistic and detailed activity description for the ${department.name} in an AI city. The activity should:
+        - Be written in present tense
+        - Include specific actions taken by department agents
+        - Mention the impact on the city and its citizens
+        - Reference collaboration with other departments if relevant
+        - Include quantifiable metrics or outcomes where possible
+        
+        Format: Just the activity description in a single paragraph, no additional text.`;
+
+        const activityDescription = await this.togetherService.generateText(
+          prompt
+        );
+
+        // Get department agents for health metrics
+        const agents = await this.getDepartmentAgents(department.id);
+        const avgAgentHealth = this.calculateAverageAgentHealth(agents);
+
+        // Calculate budget health
+        const budgetHealth =
+          department.budget.total > 0
+            ? (department.budget.total - department.budget.spent) /
+              department.budget.total
+            : 0.8;
+
+        // Store in vector store with unique ID
+        const activityId = `activity-${department.id}-${Date.now()}-${i}`;
+        const embedding = await this.vectorStore.createEmbedding(
+          activityDescription
+        );
+
+        await this.vectorStore.upsert({
+          id: activityId,
+          values: embedding,
+          metadata: {
+            type: "district",
+            departmentId: department.id,
+            activityType: "department_activity",
+            timestamp: Date.now(),
+            details: JSON.stringify({
+              description: activityDescription,
+              agentHealth: avgAgentHealth,
+              budgetHealth: budgetHealth,
+              metrics: department.metrics,
+            }),
+          },
+        });
+
+        // Emit activity added event
+        this.emit("activityAdded", {
+          departmentId: department.id,
+          activity: {
+            id: activityId,
+            type: "department_activity",
+            description: activityDescription,
+            timestamp: Date.now(),
+            metrics: {
+              agentHealth: avgAgentHealth,
+              budgetHealth: budgetHealth,
+              departmentMetrics: department.metrics,
+            },
+          },
+        });
+      }
+    }
   }
 }

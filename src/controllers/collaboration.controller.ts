@@ -6,6 +6,20 @@ import { CulturalEvent } from "../types/culture.types";
 export const CollaborationController = new Elysia({
   prefix: "/collaborate",
 })
+  .get("/session/:id", async ({ params: { id }, store }) => {
+    const appStore = store as AppStore;
+    try {
+      const session =
+        await appStore.services.collaborationService.getSessionStatus(id);
+      return {
+        success: true,
+        data: session,
+      };
+    } catch (error) {
+      console.error("Failed to get session:", error);
+      throw error;
+    }
+  })
   .post(
     "/initiate",
     async ({ body, store }) => {
@@ -204,7 +218,7 @@ export const CollaborationController = new Elysia({
               social: culturalEvent.impact.social,
               economic: culturalEvent.impact.economic,
             },
-            requiredAgents: [], // Will be filled by agent selection
+            requiredAgents: ["sophia", "oliver", "mayor"], // Artist, Teacher and Mayor for cultural events
             affectedDistricts: [culturalEvent.location.districtId],
             status: "pending",
             timestamp: Date.now(),

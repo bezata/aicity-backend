@@ -7,6 +7,7 @@ import {
   TextVectorQuery,
   VectorQuery,
 } from "../types/vector-store.types";
+import { CityEvent } from "../types/city-events";
 
 interface PerformanceMetrics {
   efficiency: number;
@@ -551,7 +552,7 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
           environmental: body.impact?.environmental || 0.4,
         },
         affectedDistricts: [body.districtId || "central-district"],
-        requiredAgents: body.agentIds || department.assignedAgents.slice(0, 5),
+        requiredAgents: body.agentIds || ["planner", "services", "max"],
         timestamp: body.scheduledTime || Date.now(),
         status: "pending" as const,
       };
@@ -567,10 +568,15 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
           departmentId: id,
           sessionId: collaborationEvent.id,
           topic: collaborationEvent.title,
-          participants: collaborationEvent.requiredAgents.join(","),
+          participants: collaborationEvent.requiredAgents
+            .filter(Boolean)
+            .join(","),
           timestamp: collaborationEvent.timestamp,
           category: collaborationEvent.category,
           status: "scheduled",
+          consensusLevel: "0",
+          participation: "0",
+          effectiveness: "0",
         },
       });
 
@@ -582,7 +588,7 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
       return {
         collaborationId: collaborationEvent.id,
         scheduledTime: collaborationEvent.timestamp,
-        participants: collaborationEvent.requiredAgents.length,
+        participants: collaborationEvent.requiredAgents,
         status: "scheduled",
       };
     },
@@ -651,4 +657,53 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
         status: match.metadata.status,
       })
     );
-  });
+  })
+  .post(
+    "/collaborate/:departmentId",
+    async ({ params: { departmentId }, store }) => {
+      const appStore = store as AppStore;
+
+      // Create collaboration event for department
+      const collaborationEvent: CityEvent = {
+        id: crypto.randomUUID(),
+        title: `${departmentId} Department Strategic Planning`,
+        description:
+          "Monthly department collaboration for strategic planning and coordination",
+        category: "development",
+        severity: 0.7,
+        duration: 2, // 2 hours
+        urgency: 0.7,
+        impact: {
+          environmental: 0.5,
+          social: 0.8,
+          economic: 0.7,
+        },
+        requiredAgents: ["sophia", "raj", "vision", "nexus"], // Using correct agents from config
+        affectedDistricts: [departmentId],
+        status: "pending",
+        timestamp: Date.now(),
+      };
+
+      try {
+        // Initiate collaboration using the better mechanism
+        const sessionId =
+          await appStore.services.collaborationService.initiateCollaboration(
+            collaborationEvent
+          );
+
+        // Get session status after messages are generated
+        const sessionStatus =
+          await appStore.services.collaborationService.getSessionStatus(
+            sessionId
+          );
+
+        return {
+          success: true,
+          data: sessionStatus,
+        };
+      } catch (error) {
+        console.error("Failed to initiate department collaboration:", error);
+        throw error;
+      }
+    }
+  );

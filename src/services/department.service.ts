@@ -1598,6 +1598,12 @@ export class DepartmentService extends EventEmitter {
 
     // Store events in vector store
     for (const event of events) {
+      // Add default participants based on department type
+      const defaultParticipants = ["planner", "services", "max"];
+      event.requiredAgents = [
+        ...new Set([...event.requiredAgents, ...defaultParticipants]),
+      ];
+
       await this.vectorStore.upsert({
         id: `scheduled-collab-${event.id}`,
         values: await this.vectorStore.createEmbedding(
@@ -1610,7 +1616,7 @@ export class DepartmentService extends EventEmitter {
           eventId: event.id,
           sessionId: event.id,
           topic: event.title,
-          participants: event.requiredAgents.join(","),
+          participants: event.requiredAgents.filter(Boolean).join(","),
           title: event.title,
           description: event.description,
           category: event.category,
@@ -1620,6 +1626,9 @@ export class DepartmentService extends EventEmitter {
           status: "scheduled",
           duration: event.duration,
           impact: JSON.stringify(event.impact),
+          consensusLevel: "0",
+          participation: "0",
+          effectiveness: "0",
         },
       });
 
@@ -1638,6 +1647,7 @@ export class DepartmentService extends EventEmitter {
         impact: event.impact,
         duration: event.duration,
         status: "scheduled",
+        participants: event.requiredAgents,
       });
     }
   }

@@ -118,6 +118,50 @@ export class AgentCollaborationService extends EventEmitter {
   private initializeService() {
     this.setupPeriodicMaintenance();
     this.setupEventHandlers();
+
+    // Create a test collaboration session
+    this.createTestSession();
+  }
+
+  private async createTestSession() {
+    const testEvent: CityEvent = {
+      id: crypto.randomUUID(),
+      title: "Emergency Response Department Monthly Planning",
+      description:
+        "Monthly strategic planning and coordination meeting to discuss department goals and initiatives.",
+      category: "development",
+      severity: 0.6,
+      duration: 2, // 2 hours
+      urgency: 0.7,
+      impact: {
+        environmental: 0.4,
+        social: 0.8,
+        economic: 0.7,
+      },
+      requiredAgents: ["safety", "services", "mayor"], // Department heads and mayor
+      affectedDistricts: ["emergency-response-dept"],
+      status: "pending",
+      timestamp: Date.now() + 24 * 60 * 60 * 1000, // Schedule for tomorrow
+    };
+
+    try {
+      const sessionId = await this.initiateCollaboration(testEvent);
+      console.log("Monthly planning session created:", sessionId);
+
+      // Add initial discussion points
+      const session = this.activeSessions.get(sessionId);
+      if (session) {
+        session.messages.push({
+          agentId: "system",
+          content:
+            "Monthly planning session initiated. Agenda items:\n1. Review of previous month's performance\n2. Current challenges and solutions\n3. Resource allocation for next month\n4. Emergency preparedness updates",
+          timestamp: Date.now(),
+          topics: ["planning", "review", "resources", "emergency-preparedness"],
+        });
+      }
+    } catch (error) {
+      console.error("Failed to create monthly planning session:", error);
+    }
   }
 
   private setupPeriodicMaintenance() {
@@ -285,6 +329,14 @@ export class AgentCollaborationService extends EventEmitter {
       return this.mergeWithExistingSession(similarSession, event);
     }
 
+    // If no required agents specified, select some based on the event
+    if (!event.requiredAgents || event.requiredAgents.length === 0) {
+      event.requiredAgents = await this.findDomainExperts(event.category);
+    }
+
+    // Select and optimize agents first
+    const selectedAgents = await this.optimizeAgentSelection(event);
+
     // Map event status to session status
     let sessionStatus: CollaborationSession["status"] = "planning";
     if (String(event.status) === "scheduled") {
@@ -299,7 +351,7 @@ export class AgentCollaborationService extends EventEmitter {
     const session: CollaborationSession = {
       id: sessionId,
       eventId: event.id,
-      agents: await this.optimizeAgentSelection(event),
+      agents: selectedAgents,
       status: sessionStatus,
       messages: [],
       decisions: [],
@@ -316,13 +368,34 @@ export class AgentCollaborationService extends EventEmitter {
         {
           action: "session_created",
           timestamp: event.timestamp || Date.now(),
-          details: { event, initialAgents: event.requiredAgents },
+          details: { event, initialAgents: selectedAgents },
         },
       ],
     };
 
+    // Store session in active sessions
     this.activeSessions.set(sessionId, session);
-    await this.storeSessionContext(sessionId, event);
+
+    // Store session context in vector store
+    await this.vectorStore.upsert({
+      id: `collab-context-${sessionId}`,
+      values: await this.vectorStore.createEmbedding(
+        `${event.title} ${event.description} ${event.category}`
+      ),
+      metadata: {
+        type: "collaboration",
+        subtype: "context",
+        sessionId,
+        topic: event.title,
+        participants: selectedAgents.filter(Boolean).join(","),
+        timestamp: event.timestamp || Date.now(),
+        category: event.category,
+        status: sessionStatus,
+        consensusLevel: "0",
+        participation: "0",
+        effectiveness: "0",
+      },
+    });
 
     // Only start discussion if not scheduled
     if (sessionStatus !== "scheduled") {
@@ -332,7 +405,7 @@ export class AgentCollaborationService extends EventEmitter {
       this.emit("collaborationScheduled", {
         sessionId,
         event,
-        agents: session.agents,
+        agents: selectedAgents,
         timestamp: event.timestamp,
       });
     }
@@ -458,6 +531,49 @@ export class AgentCollaborationService extends EventEmitter {
     });
 
     return session.id;
+  }
+
+  private async findDomainExperts(
+    category: CityEventCategory
+  ): Promise<string[]> {
+    const experts: string[] = [];
+
+    // Add domain-specific experts based on category
+    switch (category) {
+      case "cultural":
+        experts.push("father_michael", "rabbi_sarah", "imam_hassan"); // Religious leaders for cultural events
+        break;
+      case "development":
+        experts.push("sophia", "raj", "vision"); // Urban Planning, Infrastructure, Strategic Planning
+        break;
+      case "emergency":
+        experts.push("cipher", "matrix", "catalyst"); // Security, Data, Change Management
+        break;
+      case "social":
+        experts.push("aurora", "prism", "bridge"); // Wellness, Diversity, Community Relations
+        break;
+      case "transport":
+        experts.push("marcus", "raj", "horizon"); // Transportation, Infrastructure, Future Trends
+        break;
+      case "community":
+        experts.push("spark", "nexus", "weaver"); // Community Organizer, Network Coordinator, Cultural Storyteller
+        break;
+      default:
+        // Default mix of management and resident agents
+        experts.push("vision", "nexus", "catalyst");
+    }
+
+    // Add a domain expert if needed
+    if (experts.length < 3) {
+      experts.push("vision"); // Strategic planner as backup
+    }
+
+    // Add a community connector
+    if (!experts.includes("bridge") && !experts.includes("nexus")) {
+      experts.push("nexus");
+    }
+
+    return experts;
   }
 
   private async optimizeAgentSelection(event: CityEvent) {
@@ -710,6 +826,25 @@ export class AgentCollaborationService extends EventEmitter {
 
     // Simulate response delay for more realistic agent interactions
     await this.simulateResponseDelay();
+
+    // Generate discussion messages from each agent
+    for (const agentId of session.agents) {
+      const prompt = `Generate a realistic message from ${agentId} discussing ${event.title}. The message should:
+      - Be in first person
+      - Reference the event details and goals
+      - Include specific suggestions or concerns
+      - Be professional but conversational
+      Format: Just the message content, no additional text.`;
+
+      const messageContent = await this.togetherService.generateText(prompt);
+
+      session.messages.push({
+        agentId,
+        content: messageContent,
+        timestamp: Date.now(),
+        topics: [event.category, "planning", "collaboration"],
+      });
+    }
 
     // Simulate a decision round between agents
     const decision = {

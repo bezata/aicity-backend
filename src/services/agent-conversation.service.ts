@@ -197,12 +197,14 @@ export class AgentConversationService extends EventEmitter {
       !message.content ||
       /^\d+(\.\d+)?$/.test(message.content.trim()) || // Pure numbers
       /^\d+\s*\w+$/.test(message.content.trim()) || // Numbers with single word
-      message.content.trim().split(/\s+/).length < 3
+      message.content.trim().split(/\s+/).length < 3 || // Too short messages
+      message.agentId === "sentiment-analyzer" || // Block sentiment analyzer messages
+      (message.role === "assistant" && /^[\d.]+$/.test(message.content.trim())) // Block pure number responses from assistants
     ) {
-      // Too short messages
       console.warn(
         "Prevented invalid/non-conversational message from being added:",
-        message.content
+        message.content,
+        `(from ${message.agentId})`
       );
       return;
     }
@@ -210,6 +212,35 @@ export class AgentConversationService extends EventEmitter {
     const conversation = this.activeConversations.get(conversationId);
     if (!conversation) {
       throw new Error(`Conversation ${conversationId} not found`);
+    }
+
+    // Prevent same agent from sending consecutive messages
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    if (
+      lastMessage &&
+      lastMessage.agentId === message.agentId &&
+      message.agentId !== "system" &&
+      message.agentId !== "user"
+    ) {
+      console.warn(
+        `Prevented agent ${message.agentId} from sending consecutive messages`
+      );
+      return;
+    }
+
+    // Additional check for sentiment-like responses
+    if (
+      message.role === "assistant" &&
+      (/^sentiment:/i.test(message.content) ||
+        /^rating:/i.test(message.content) ||
+        /^score:/i.test(message.content) ||
+        /^analysis:/i.test(message.content))
+    ) {
+      console.warn(
+        "Prevented sentiment analysis output from being added as message:",
+        message.content
+      );
+      return;
     }
 
     conversation.messages.push(message);
@@ -268,15 +299,85 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private async addMessageWithDelay(conversationId: string, message: Message) {
-    // First broadcast the message immediately
-    await this.addMessage(conversationId, message);
+    // First validate the message content
+    if (!this.isValidMessageContent(message.content)) {
+      console.warn("Message content validation failed:", message.content);
+      return;
+    }
 
-    // Then simulate typing delay for the next message
-    const typingDelay = Math.min(
-      message.content.length * 30, // 30ms per character
-      2000 // Max 2 seconds
-    );
-    await new Promise((resolve) => setTimeout(resolve, typingDelay));
+    await this.simulateTyping(message.content.length);
+    await this.addMessage(conversationId, message);
+  }
+
+  private isValidMessageContent(content: string): boolean {
+    if (!content) return false;
+
+    const invalidPatterns = [
+      /^[\d.]+$/, // Pure numbers
+      /^\d+\s*\w+$/, // Numbers with single word
+      /^sentiment:/i,
+      /^rating:/i,
+      /^score:/i,
+      /^analysis:/i,
+      /^mood:/i,
+      /^emotion:/i,
+      /^confidence:/i,
+      /^probability:/i,
+      /^[\d.]+%/, // Percentage values
+      /^[\d.]+ out of/i, // Rating formats
+      /^[\d.]+ stars/i, // Star ratings
+    ];
+
+    // Check against invalid patterns
+    if (invalidPatterns.some((pattern) => pattern.test(content.trim()))) {
+      return false;
+    }
+
+    // Check minimum word count
+    if (content.trim().split(/\s+/).length < 3) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private async createMessageObject(
+    agentId: string,
+    content: string,
+    role: "assistant" | "user" | "system" = "assistant"
+  ): Promise<Message | null> {
+    // Validate content first
+    if (!this.isValidMessageContent(content)) {
+      return null;
+    }
+
+    // Create message without sentiment if it's a system message
+    if (role === "system") {
+      return {
+        id: `msg-${Date.now()}`,
+        agentId,
+        content,
+        timestamp: Date.now(),
+        role,
+      };
+    }
+
+    // For other messages, calculate sentiment but don't include it in content
+    let sentiment: number | undefined;
+    try {
+      sentiment = await this.vectorStore.analyzeSentiment(content);
+    } catch (error) {
+      console.error("Error calculating sentiment:", error);
+    }
+
+    return {
+      id: `msg-${Date.now()}`,
+      agentId,
+      content,
+      timestamp: Date.now(),
+      role,
+      sentiment,
+    };
   }
 
   constructor(
@@ -938,6 +1039,16 @@ export class AgentConversationService extends EventEmitter {
     context: ConversationContext
   ): Promise<AgentConversation> {
     try {
+      // Ensure we have at least 2 different participants
+      if (
+        participants.length < 2 ||
+        new Set(participants).size !== participants.length
+      ) {
+        throw new Error(
+          "Need at least 2 different participants for a conversation"
+        );
+      }
+
       // Check if any participant is already in an active conversation
       const activeConversations = await this.getActiveConversations();
       const busyParticipants = participants.filter((participantId) =>
@@ -947,13 +1058,6 @@ export class AgentConversationService extends EventEmitter {
       );
 
       if (busyParticipants.length > 0) {
-        const busyAgentNames = busyParticipants
-          .map((id) => this.getAgent(id)?.name)
-          .filter(Boolean)
-          .join(", ");
-        console.log(
-          `Cannot start conversation: Agents ${busyAgentNames} are already in active conversations`
-        );
         throw new Error(
           "One or more participants are already in active conversations"
         );
@@ -1175,24 +1279,27 @@ export class AgentConversationService extends EventEmitter {
         return;
       }
 
-      // Get the last few speakers to ensure variety
-      const recentSpeakers = conversation.messages
-        .slice(-3)
-        .map((msg) => msg.agentId);
+      // Get the last few messages to ensure variety
+      const recentMessages = conversation.messages.slice(-3);
+      const lastMessage = recentMessages[recentMessages.length - 1];
 
-      // Get available participants (excluding recent speakers)
+      // Don't continue if the last message was from the system
+      if (lastMessage?.agentId === "system") {
+        return;
+      }
+
+      // Get available participants (excluding the last speaker)
       const availableParticipants = conversation.participants.filter(
-        (participant) => !recentSpeakers.includes(participant.id)
+        (participant) => participant.id !== lastMessage?.agentId
       );
 
       if (availableParticipants.length === 0) {
-        // If all participants have spoken recently, reset with all participants except the last speaker
-        const lastSpeaker = recentSpeakers[recentSpeakers.length - 1];
-        availableParticipants.push(
-          ...conversation.participants.filter(
-            (participant) => participant.id !== lastSpeaker
-          )
+        console.log(
+          "No available participants to respond, ending conversation"
         );
+        const state = await this.analyzeConversationState(conversation);
+        await this.endConversation(conversation.id, state);
+        return;
       }
 
       // Randomly select next speaker from available participants
@@ -1200,15 +1307,6 @@ export class AgentConversationService extends EventEmitter {
         availableParticipants[
           Math.floor(Math.random() * availableParticipants.length)
         ];
-
-      if (!nextSpeaker) {
-        console.error(
-          "No available participants to respond, ending conversation"
-        );
-        const state = await this.analyzeConversationState(conversation);
-        await this.endConversation(conversation.id, state);
-        return;
-      }
 
       // Get conversation state and environmental context
       const state = await this.analyzeConversationState(conversation);
@@ -1234,19 +1332,30 @@ export class AgentConversationService extends EventEmitter {
         state
       );
 
-      // Simulate typing time
-      await this.simulateTyping(response.length);
+      const messageObj = await this.createMessageObject(
+        nextSpeaker.id,
+        response
+      );
+      if (!messageObj) {
+        console.warn(
+          "Failed to create valid message object for response:",
+          response
+        );
+        return;
+      }
 
-      const message: Message = {
-        id: `msg-${Date.now()}`,
-        agentId: nextSpeaker.id,
-        content: response,
-        timestamp: Date.now(),
-        role: "assistant",
-        sentiment: await this.vectorStore.analyzeSentiment(response),
-      };
+      await this.addMessageWithDelay(conversation.id, messageObj);
 
-      await this.addMessageWithDelay(conversation.id, message);
+      // Schedule next response only if there are still available participants
+      const remainingParticipants = conversation.participants.filter(
+        (p) => p.id !== nextSpeaker.id && p.id !== lastMessage?.agentId
+      );
+
+      if (remainingParticipants.length > 0) {
+        setTimeout(() => {
+          this.continueConversation(conversation).catch(console.error);
+        }, this.messageInterval);
+      }
     } catch (error) {
       console.error("Error continuing conversation:", error);
       const state = await this.analyzeConversationState(conversation);
@@ -1587,18 +1696,25 @@ export class AgentConversationService extends EventEmitter {
     ).response;
   }
 
-  private calculateConversationSentiment(messages: Message[]): number {
+  private async calculateConversationSentiment(
+    messages: Message[]
+  ): Promise<number> {
     if (messages.length === 0) return 0.5;
 
-    // Calculate average sentiment from messages that have sentiment
-    const sentiments = messages
-      .map((m) => m.sentiment)
-      .filter((s): s is number => typeof s === "number");
+    try {
+      // Calculate average sentiment from messages that have sentiment
+      const sentiments = messages
+        .map((m) => m.sentiment)
+        .filter((s): s is number => typeof s === "number");
 
-    if (sentiments.length === 0) return 0.5;
+      if (sentiments.length === 0) return 0.5;
 
-    const sum = sentiments.reduce((acc, val) => acc + val, 0);
-    return sum / sentiments.length;
+      const sum = sentiments.reduce((acc, val) => acc + val, 0);
+      return sum / sentiments.length;
+    } catch (error) {
+      console.error("Error calculating conversation sentiment:", error);
+      return 0.5;
+    }
   }
 
   private async createConversation(
@@ -2782,33 +2898,41 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait 1 minute
         response = await this.togetherService.generateResponse(
           speaker,
           conversation.messages,
           systemPrompt
         );
 
-        if (response?.trim()) {
+        // Validate response is not a sentiment score
+        if (
+          response?.trim() &&
+          !/^[\d.]+$/.test(response.trim()) && // Not just a number
+          !/^sentiment:/i.test(response) && // Not starting with sentiment:
+          !/^rating:/i.test(response) && // Not starting with rating:
+          !/^score:/i.test(response) && // Not starting with score:
+          !/^analysis:/i.test(response) && // Not starting with analysis:
+          response.trim().split(/\s+/).length >= 3 // At least 3 words
+        ) {
           break;
         }
 
-        console.error(`Empty response on attempt ${attempt}, retrying...`);
+        console.warn(
+          `Invalid response format on attempt ${attempt}:`,
+          response
+        );
         await new Promise((resolve) => setTimeout(resolve, 5000));
       } catch (error) {
-        console.error(`API error on attempt ${attempt}:`, error);
-        if (attempt === maxRetries) {
-          throw new Error("Failed to generate response after maximum retries");
-        }
+        console.error(
+          `Error generating response on attempt ${attempt}:`,
+          error
+        );
+        if (attempt === maxRetries) throw error;
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
     }
 
-    if (!response) {
-      throw new Error("Failed to generate valid response");
-    }
-
-    return response;
+    return response?.trim() || "I'm not sure how to respond to that.";
   }
 
   private getRelevantMessageIds(conversation: AgentConversation): string[] {
@@ -3013,114 +3137,102 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
     senderAgentId?: string
   ): Promise<void> {
     const conversation = this.activeConversations.get(conversationId);
-    if (!conversation) {
-      throw new Error("Conversation not found");
-    }
+    if (!conversation) return;
 
-    // Check if this agent was the last speaker
-    const lastMessage = conversation.messages[conversation.messages.length - 1];
-    if (lastMessage && lastMessage.agentId === senderAgentId) {
-      console.log(
-        `Preventing ${senderAgentId} from responding to their own message`
-      );
+    const messageObj = await this.createMessageObject(
+      senderAgentId || "user",
+      userMessage,
+      senderAgentId ? "assistant" : "user"
+    );
+
+    if (!messageObj) {
+      console.warn("Failed to create valid message object for user message");
       return;
     }
-
-    // Create and add user/agent message immediately
-    const messageObj: Message = {
-      id: `msg-${Date.now()}`,
-      agentId: senderAgentId || "user",
-      content: userMessage.replace(/^"|"$/g, ""), // Remove surrounding quotes if present
-      timestamp: Date.now(),
-      role: senderAgentId ? "assistant" : "user",
-      topics: [],
-    };
 
     await this.addMessage(conversationId, messageObj);
 
     // Get conversation state
     const state = await this.analyzeConversationState(conversation);
 
-    // Select 2-3 random agents to respond, excluding the sender and last speaker
+    // Select 1-2 random agents to respond, excluding the sender
     const respondingAgents = this.selectRespondingAgents(
       conversation,
+      1,
       2,
-      3,
-      senderAgentId,
-      lastMessage?.agentId
+      senderAgentId
     );
 
-    // Have each selected agent respond
+    // Have each selected agent respond sequentially
     for (const agentId of respondingAgents) {
       const agent = this.getAgent(agentId);
       if (!agent) continue;
 
-      // Generate response using enhanced context
-      const response = await this.togetherService.generateText(
-        `You are ${agent.name}, ${agent.role}, who is ${agent.personality}.
-        ${
-          senderAgentId ? `Another agent` : `A user`
-        } has sent this message: ${userMessage}
-        Previous messages: ${conversation.messages
-          .slice(-3)
-          .map((m) => `${this.getAgentName(m.agentId)}: ${m.content}`)
-          .join("\n")}
-        
-        Respond naturally in your character's voice, keeping in mind your personality and role.
-        Format: Just the response, no additional text.`
+      // Add delay between responses
+      await new Promise((resolve) => setTimeout(resolve, this.messageInterval));
+
+      const systemPrompt = await this.generateEnhancedSystemPrompt(
+        agent,
+        conversation,
+        state,
+        await this.getEnvironmentalContext(conversation)
       );
 
-      // Create and add agent's response message
-      const agentMessage: Message = {
+      const response = await this.generateEnhancedResponse(
+        agent,
+        conversation,
+        systemPrompt,
+        state
+      );
+
+      const responseMessage: Message = {
         id: `msg-${Date.now()}`,
         agentId: agent.id,
         content: response,
         timestamp: Date.now(),
         role: "assistant",
         sentiment: await this.vectorStore.analyzeSentiment(response),
-        topics: [],
       };
 
-      // Add message with natural typing delay
-      await this.addMessageWithDelay(conversation.id, agentMessage);
+      await this.addMessageWithDelay(conversationId, responseMessage);
     }
   }
 
   private selectRespondingAgents(
-    conversation: any,
+    conversation: AgentConversation,
     min: number,
     max: number,
-    excludeAgentId?: string,
-    lastSpeakerId?: string
+    excludeAgentId?: string
   ): string[] {
-    // Get available agents from the conversation, excluding the message sender and last speaker
-    const availableAgents = conversation.participants
-      .map((p: any) => p.id)
-      .filter(
-        (id: string) =>
-          id !== "system" &&
-          id !== excludeAgentId &&
-          id !== lastSpeakerId &&
-          id !==
-            conversation.messages[conversation.messages.length - 1]?.agentId // Also exclude last message sender
-      );
+    // Get recent speakers to ensure variety
+    const recentSpeakers = conversation.messages
+      .slice(-3)
+      .map((msg) => msg.agentId)
+      .filter((id) => id !== "user" && id !== "system");
 
-    // If no available agents after exclusion, return empty array
-    if (availableAgents.length === 0) {
-      return [];
+    // Get available participants (excluding recent speakers and the excluded agent)
+    const availableParticipants = conversation.participants
+      .filter((p) => !recentSpeakers.includes(p.id) && p.id !== excludeAgentId)
+      .map((p) => p.id);
+
+    if (availableParticipants.length === 0) {
+      // If no available participants, use all participants except the excluded agent and last speaker
+      const lastSpeaker = recentSpeakers[recentSpeakers.length - 1];
+      return conversation.participants
+        .filter((p) => p.id !== excludeAgentId && p.id !== lastSpeaker)
+        .map((p) => p.id)
+        .slice(0, max);
     }
 
-    // Randomly select between min and max agents, but don't exceed available agents
-    const count = Math.min(
-      Math.floor(Math.random() * (max - min + 1)) + min,
-      availableAgents.length
+    // Randomly select between min and max agents
+    const numAgents = Math.min(
+      availableParticipants.length,
+      min + Math.floor(Math.random() * (max - min + 1))
     );
 
-    // Shuffle available agents
-    const shuffled = [...availableAgents].sort(() => Math.random() - 0.5);
-
-    // Return only the first 'count' agents
-    return shuffled.slice(0, count);
+    return availableParticipants
+      .sort(() => Math.random() - 0.5)
+      .slice(0, numAgents);
   }
 
   public async broadcastSystemMessage(content: string) {

@@ -3079,7 +3079,11 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
       .map((p: any) => p.id)
       .filter(
         (id: string) =>
-          id !== "system" && id !== excludeAgentId && id !== lastSpeakerId
+          id !== "system" &&
+          id !== excludeAgentId &&
+          id !== lastSpeakerId &&
+          id !==
+            conversation.messages[conversation.messages.length - 1]?.agentId // Also exclude last message sender
       );
 
     // If no available agents after exclusion, return empty array
@@ -3087,19 +3091,17 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
       return [];
     }
 
-    // Randomly select between min and max agents
-    const count = Math.floor(Math.random() * (max - min + 1)) + min;
-    const selectedAgents = [];
+    // Randomly select between min and max agents, but don't exceed available agents
+    const count = Math.min(
+      Math.floor(Math.random() * (max - min + 1)) + min,
+      availableAgents.length
+    );
 
     // Shuffle available agents
     const shuffled = [...availableAgents].sort(() => Math.random() - 0.5);
 
-    // Select the first 'count' agents
-    for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-      selectedAgents.push(shuffled[i]);
-    }
-
-    return selectedAgents;
+    // Return only the first 'count' agents
+    return shuffled.slice(0, count);
   }
 
   public async broadcastSystemMessage(content: string) {

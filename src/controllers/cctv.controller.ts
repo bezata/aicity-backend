@@ -40,15 +40,18 @@ const ObservationHistoryResponse = t.Object({
 });
 
 const generateCCTVPrompt = (agentId: string, context: string) => `
-[CCTV SURVEILLANCE LOG]
-Camera: AI City Surveillance System
-Target: Agent ${agentId}
-Timestamp: ${new Date().toISOString()}
-Context: ${context}
+[CCTV LOG]
+Agent: ${agentId}
+Time: ${new Date().toISOString()}
+${context}
 
-Generate a brief surveillance report describing the target's current activities and behavior. Use present tense, objective language, and focus on observable details. Format as a CCTV operator's log entry.
+Generate surveillance log:
+- Current location
+- Observed actions
+- Notable behavior
+- Area status
 
-Report:`;
+Use present tense, factual observations only.`;
 
 export const CCTVController = new Elysia({ prefix: "/cctv" })
   .use(

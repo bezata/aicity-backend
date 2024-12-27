@@ -99,42 +99,36 @@ interface DailyChronicle {
 }
 
 const generateNewsPrompt = (context: string) => `
-[NEUROVA DAILY NEWS]
-Context: ${context}
+[NEUROVA NEWS SYSTEM]
+${context}
 
-Generate news article:
-Headline: [Headline]
-Content: [2-3 paragraphs]
-Category: [politics/culture/infrastructure/environment/technology/community]
-Importance: [1-10]
-
-Style: Journalistic, fact-focused, city newspaper format.`;
+Generate news article with:
+Headline: (15-80 characters)
+Content: 3 paragraphs, factual city news
+Category: [politics/culture/infrastructure/environment/technology/community] 
+Importance: Rate 1-10 based on impact`;
 
 const generateEventPrompt = (context: string) => `
-[NEUROVA EVENT]
-Context: ${context}
+[NEUROVA EVENT SYSTEM]
+${context}
 
-Generate a concise city event description:
-Title: [Title]
-Description: [2-3 sentences about the event]
+Generate city event:
+Title: Main event name
+Description: Key details and significance
 Type: [celebration/incident/development/cultural/emergency]
-Location: [Specific venue name]
-Impact: [1-10]
-
-Style: Direct, factual, no meta-text or templates.`;
+Location: District and venue
+Impact: Rate 1-10 based on scope`;
 
 const generateIncidentPrompt = (context: string) => `
-[NEUROVA INCIDENT]
-Context: ${context}
+[NEUROVA INCIDENT SYSTEM]
+${context}
 
-Generate a concise incident report:
-Description: [1-2 clear sentences]
+Generate incident report:
+Description: Current situation and response
 Severity: [low/medium/high/critical]
-Location: [Specific location]
+Location: Exact incident point
 Type: [crime/accident/disturbance/emergency/infrastructure]
-Status: [ongoing/resolved/under_investigation]
-
-Style: Direct, factual emergency report format.`;
+Status: [ongoing/resolved/under_investigation]`;
 
 export class ChroniclesService {
   private lastUpdate: number = 0;
@@ -457,6 +451,11 @@ Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
           "guidelines",
           "procedures",
           "you are tasked",
+          "note:",
+          "i've followed",
+          "format for generating",
+          "if you need",
+          "further assistance",
           "write a report",
           "document the",
           "[",

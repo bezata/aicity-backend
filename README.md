@@ -667,3 +667,172 @@ For support:
 - Open source community
 - AI City research community
 - Infrastructure partners
+
+## 🌐 Core API Routes
+
+### Department Routes
+
+#### Donations
+
+```typescript
+// Make a direct donation to department
+POST /departments/:id/budget/donate
+{
+    amount: number,       // Required: Amount to donate
+    donorId?: string,    // Optional: ID of the donor
+    message?: string,    // Optional: Donation message
+    transactionHash?: string  // Optional: Transaction hash for tracking
+}
+
+// Make a donation to specific department event
+POST /departments/:id/events/:eventId/donate
+{
+    amount: number,       // Required: Amount to donate
+    donorId?: string,    // Optional: ID of the donor
+    message?: string,    // Optional: Donation message
+    transactionHash?: string  // Optional: Transaction hash for tracking
+}
+
+// Get department budget
+GET /departments/:id/budget
+
+// Add department expense
+POST /departments/:id/budget/expense
+{
+    amount: number,
+    category: "equipment" | "personnel" | "operations" | "maintenance" | "emergency",
+    description: string,
+    approvedBy: string
+}
+```
+
+#### Events & Management
+
+```typescript
+// Get department events
+GET /departments/:id/events
+
+// Create department event
+POST /departments/:id/events
+{
+    title: string,
+    description: string,
+    requiredBudget: number,
+    startDate: string,
+    endDate: string,
+    type: "fundraising" | "community" | "emergency" | "development"
+}
+
+// Get department agents health
+GET /departments/:id/agents/health
+
+// Assign agent to department
+POST /departments/:id/agents
+{
+    agentId: string
+}
+```
+
+### Simple Donation Route
+
+```typescript
+// Process simple donations (recommended for external systems)
+POST /donations/simple
+{
+    userId: string,     // The ID of the donor
+    userName: string,   // The name of the donor
+    amount: number,     // The donation amount in dollars
+    districtId: string, // The target district ID
+    departmentId: string, // The target department ID
+    purpose?: string,   // Optional: Purpose of donation
+    category?: string,  // Optional: Donation category
+    subcategory?: {     // Optional: Detailed categorization
+        religious?: {
+            religion: string,
+            occasion?: string,
+            ritual?: string
+        },
+        cultural?: {
+            tradition: string,
+            festival?: string,
+            artForm?: string
+        }
+    }
+}
+
+// Response
+{
+    success: true,
+    donationId: string,
+    message: "Donation processed and announced successfully"
+}
+```
+
+### WebSocket Events
+
+The system emits various WebSocket events for real-time updates:
+
+```typescript
+// Donation Events
+{
+    type: "donation_goal_progress",
+    data: {
+        goalId: string,
+        title: string,
+        progress: {
+            current: number,
+            target: number,
+            percentage: number
+        }
+    }
+}
+
+// System Messages
+{
+    type: "system_message",
+    data: {
+        content: string,
+        timestamp: number
+    }
+}
+
+// Emergency Collaboration
+{
+    type: "system_message",
+    data: {
+        content: string,
+        activity: "emergency",
+        agents: Array<{
+            id: string,
+            name: string
+        }>
+    }
+}
+```
+
+### Response Codes
+
+- 200: Success
+- 400: Bad Request (invalid input)
+- 401: Unauthorized
+- 403: Forbidden
+- 404: Resource Not Found
+- 500: Internal Server Error
+
+### Rate Limits
+
+- Standard endpoints: 100 requests per minute
+- Donation endpoints: 50 requests per minute
+- WebSocket connections: 10 per client
+
+### Authentication
+
+All routes require authentication unless specified otherwise. Include the JWT token in the Authorization header:
+
+```typescript
+headers: {
+    'Authorization': 'Bearer your_jwt_token'
+}
+```
+
+For more detailed documentation on specific endpoints, please refer to the API Documentation section.

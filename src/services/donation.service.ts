@@ -306,76 +306,14 @@ export class DonationService extends EventEmitter {
         ),
       ]);
 
-      // Emit event for tracking
-      this.eventBus.emit("donationProcessed", {
-        donationId,
-        amount: donation.amount,
-        department: donation.departmentId,
-        district: donation.districtId,
-        timestamp: donation.timestamp,
-      });
-
-      // Emit event for agent reactions
-      this.emit("donationProcessed", {
-        donation: {
-          donorName: donation.donorName,
-          amount: donation.amount,
-          purpose: donation.purpose,
-          districtId: donation.districtId,
-        },
-      });
-
-      // Create and store announcement with timeout
-      await Promise.race([
-        this.createDonationAnnouncement(donation),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Announcement creation timeout")),
-            5000
-          )
-        ),
-      ]);
-
-      // Broadcast system message about donation with timeout
-      const systemMessage = `💝 New Donation Alert!\n${
-        donation.donorName
-      } has donated $${(donation.amount / 1000).toFixed(3)} for ${
-        donation.purpose
-      }`;
-      await Promise.race([
-        this.agentConversationService.broadcastSystemMessage(systemMessage),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Broadcast timeout")), 5000)
-        ),
-      ]);
-
-      // Store in vector database with timeout
-      await Promise.race([
-        this.vectorStore.upsert({
-          id: `donation-${donationId}`,
-          values: await this.vectorStore.createEmbedding(
-            `${donation.donorName} donated ${donation.amount} to ${donation.purpose}`
-          ),
-          metadata: {
-            type: "donation",
-            donationId,
-            donorId: donation.donorId,
-            donorName: donation.donorName,
-            amount: donation.amount,
-            purpose: donation.purpose,
-            timestamp: donation.timestamp,
-            departmentId: donation.departmentId,
-            districtId: donation.districtId,
-          },
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Vector store timeout")), 5000)
-        ),
-      ]);
-
-      // Update donation status to completed
+      // Mark donation as completed
       donation.status = "completed";
       this.donations.set(donationId, donation);
+
+      // Create announcement if needed
+      if (donation.amount >= 5000) {
+        await this.createDonationAnnouncement(donation);
+      }
 
       return donationId;
     } catch (error) {
@@ -418,7 +356,10 @@ export class DonationService extends EventEmitter {
         // Emit celebration event
         this.emit("donationGoalReached", {
           goal,
-          donation,
+          donation: {
+            donorName: donation.donorName,
+            amount: donation.amount,
+          },
           celebrationEvent,
         });
 
@@ -427,6 +368,20 @@ export class DonationService extends EventEmitter {
 
         // Reset the goal for the next milestone
         goal.currentAmount = 0;
+      } else {
+        // Emit progress update
+        this.emit("donationGoalProgress", {
+          goal: {
+            id: goal.id,
+            title: goal.title,
+            currentAmount: goal.currentAmount,
+            targetAmount: goal.targetAmount,
+          },
+          donation: {
+            donorName: donation.donorName,
+            amount: donation.amount,
+          },
+        });
       }
     }
   }

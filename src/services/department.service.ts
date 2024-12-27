@@ -356,10 +356,14 @@ export class DepartmentService extends EventEmitter {
     return department.budget;
   }
 
-  async addDonation(departmentId: string, donation: Donation): Promise<void> {
+  async addDonation(
+    departmentId: string,
+    donation: Donation
+  ): Promise<{ donationId: string }> {
     const department = this.departments.get(departmentId);
     if (!department) throw new Error("Department not found");
 
+    // Update budget
     department.budget.donations += donation.amount;
     department.budget.total += donation.amount;
     department.budget.donations_history.push(donation);
@@ -541,6 +545,8 @@ export class DepartmentService extends EventEmitter {
           }
         : undefined,
     });
+
+    return { donationId: donation.id };
   }
 
   async addExpense(

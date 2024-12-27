@@ -1011,12 +1011,11 @@ export class CultureService extends EventEmitter {
   }
 
   private generatePerformanceDescription(style: PerformanceStyle): string {
-    return `Experience the magic of ${
+    return `A captivating ${
       style.name
-    }, blending ${style.culturalOrigin.join(" and ")} 
-      traditions in a unique performance that requires ${style.requirements.join(
-        ", "
-      )}.`;
+    } performance blending ${style.culturalOrigin.join(
+      " and "
+    )} traditions. Experience unique cultural artistry in an immersive setting.`;
   }
 
   private async getLocalCuisines(): Promise<string[]> {
@@ -1074,35 +1073,10 @@ export class CultureService extends EventEmitter {
     });
   }
 
-  private generateCulinaryDescription(theme: CulinaryTheme): string {
-    const culturalElements = [
-      "traditional cooking methods",
-      "ancestral recipes",
-      "local ingredients",
-      "cultural storytelling",
-      "family traditions",
-    ];
-
-    const innovativeElements = [
-      "modern techniques",
-      "sustainable practices",
-      "artistic presentation",
-      "interactive experiences",
-      "sensory exploration",
-    ];
-
-    const selectedCultural =
-      culturalElements[Math.floor(Math.random() * culturalElements.length)];
-    const selectedInnovative =
-      innovativeElements[Math.floor(Math.random() * innovativeElements.length)];
-
-    return `Experience the magic of ${
-      theme.theme
-    }: A culinary journey celebrating the fusion of ${theme.cuisines[0]} and ${
-      theme.cuisines[1]
-    } cuisines. This unique festival combines ${selectedCultural} with ${selectedInnovative}, featuring ${theme.fusion.join(
+  private generateCulinaryDescription(concept: CulinaryTheme): string {
+    return `${concept.theme}: A vibrant fusion of ${concept.cuisines.join(
       " and "
-    )} elements. ${theme.description}`;
+    )} cuisines. ${concept.description}`;
   }
 
   private async identifyHeritageLocations(): Promise<HeritageSpot[]> {
@@ -1184,9 +1158,9 @@ export class CultureService extends EventEmitter {
     return stories
       .map(
         (story) =>
-          `${story.title}: ${story.narrative} from the ${story.historicalPeriod} period`
+          `${story.title} - ${story.narrative} from the ${story.historicalPeriod} era`
       )
-      .join("\n");
+      .join(". ");
   }
 
   private async assessCulturalContext(event: CulturalEvent) {

@@ -99,48 +99,42 @@ interface DailyChronicle {
 }
 
 const generateNewsPrompt = (context: string) => `
-[AI CITY DAILY NEWS GENERATOR]
+[NEUROVA DAILY NEWS]
 Context: ${context}
 
-Generate a news article with the following structure:
-- Headline: A catchy, newspaper-style headline
-- Content: A detailed news story (2-3 paragraphs)
-- Category: One of [politics, culture, infrastructure, environment, technology, community]
-- Importance: A number from 1-10 indicating the story's significance
+Generate news article:
+Headline: [Headline]
+Content: [2-3 paragraphs]
+Category: [politics/culture/infrastructure/environment/technology/community]
+Importance: [1-10]
 
-Use journalistic style, focus on facts and details. Make it feel like a real city newspaper.
-
-Article:`;
+Style: Journalistic, fact-focused, city newspaper format.`;
 
 const generateEventPrompt = (context: string) => `
-[AI CITY EVENT GENERATOR]
+[NEUROVA EVENT]
 Context: ${context}
 
-Generate an urban event with the following structure:
-- Title: A descriptive event title
-- Description: What's happening (2-3 sentences)
-- Type: One of [celebration, incident, development, cultural, emergency]
-- Location: Specific location in the city
-- Impact: A number from 1-10 indicating the event's impact
+Generate a concise city event description:
+Title: [Title]
+Description: [2-3 sentences about the event]
+Type: [celebration/incident/development/cultural/emergency]
+Location: [Specific venue name]
+Impact: [1-10]
 
-Make it realistic and fitting for an AI-managed city.
-
-Event:`;
+Style: Direct, factual, no meta-text or templates.`;
 
 const generateIncidentPrompt = (context: string) => `
-[AI CITY INCIDENT REPORT]
+[NEUROVA INCIDENT]
 Context: ${context}
 
-Generate a city incident report with the following structure:
-- Description: A clear, concise description of the incident
-- Severity: One of [low, medium, high, critical]
-- Location: Specific location in the city
-- Type: One of [crime, accident, disturbance, emergency, infrastructure]
-- Status: One of [ongoing, resolved, under_investigation]
+Generate a concise incident report:
+Description: [1-2 clear sentences]
+Severity: [low/medium/high/critical]
+Location: [Specific location]
+Type: [crime/accident/disturbance/emergency/infrastructure]
+Status: [ongoing/resolved/under_investigation]
 
-Keep it factual and precise, like a police or emergency services report.
-
-Incident:`;
+Style: Direct, factual emergency report format.`;
 
 export class ChroniclesService {
   private lastUpdate: number = 0;
@@ -163,7 +157,7 @@ export class ChroniclesService {
   private async initializeChronicles() {
     // Generate initial context
     const context = `
-Initial City Status Report
+NEUROVA Initial City Status Report
 Date: ${new Date().toLocaleDateString()}
 Time: ${new Date().toLocaleTimeString()}
 Status: City initialization phase
@@ -380,28 +374,140 @@ Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
       );
 
       try {
-        const [description, ...details] = response.split("\n");
-        const severityMatch = details.join("\n").match(/Severity: (.*)/);
-        const locationMatch = details.join("\n").match(/Location: (.*)/);
-        const typeMatch = details.join("\n").match(/Type: (.*)/);
-        const statusMatch = details.join("\n").match(/Status: (.*)/);
+        // Rest of the parsing logic remains the same
+        const lines = response.split("\n").map((line) => line.trim());
+        let description = "",
+          severity = "medium",
+          location = "",
+          type = "disturbance",
+          status = "ongoing";
 
-        incidents.push({
-          id: `INC-${Date.now()}-${i}`,
-          description: description.replace("Description:", "").trim(),
-          severity: (severityMatch?.[1].toLowerCase() ||
-            "medium") as CityIncident["severity"],
-          location: locationMatch?.[1] || "Unknown Location",
-          timestamp: Date.now(),
-          type: (typeMatch?.[1].toLowerCase() ||
-            "disturbance") as CityIncident["type"],
-          status: (statusMatch?.[1].toLowerCase() ||
-            "ongoing") as CityIncident["status"],
-          involvedAgents: [],
-          responseTeam: [],
-        });
+        for (const line of lines) {
+          if (line.startsWith("Description:")) {
+            description = line.replace("Description:", "").trim();
+          } else if (line.startsWith("Severity:")) {
+            severity = line.replace("Severity:", "").trim().toLowerCase();
+          } else if (line.startsWith("Location:")) {
+            location = line.replace("Location:", "").trim();
+          } else if (line.startsWith("Type:")) {
+            type = line.replace("Type:", "").trim().toLowerCase();
+          } else if (line.startsWith("Status:")) {
+            status = line.replace("Status:", "").trim().toLowerCase();
+          } else if (
+            !line.startsWith("[") &&
+            !line.startsWith("Context:") &&
+            line.length > 0
+          ) {
+            if (description) description += " ";
+            description += line;
+          }
+        }
+
+        // Clean up description - remove meta-questions and suggestions
+        description = description
+          .replace(/\?/g, ".")
+          .replace(
+            /would you like|shall i|should i|do you want|can i|let me know|please tell me|i can|i will|i could|i would/gi,
+            ""
+          )
+          .replace(/\s+/g, " ")
+          .trim();
+
+        // Remove any sentence containing meta-text
+        const sentences = description
+          .split(/[.!?]+/)
+          .filter(
+            (sentence) =>
+              !sentence.match(
+                /would you like|shall i|should i|do you want|can i|let me know|please tell me|i can|i will|i could|i would/i
+              )
+          );
+        description = sentences.join(". ").trim() + ".";
+
+        // Validate severity
+        const validSeverities = ["low", "medium", "high", "critical"];
+        if (!validSeverities.includes(severity)) {
+          severity = "medium";
+        }
+
+        // Validate type
+        const validTypes = [
+          "crime",
+          "accident",
+          "disturbance",
+          "emergency",
+          "infrastructure",
+        ];
+        if (!validTypes.includes(type)) {
+          type = "disturbance";
+        }
+
+        // Validate status
+        const validStatuses = ["ongoing", "resolved", "under_investigation"];
+        if (!validStatuses.includes(status)) {
+          status = "ongoing";
+        }
+
+        // Additional validation to prevent meta-responses
+        const invalidPatterns = [
+          "please provide",
+          "let me know",
+          "information needed",
+          "following details",
+          "guidelines",
+          "procedures",
+          "you are tasked",
+          "write a report",
+          "document the",
+          "[",
+          "]",
+          "*",
+          "would you like",
+          "shall i",
+          "should i",
+          "can i help",
+          "do you want",
+          "i can generate",
+          "i will provide",
+        ];
+
+        const hasInvalidPattern = invalidPatterns.some(
+          (pattern) =>
+            description.toLowerCase().includes(pattern) ||
+            location.toLowerCase().includes(pattern)
+        );
+
+        // Validate content length and structure
+        const isValidContent =
+          description.length >= 50 && // Minimum description length
+          description.length <= 500 && // Maximum description length
+          !hasInvalidPattern && // No meta-text patterns
+          location.length >= 3 && // Minimum location length
+          location.length <= 50; // Maximum location length
+
+        // Only add the incident if we have valid content
+        if (description && location && isValidContent) {
+          incidents.push({
+            id: `INC-${Date.now()}-${i}`,
+            description,
+            severity: severity as CityIncident["severity"],
+            location,
+            timestamp: Date.now(),
+            type: type as CityIncident["type"],
+            status: status as CityIncident["status"],
+            involvedAgents: [],
+            responseTeam: [],
+          });
+        } else {
+          // If invalid, try again
+          i--;
+          continue;
+        }
       } catch (error) {
         console.error("Failed to parse incident:", error);
+        // If failed, try again
+        i--;
+        continue;
       }
     }
 
@@ -411,37 +517,104 @@ Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
   async generateDailyNews(context: string): Promise<CityNews[]> {
     const news: CityNews[] = [];
 
-    // Generate fewer news articles per update
+    // Generate news articles per update
     for (let i = 0; i < this.NEWS_PER_UPDATE; i++) {
       const response = await this.togetherService.generateText(
         generateNewsPrompt(context)
       );
 
       try {
-        const [headline, ...contentParts] = response.split("\n");
-        const categoryMatch = contentParts.join("\n").match(/Category: (.*)/);
-        const importanceMatch = contentParts
-          .join("\n")
-          .match(/Importance: (\d+)/);
+        // Parse the response with more robust error handling
+        const lines = response.split("\n").map((line) => line.trim());
+        let headline = "",
+          content = "",
+          category = "community",
+          importance = 5;
 
-        const content = contentParts
-          .join("\n")
-          .replace(/Category:.*/, "")
-          .replace(/Importance:.*/, "")
-          .trim();
+        for (const line of lines) {
+          if (line.startsWith("Headline:")) {
+            headline = line.replace("Headline:", "").trim();
+          } else if (line.startsWith("Content:")) {
+            content = line.replace("Content:", "").trim();
+          } else if (line.startsWith("Category:")) {
+            category = line.replace("Category:", "").trim().toLowerCase();
+          } else if (line.startsWith("Importance:")) {
+            importance = parseInt(line.replace("Importance:", "").trim()) || 5;
+          } else if (
+            !line.startsWith("[") &&
+            !line.startsWith("Context:") &&
+            line.length > 0
+          ) {
+            if (content) content += "\n";
+            content += line;
+          }
+        }
 
-        news.push({
-          headline: headline.replace("Headline:", "").trim(),
-          content,
-          category: (categoryMatch?.[1].toLowerCase() ||
-            "community") as CityNews["category"],
-          timestamp: Date.now(),
-          importance: Number(importanceMatch?.[1] || 5),
-          relatedDistricts: [],
-          relatedAgents: [],
-        });
+        // Validate category
+        const validCategories = [
+          "politics",
+          "culture",
+          "infrastructure",
+          "environment",
+          "technology",
+          "community",
+        ];
+        if (!validCategories.includes(category)) {
+          category = "community";
+        }
+
+        // Validate importance
+        importance = Math.max(1, Math.min(10, importance));
+
+        // Additional validation to prevent meta-responses
+        const invalidPatterns = [
+          "please provide",
+          "let me know",
+          "information needed",
+          "following details",
+          "I'll use these",
+          "I will assist",
+          "required for this task",
+        ];
+
+        const hasInvalidPattern = invalidPatterns.some(
+          (pattern) =>
+            content.toLowerCase().includes(pattern) ||
+            headline.toLowerCase().includes(pattern)
+        );
+
+        // Validate content length and structure
+        const isValidContent =
+          content.length >= 100 && // Minimum content length
+          content.length <= 2000 && // Maximum content length
+          !hasInvalidPattern && // No meta-text patterns
+          !content.includes("*") && // No markdown
+          !content.includes("[") && // No placeholders
+          !headline.includes("required") && // No meta-headlines
+          headline.length >= 10 && // Minimum headline length
+          headline.length <= 100; // Maximum headline length
+
+        // Only add the news if we have valid headline and content
+        if (headline && content && isValidContent) {
+          news.push({
+            headline,
+            content,
+            category: category as CityNews["category"],
+            timestamp: Date.now(),
+            importance,
+            relatedDistricts: [],
+            relatedAgents: [],
+          });
+        } else {
+          // If invalid, try again
+          i--;
+          continue;
+        }
       } catch (error) {
         console.error("Failed to parse news article:", error);
+        // If failed, try again
+        i--;
+        continue;
       }
     }
 
@@ -451,39 +624,110 @@ Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
   async generateRandomEvents(context: string): Promise<CityEvent[]> {
     const events: CityEvent[] = [];
 
-    // Generate fewer events per update
+    // Generate events per update
     for (let i = 0; i < this.EVENTS_PER_UPDATE; i++) {
       const response = await this.togetherService.generateText(
         generateEventPrompt(context)
       );
 
       try {
-        const [title, ...descriptionParts] = response.split("\n");
-        const typeMatch = descriptionParts.join("\n").match(/Type: (.*)/);
-        const locationMatch = descriptionParts
-          .join("\n")
-          .match(/Location: (.*)/);
-        const impactMatch = descriptionParts.join("\n").match(/Impact: (\d+)/);
+        // Parse the response with robust error handling
+        const lines = response.split("\n").map((line) => line.trim());
+        let title = "",
+          description = "",
+          type = "cultural",
+          location = "City Center",
+          impact = 5;
 
-        const description = descriptionParts
-          .join("\n")
-          .replace(/Type:.*/, "")
-          .replace(/Location:.*/, "")
-          .replace(/Impact:.*/, "")
-          .trim();
+        for (const line of lines) {
+          if (line.startsWith("Title:")) {
+            title = line.replace("Title:", "").trim();
+          } else if (line.startsWith("Description:")) {
+            description = line.replace("Description:", "").trim();
+          } else if (line.startsWith("Type:")) {
+            type = line.replace("Type:", "").trim().toLowerCase();
+          } else if (line.startsWith("Location:")) {
+            location = line.replace("Location:", "").trim();
+          } else if (line.startsWith("Impact:")) {
+            impact = parseInt(line.replace("Impact:", "").trim()) || 5;
+          } else if (
+            !line.startsWith("[") &&
+            !line.startsWith("Context:") &&
+            line.length > 0
+          ) {
+            if (description) description += " ";
+            description += line;
+          }
+        }
 
-        events.push({
-          title: title.replace("Title:", "").trim(),
-          description,
-          type: (typeMatch?.[1].toLowerCase() ||
-            "cultural") as CityEvent["type"],
-          location: locationMatch?.[1] || "City Center",
-          timestamp: Date.now(),
-          impact: Number(impactMatch?.[1] || 5),
-          participants: [],
-        });
+        // Validate event type
+        const validTypes = [
+          "celebration",
+          "incident",
+          "development",
+          "cultural",
+          "emergency",
+        ];
+        if (!validTypes.includes(type)) {
+          type = "cultural";
+        }
+
+        // Validate impact
+        impact = Math.max(1, Math.min(10, impact));
+
+        // Additional validation to prevent meta-responses
+        const invalidPatterns = [
+          "please provide",
+          "let me know",
+          "information needed",
+          "following details",
+          "I'll use these",
+          "I will assist",
+          "required for this task",
+          "[",
+          "]",
+          "*",
+          "write here",
+        ];
+
+        const hasInvalidPattern = invalidPatterns.some(
+          (pattern) =>
+            description.toLowerCase().includes(pattern) ||
+            title.toLowerCase().includes(pattern) ||
+            location.toLowerCase().includes(pattern)
+        );
+
+        // Validate content length and structure
+        const isValidContent =
+          description.length >= 50 && // Minimum description length
+          description.length <= 1000 && // Maximum description length
+          !hasInvalidPattern && // No meta-text patterns
+          title.length >= 10 && // Minimum title length
+          title.length <= 100 && // Maximum title length
+          location.length >= 3 && // Minimum location length
+          location.length <= 50; // Maximum location length
+
+        // Only add the event if we have valid content
+        if (title && description && location && isValidContent) {
+          events.push({
+            title,
+            description,
+            type: type as CityEvent["type"],
+            location,
+            timestamp: Date.now(),
+            impact,
+            participants: [],
+          });
+        } else {
+          // If invalid, try again
+          i--;
+          continue;
+        }
       } catch (error) {
         console.error("Failed to parse event:", error);
+        // If failed, try again
+        i--;
+        continue;
       }
     }
 

@@ -7,6 +7,7 @@ import { ErrorResponse } from "./types/responses";
 import { agents, residentAgents } from "./config/agents";
 import { cityManagementAgents, allCityAgents } from "./config/city-agents";
 import { ServerWebSocket, Server } from "bun";
+import { Agent } from "./types/agent.types";
 
 // Import controllers
 import { CityRhythmController } from "./controllers/city-rhythm.controller";
@@ -630,7 +631,7 @@ initializeAISystem()
                 "system_message",
                 {
                   content:
-                    `🎉 Donation Goal Reached! ${data.goal.title}\n` +
+                    `Donation Goal Reached! ${data.goal.title}\n` +
                     `Thanks to a generous donation of $${data.donation.amount.toLocaleString()} from ${
                       data.donation.donorName
                     }!\n\n` +
@@ -713,11 +714,28 @@ initializeAISystem()
           const collaborationStartedListener = async (session: any) => {
             sendWebSocketMessage(ws, ws.data.messageHistory, "system_message", {
               content: `🚨 Emergency Collaboration Started: A group of agents is working on solving a city problem. Participating agents: ${session.agents
-                .map(
-                  (id: string) =>
-                    store.services.agentConversationService.getAgent(id)?.name
+                .map((id: string) =>
+                  store.services.agentConversationService.getAgent(id)
                 )
+                .filter(
+                  (agent: Agent | undefined): agent is Agent =>
+                    agent !== undefined
+                )
+                .map((agent: Agent) => agent.name)
                 .join(", ")}`,
+              activity: "emergency",
+              agents: session.agents
+                .map((id: string) =>
+                  store.services.agentConversationService.getAgent(id)
+                )
+                .filter(
+                  (agent: Agent | undefined): agent is Agent =>
+                    agent !== undefined
+                )
+                .map((agent: Agent) => ({
+                  id: agent.id,
+                  name: agent.name,
+                })),
             });
 
             // Start a conversation between the participating agents

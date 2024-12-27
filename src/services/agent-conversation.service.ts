@@ -400,7 +400,7 @@ export class AgentConversationService extends EventEmitter {
 
   public async generateAIRoutines(agent: Agent): Promise<AgentActivity[]> {
     try {
-      // First try to retrieve from Pinecone
+      // First try to retrieve from vector store
       const embedding = await this.vectorStore.createEmbedding(
         `${agent.role} ${agent.personality} routines`
       );
@@ -414,11 +414,21 @@ export class AgentConversationService extends EventEmitter {
         topK: 1,
       });
 
+      // If we found existing routines, use them
       if (results.matches?.length > 0 && results.matches[0].metadata.routines) {
+        console.log("Found existing routines for agent:", agent.id);
         return JSON.parse(results.matches[0].metadata.routines);
       }
 
-      const prompt = `You are a schedule generator. Generate a daily schedule for ${agent.name} (${agent.role}).
+      // If no routines found, wait 1 minute then generate new ones
+      console.log(
+        "No routines found for agent:",
+        agent.id,
+        "- generating new ones after delay"
+      );
+      await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait 1 minute
+
+      const prompt = `Generate a daily schedule for ${agent.name} (${agent.role}).
       RESPOND ONLY WITH A VALID JSON ARRAY. NO OTHER TEXT.
       Each object in array must have exactly these properties:
       {
@@ -430,45 +440,77 @@ export class AgentConversationService extends EventEmitter {
       }
       Generate exactly 5 activities.`;
 
-      await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait 1 minute
-      const response = await this.togetherService.generateText(prompt);
+      let maxRetries = 5;
+      let retryCount = 0;
+      let routines = null;
 
-      try {
-        const cleanedResponse = response
-          .replace(/```json/g, "")
-          .replace(/```/g, "")
-          .replace(/\n/g, "")
-          .replace(/\r/g, "")
-          .trim();
+      while (retryCount < maxRetries && !routines) {
+        try {
+          const response = await this.togetherService.generateText(prompt);
+          const cleanedResponse = response
+            .replace(/```json/g, "")
+            .replace(/```/g, "")
+            .replace(/\n/g, "")
+            .replace(/\r/g, "")
+            .trim();
 
-        const routines = JSON.parse(cleanedResponse);
+          const parsedRoutines = JSON.parse(cleanedResponse);
 
-        if (!Array.isArray(routines) || routines.length !== 5) {
-          throw new Error("Invalid routines format");
-        }
-
-        routines.forEach((routine) => {
-          if (!this.isValidRoutine(routine)) {
-            throw new Error("Invalid routine object format");
+          // Validate the response format
+          if (!Array.isArray(parsedRoutines) || parsedRoutines.length !== 5) {
+            console.log(`Retry ${retryCount + 1}: Invalid array format`);
+            retryCount++;
+            continue;
           }
-        });
 
-        await this.vectorStore.upsert({
-          id: `routine-${agent.id}`,
-          values: embedding,
-          metadata: {
-            type: "agent_routine",
-            agentId: agent.id,
-            routines: JSON.stringify(routines),
-            timestamp: Date.now(),
-          },
-        });
+          // Validate each routine
+          const isValid = parsedRoutines.every((routine) =>
+            this.isValidRoutine(routine)
+          );
+          if (!isValid) {
+            console.log(`Retry ${retryCount + 1}: Invalid routine format`);
+            retryCount++;
+            continue;
+          }
 
-        return routines;
-      } catch (parseError) {
-        console.error("Failed to parse AI routines:", parseError);
+          routines = parsedRoutines;
+        } catch (error) {
+          console.log(
+            `Retry ${retryCount + 1}: Failed to parse response:`,
+            error
+          );
+          retryCount++;
+          if (retryCount === maxRetries) {
+            console.error("Max retries reached, using initial routines");
+            return this.generateInitialRoutines();
+          }
+          // Wait 2 seconds before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+
+      if (!routines) {
+        console.error("Failed to generate valid routines after retries");
         return this.generateInitialRoutines();
       }
+
+      // Store the successful routines
+      await this.vectorStore.upsert({
+        id: `routine-${agent.id}`,
+        values: embedding,
+        metadata: {
+          type: "agent_routine",
+          agentId: agent.id,
+          routines: JSON.stringify(routines),
+          timestamp: Date.now(),
+        },
+      });
+
+      console.log(
+        "Successfully generated and stored new routines for agent:",
+        agent.id
+      );
+      return routines;
     } catch (error) {
       console.error("Failed to generate/retrieve AI routines:", error);
       return this.generateInitialRoutines();
@@ -2761,46 +2803,56 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
     state: ConversationState
   ): Promise<void> {
     const conversation = this.activeConversations.get(conversationId);
-    if (!conversation) return;
+    if (!conversation || conversation.status === "ended") return;
 
-    // Update final metrics
-    await this.updateConversationMetrics(
-      conversation,
-      conversation.messages[conversation.messages.length - 1],
-      state
-    );
+    // Mark as inactive to prevent multiple conclusions
+    conversation.status = "inactive";
 
-    // Send system message about conversation ending
-    const systemMessage: Message = {
-      id: `msg-${Date.now()}`,
-      agentId: "system",
-      content: `Conversation ended after ${
-        conversation.messages.length
-      } messages. Final sentiment: ${
-        state.sentiment >= 0 ? "positive" : "negative"
-      }. Topics discussed: ${state.topics.join(", ")}`,
-      timestamp: Date.now(),
-      role: "system",
-      sentiment: 0,
-      topics: state.topics,
-    };
-    await this.addMessage(conversationId, systemMessage);
+    try {
+      // Update final metrics
+      await this.updateConversationMetrics(
+        conversation,
+        conversation.messages[conversation.messages.length - 1],
+        state
+      );
 
-    // Clean up conversation
-    conversation.status = "ended";
-    this.activeConversations.delete(conversationId);
+      // Send system message about conversation ending
+      const systemMessage: Message = {
+        id: `msg-${Date.now()}`,
+        agentId: "system",
+        content: `Conversation ended after ${
+          conversation.messages.length
+        } messages. Final sentiment: ${
+          state.sentiment >= 0 ? "positive" : "negative"
+        }. Topics discussed: ${state.topics.join(", ")}`,
+        timestamp: Date.now(),
+        role: "system",
+        sentiment: 0,
+        topics: state.topics,
+      };
+      await this.addMessage(conversationId, systemMessage);
 
-    // Emit conversation ended event with final metrics
-    this.emit("conversationEnded", {
-      conversationId,
-      duration: Date.now() - conversation.startTime,
-      messageCount: conversation.messages.length,
-      finalMetrics: {
-        depth: state.conversationDepth,
-        quality: this.conversationQualityScores.get(conversationId) || 0,
-        emotionalDynamics: state.emotionalDynamics,
-      },
-    });
+      // Clean up conversation
+      conversation.status = "ended";
+      this.activeConversations.delete(conversationId);
+
+      // Emit conversation ended event with final metrics (only once)
+      this.emit("conversationEnded", {
+        conversationId,
+        duration: Date.now() - conversation.startTime,
+        messageCount: conversation.messages.length,
+        finalMetrics: {
+          depth: state.conversationDepth,
+          quality: this.conversationQualityScores.get(conversationId) || 0,
+          emotionalDynamics: state.emotionalDynamics,
+        },
+      });
+    } catch (error) {
+      console.error("Error ending conversation:", error);
+      // Ensure conversation is marked as ended even if there's an error
+      conversation.status = "ended";
+      this.activeConversations.delete(conversationId);
+    }
   }
 
   private calculateTopicContinuity(conversation: AgentConversation): number {

@@ -130,7 +130,9 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
     "/:id/budget/donate",
     async ({ params: { id }, body, store }) => {
       const appStore = store as AppStore;
-      return await appStore.services.departmentService.addDonation(id, {
+
+      // Process the donation and update budget
+      const result = await appStore.services.departmentService.addDonation(id, {
         id: crypto.randomUUID(),
         amount: body.amount,
         donorId: body.donorId,
@@ -138,6 +140,15 @@ export const DepartmentController = new Elysia({ prefix: "/departments" })
         timestamp: Date.now(),
         transactionHash: body.transactionHash,
       });
+
+      // Return immediately with success
+      return {
+        success: true,
+        message: "Donation processed successfully",
+        amount: body.amount,
+        departmentId: id,
+        donationId: result?.donationId,
+      };
     },
     {
       body: t.Object({

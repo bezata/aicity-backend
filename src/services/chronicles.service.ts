@@ -99,36 +99,42 @@ interface DailyChronicle {
 }
 
 const generateNewsPrompt = (context: string) => `
-[NEUROVA NEWS SYSTEM]
-${context}
+[NEUROVA DAILY NEWS]
+Context: ${context}
 
-Generate news article with:
-Headline: (15-80 characters)
-Content: 3 paragraphs, factual city news
-Category: [politics/culture/infrastructure/environment/technology/community] 
-Importance: Rate 1-10 based on impact`;
+Generate news article:
+Headline: [Headline]
+Content: [2-3 paragraphs]
+Category: [politics/culture/infrastructure/environment/technology/community]
+Importance: [1-10]
+
+Style: Journalistic, fact-focused, city newspaper format.`;
 
 const generateEventPrompt = (context: string) => `
-[NEUROVA EVENT SYSTEM]
-${context}
+[NEUROVA EVENT]
+Context: ${context}
 
-Generate city event:
-Title: Main event name
-Description: Key details and significance
+Generate a concise city event description:
+Title: [Title]
+Description: [2-3 sentences about the event]
 Type: [celebration/incident/development/cultural/emergency]
-Location: District and venue
-Impact: Rate 1-10 based on scope`;
+Location: [Specific venue name]
+Impact: [1-10]
+
+Style: Direct, factual, no meta-text or templates.`;
 
 const generateIncidentPrompt = (context: string) => `
-[NEUROVA INCIDENT SYSTEM]
-${context}
+[NEUROVA INCIDENT]
+Context: ${context}
 
-Generate incident report:
-Description: Current situation and response
+Generate a concise incident report:
+Description: [1-2 clear sentences]
 Severity: [low/medium/high/critical]
-Location: Exact incident point
+Location: [Specific location]
 Type: [crime/accident/disturbance/emergency/infrastructure]
-Status: [ongoing/resolved/under_investigation]`;
+Status: [ongoing/resolved/under_investigation]
+
+Style: Direct, factual emergency report format.`;
 
 export class ChroniclesService {
   private lastUpdate: number = 0;
@@ -451,11 +457,6 @@ Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
           "guidelines",
           "procedures",
           "you are tasked",
-          "note:",
-          "i've followed",
-          "format for generating",
-          "if you need",
-          "further assistance",
           "write a report",
           "document the",
           "[",
@@ -468,6 +469,14 @@ Next update in ${this.UPDATE_INTERVAL / (60 * 60 * 1000)} hours`);
           "do you want",
           "i can generate",
           "i will provide",
+          "Style: ",
+          "Format: ",
+          " Should i",
+          "note:",
+          "i've followed",
+          "format for generating",
+          "if you need",
+          "further assistance",
         ];
 
         const hasInvalidPattern = invalidPatterns.some(

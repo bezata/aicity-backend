@@ -22,51 +22,23 @@ export class CultureController {
     const initialExpressions = [
       {
         type: "traditional_festival",
-        prompt: `Generate specific festival details:
-Title: (festival name)
-Location: (specific region/city)
-Time: (season/month)
-Core Elements: 
-- Main customs and practices
-- Traditional foods (2-3 specific items)
-- Cultural significance
-Length: 100-150 words`,
+        prompt:
+          "Generate a traditional East Asian festival celebration that showcases cultural heritage through food, music, and customs. Include a title and detailed description.",
       },
       {
         type: "cultural_ceremony",
-        prompt: `Generate specific ceremony details:
-Title: (ceremony name)
-Region: (specific area/community)
-Occasion: (specific milestone/purpose)
-Key Components:
-- Traditional practices
-- Symbolic elements
-- Community participation
-Length: 100-150 words`,
+        prompt:
+          "Generate a South Asian cultural ceremony that celebrates important life milestones or spiritual traditions. Include a title and detailed description.",
       },
       {
         type: "ethnic_celebration",
-        prompt: `Generate specific celebration details:
-Title: (celebration name)
-Origin: (specific culture/region)
-Purpose: (specific tradition/meaning)
-Features:
-- Traditional activities
-- Cultural expressions
-- Community roles
-Length: 100-150 words`,
+        prompt:
+          "Generate an African cultural celebration that honors ancestral traditions and community values. Include a title and detailed description.",
       },
       {
         type: "heritage_gathering",
-        prompt: `Generate specific gathering details:
-Title: (gathering name)
-Setting: (specific location type)
-Focus: (specific cultural aspect)
-Elements:
-- Traditional crafts/arts
-- Cultural demonstrations
-- Community involvement
-Length: 100-150 words`,
+        prompt:
+          "Generate a Middle Eastern heritage gathering that brings together traditional arts, crafts, and storytelling. Include a title and detailed description.",
       },
     ];
 

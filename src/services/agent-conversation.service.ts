@@ -192,8 +192,30 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private async addMessage(conversationId: string, message: Message) {
+    // Enhanced validation to catch non-conversational messages
+    if (
+      !message.content ||
+      /^\d+(\.\d+)?$/.test(message.content.trim()) || // Pure numbers
+      /^\d+\s*\w+$/.test(message.content.trim()) || // Numbers with single word
+      message.content.trim().split(/\s+/).length < 3
+    ) {
+      // Too short messages
+      console.warn(
+        "Prevented invalid/non-conversational message from being added:",
+        message.content
+      );
+      return;
+    }
+
     const conversation = this.activeConversations.get(conversationId);
-    if (!conversation) return;
+    if (!conversation) {
+      throw new Error(`Conversation ${conversationId} not found`);
+    }
+
+    conversation.messages.push(message);
+    conversation.lastMessageTimestamp = message.timestamp;
+    conversation.lastUpdateTime = Date.now();
+    conversation.messageCount++;
 
     // Cache the message
     this.messageCache.set(message.id, {
@@ -207,9 +229,6 @@ export class AgentConversationService extends EventEmitter {
         this.messageCache.delete(id);
       }
     }
-
-    conversation.messages.push(message);
-    conversation.lastUpdateTime = Date.now();
 
     // Update conversation counts for non-system messages
     if (message.agentId !== "system") {

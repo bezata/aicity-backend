@@ -474,7 +474,8 @@ export const DonationController = (donationService: DonationService) =>
     )
     .post(
       "/simple",
-      async ({ body }) => {
+      async ({ body, store }) => {
+        const appStore = store as AppStore;
         try {
           const donationData = {
             donorId: body.userId,
@@ -491,18 +492,27 @@ export const DonationController = (donationService: DonationService) =>
             },
           };
 
-          const donationId = await donationService.processDonation(
-            donationData
-          );
+          const donationId =
+            await appStore.services.donationService.processDonation(
+              donationData
+            );
 
+          // Return response immediately after processing
           return {
             success: true,
             donationId,
-            message: "Donation processed and announced successfully",
+            message: "Donation processed successfully",
+            amount: body.amount,
+            donor: body.userName,
           };
         } catch (error) {
           console.error("Failed to process simple donation:", error);
-          throw error;
+          // Return error response instead of throwing
+          return {
+            success: false,
+            error: "Failed to process donation",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
         }
       },
       {
@@ -602,6 +612,7 @@ export const DonationController = (donationService: DonationService) =>
       async ({ body, store }) => {
         const appStore = store as AppStore;
         try {
+          // Process the donation
           const donationId =
             await appStore.services.donationService.processDonation({
               donorId: body.userId,
@@ -618,7 +629,7 @@ export const DonationController = (donationService: DonationService) =>
               },
             });
 
-          // Also update department budget
+          // Update department budget
           await appStore.services.departmentService.addDonation(
             body.departmentId,
             {
@@ -631,6 +642,7 @@ export const DonationController = (donationService: DonationService) =>
             }
           );
 
+          // Return success response immediately
           return {
             success: true,
             donationId,
@@ -638,13 +650,12 @@ export const DonationController = (donationService: DonationService) =>
           };
         } catch (error) {
           console.error("Failed to process donation:", error);
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: "Failed to process donation",
-            }),
-            { status: 500 }
-          );
+          // Return error response instead of throwing
+          return {
+            success: false,
+            error: "Failed to process donation",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
         }
       },
       {

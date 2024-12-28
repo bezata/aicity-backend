@@ -25,7 +25,7 @@ interface ConversationMessage {
 export class TogetherService {
   private client: Together;
   private readonly embeddingModel = "togethercomputer/m2-bert-80M-8k-retrieval";
-  private readonly chatModel = "meta-llama/Llama-3.2-3B-Instruct-Turbo";
+  private readonly chatModel = "meta-llama/Llama-3.3-70B-Instruct-Turbo";
   private lastRequestTime: number = 0;
   private messageCache: Map<string, MessageCache> = new Map();
   private readonly cacheDuration = 30000; // 30 seconds cache
@@ -281,7 +281,7 @@ export class TogetherService {
       model?: string;
     } = {}
   ): Promise<string> {
-    const defaultModel = "meta-llama/Llama-3.2-3B-Instruct-Turbo";
+    const defaultModel = "meta-llama/Llama-3.3-70B-Instruct-Turbo";
 
     for (let attempt = 0; attempt < this.retryConfig.maxRetries; attempt++) {
       try {
@@ -328,8 +328,6 @@ export class TogetherService {
 
     for (let attempt = 0; attempt < this.retryConfig.maxRetries; attempt++) {
       try {
-        await this.waitForRateLimit();
-
         const response = await this.client.embeddings.create({
           model: this.embeddingModel,
           input: text.trim(),

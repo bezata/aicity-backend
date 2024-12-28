@@ -7,6 +7,8 @@
 
 # testing
 /coverage
+/nginx
+.ecosystem.config.js
 
 # next.js
 /.next/

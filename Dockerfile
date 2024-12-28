@@ -11,7 +11,7 @@ RUN bun install
 # Copy the rest of the application
 COPY . .
 
-# Build the application (if you have a build step)
+# Build the application
 RUN bun run build
 
 FROM oven/bun:1
@@ -26,6 +26,7 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/bun.lockb ./
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src ./src 
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy .env file
@@ -34,13 +35,12 @@ COPY .env .env
 # Switch to non-root user
 USER bunjs
 
-# Expose the port your app runs on
-EXPOSE 3001
-EXPOSE 3002
+# Expose the ports
+EXPOSE 3001 3002
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3001/health || exit 1
 
-# Start the application in production mode
-CMD ["bun", "run", "start"]
+# Start the application using the src directory
+CMD ["bun", "run", "src/index.ts"]

@@ -233,6 +233,12 @@ export class DonationService extends EventEmitter {
     ];
 
     const districts = await this.districtService.getAllDistricts();
+    // Use default district ID if no districts available
+    const defaultDistrictId = "a42ed892-3878-45a5-9a1a-4ceaf9524f1c";
+    const randomDistrict =
+      districts && districts.length > 0
+        ? districts[Math.floor(Math.random() * districts.length)]
+        : { id: defaultDistrictId };
 
     // Create 3 donations targeting different goals
     for (let i = 0; i < 3; i++) {
@@ -241,8 +247,6 @@ export class DonationService extends EventEmitter {
       const randomPurpose =
         purposes[Math.floor(Math.random() * purposes.length)];
       const randomAmount = Math.floor(Math.random() * 7500) + 2500; // Random amount between 2500 and 10000
-      const randomDistrict =
-        districts[Math.floor(Math.random() * districts.length)];
 
       const donationData = {
         donorId: `daily_donor_${Date.now()}_${i}`,

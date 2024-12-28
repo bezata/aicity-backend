@@ -113,12 +113,6 @@ const app = new Elysia()
       },
     })
   )
-  .use(
-    jwt({
-      name: "jwt",
-      secret: process.env.JWT_SECRET || "your-secret-key",
-    })
-  )
   .use(cors())
   .onError(({ code, error }) => {
     console.error(`Error ${code}:`, error);
@@ -128,12 +122,8 @@ const app = new Elysia()
       code: typeof code === "string" ? 500 : code,
     } as ErrorResponse;
   })
-  .derive(({ jwt }) => {
-    return {
-      jwt,
-      store,
-    };
-  })
+
+ 
   .onRequest((context) => {
     console.log(
       `[${new Date().toISOString()}] ${context.request.method} ${

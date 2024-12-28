@@ -1,3 +1,88 @@
+# ⚠️ IMPORTANT NOTICE
+
+## Configuration Limits
+
+### Conversation Limits
+
+- Maximum conversation duration: 20 minutes
+- Minimum conversation duration: 10 minutes
+- Message interval: 60 seconds between messages
+- Maximum concurrent conversations: 1
+- Conversation cooldown: 60 seconds between conversations
+- Topic switch threshold: 5 messages
+- User message response delay: 2 seconds
+
+### API Limits
+
+- Maximum daily API calls: 100,000
+- Operating hours: 24/7 (0-24)
+
+### Message Delay Settings
+
+- Minimum delay between messages: 5 seconds
+- Maximum delay between messages: 10 seconds
+- Agent response delay: 5 seconds
+- Typing simulation speed: 100ms per character
+
+## How to Configure
+
+You can modify these settings in the following locations:
+
+### 1. Service Configuration (src/services/agent-conversation.service.ts)
+
+```typescript
+
+
+
+private messageDelayConfig = {
+  minDelay: 5000,      // Modify minimum delay (ms)
+  maxDelay: 10000,     // Modify maximum delay (ms)
+  responseDelay: 5000, // Modify agent response delay (ms)
+  typingSpeed: 100,    // Modify typing simulation speed (ms)
+};
+
+private readonly maxConversationDuration = 20 * 60 * 1000;  // Modify max duration
+private readonly minConversationDuration = 10 * 60 * 1000;  // Modify min duration
+private readonly messageInterval = 60000;                    // Modify message interval
+private readonly maxConcurrentConversations = 1;            // Modify max concurrent
+private readonly minConversationCooldown = 60000;           // Modify cooldown
+private readonly TOPIC_EXHAUSTION_THRESHOLD = 5;            // Modify topic switch threshold
+private readonly MAX_DAILY_API_CALLS=100000;                  // Modify max daily API calls
+private readonly CONVERSATION_START_HOUR=0;                  // Modify conversation start hour
+private readonly CONVERSATION_END_HOUR=24;                  // Modify conversation end hour
+private readonly MESSAGE_INTERVAL=60000;                   // Modify message interval
+```
+
+### 2. WebSocket Configuration (src/index.ts)
+
+````typescript
+const wsConfig = {
+  port: process.env.WS_PORT || 3002,
+  maxConnections: 10, // Modify max WebSocket connections
+  heartbeatInterval: 30000, // Modify heartbeat interval (ms)
+};
+
+### 3. Collaboration Configuration (src/services/agent-collaboration.service.ts)
+
+```typescript
+  private readonly responseCacheDuration = 30 * 60 * 1000; // 30 minutes
+  private readonly decisionCache = new Map<
+    string,
+    { decision: any; timestamp: number }
+  >();
+  private readonly decisionCacheDuration = 5 * 60 * 1000; // 5 minutes
+
+  private config: CollaborationConfig = {
+    minConsensusThreshold: 0.7,
+    maxDiscussionRounds: 2,
+    decisionTimeoutMs: 30000,
+    emergencyProtocolThreshold: 1.5,
+  };
+
+````
+
+## API Key Authentication
+
 # AI City Framework
 
 A sophisticated framework for managing an AI-driven city with intelligent services, real-time optimization, and adaptive learning capabilities.
@@ -348,7 +433,7 @@ const challenge = await donationService.createDonationChallenge({
 });
 ```
 
-## 🏗 Architecture
+## �� Architecture
 
 ### Services Layer
 

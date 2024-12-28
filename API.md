@@ -1,5 +1,9 @@
 # ⚠️ IMPORTANT NOTICE
 
+# Cost Warning
+
+IF costs are high. Please switch to a more cost-effective LLM model from: https://api.together.xyz/models
+
 # Docker Setup
 
 ## Build the Image

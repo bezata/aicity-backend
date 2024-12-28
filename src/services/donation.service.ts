@@ -254,7 +254,7 @@ export class DonationService extends EventEmitter {
         amount: randomAmount,
         purpose: randomPurpose.purpose,
         category: randomPurpose.category,
-        districtId: randomDistrict.id,
+        districtId: defaultDistrictId,
         departmentId: randomPurpose.departmentId,
         impact: {
           category: randomPurpose.category,
@@ -1199,10 +1199,10 @@ export class DonationService extends EventEmitter {
       const districts = await this.districtService.getAllDistricts();
       const randomDistrict =
         districts[Math.floor(Math.random() * districts.length)];
-
+      const defaultDistrictId = "a42ed892-3878-45a5-9a1a-4ceaf9524f1c";
       await this.processDonation({
         ...donation,
-        districtId: randomDistrict.id,
+        districtId: defaultDistrictId,
       });
     }
 

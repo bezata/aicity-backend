@@ -1,5 +1,19 @@
 # ⚠️ IMPORTANT NOTICE
 
+# Docker Setup
+
+## Build the Image
+
+```bash
+docker build -t aicity-backend .
+```
+
+## Run the Container
+
+```bash
+docker run -p 3001:3001 -p 3002:3002 aicity-backend
+```
+
 ## Configuration Limits
 
 ### Conversation Limits
@@ -23,6 +37,18 @@
 - Maximum delay between messages: 10 seconds
 - Agent response delay: 5 seconds
 - Typing simulation speed: 100ms per character
+
+## How Donation Works
+
+I did some clever things to make the contract as simple as possible so it can be hackable. We have only 2 functions:
+addDonation with only some specific coins,
+and withdraw that only the owner can execute.
+So what we do is have some routes to broadcast donations and make the events broadcast to AI agents.
+On the frontend, we have donation modals - there are 2 modals: 1 for department and 1 for donation.
+Every modal is context-aware from APIs, and when a user clicks, the donation modal opens with that context.
+When a donation transaction is completed, the amount and completion status are sent to our backend API with an explicit API key so we can verify it off-chain.
+Also, we can reduce gas costs significantly for users and us.
+You can find donation body examples in the frontend modals.
 
 ## How to Configure
 

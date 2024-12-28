@@ -187,22 +187,18 @@ export class AgentConversationService extends EventEmitter {
   }
 
   private async simulateTyping(messageLength: number): Promise<void> {
-    const typingDuration = messageLength * this.messageDelayConfig.typingSpeed;
+    const typingDuration = Math.min(
+      messageLength * this.messageDelayConfig.typingSpeed,
+      3000 // Cap at 3 seconds
+    );
     await new Promise((resolve) => setTimeout(resolve, typingDuration));
   }
 
   private async addMessage(conversationId: string, message: Message) {
-    // Enhanced validation to catch non-conversational messages
-    if (
-      !message.content ||
-      /^\d+(\.\d+)?$/.test(message.content.trim()) || // Pure numbers
-      /^\d+\s*\w+$/.test(message.content.trim()) || // Numbers with single word
-      message.content.trim().split(/\s+/).length < 3 || // Too short messages
-      message.agentId === "sentiment-analyzer" || // Block sentiment analyzer messages
-      (message.role === "assistant" && /^[\d.]+$/.test(message.content.trim())) // Block pure number responses from assistants
-    ) {
+    // Only block messages from sentiment-analyzer agent
+    if (!message.content || message.agentId === "sentiment-analyzer") {
       console.warn(
-        "Prevented invalid/non-conversational message from being added:",
+        "Prevented sentiment analyzer message from being added:",
         message.content,
         `(from ${message.agentId})`
       );
@@ -224,21 +220,6 @@ export class AgentConversationService extends EventEmitter {
     ) {
       console.warn(
         `Prevented agent ${message.agentId} from sending consecutive messages`
-      );
-      return;
-    }
-
-    // Additional check for sentiment-like responses
-    if (
-      message.role === "assistant" &&
-      (/^sentiment:/i.test(message.content) ||
-        /^rating:/i.test(message.content) ||
-        /^score:/i.test(message.content) ||
-        /^analysis:/i.test(message.content))
-    ) {
-      console.warn(
-        "Prevented sentiment analysis output from being added as message:",
-        message.content
       );
       return;
     }
@@ -305,36 +286,44 @@ export class AgentConversationService extends EventEmitter {
       return;
     }
 
+    // Calculate typing delay based on message length
+    const typingDelay = Math.min(
+      message.content.length * 30, // 30ms per character
+      2000 // Max 2 seconds
+    );
+
+    // Add initial response delay
+    await new Promise((resolve) =>
+      setTimeout(resolve, this.messageDelayConfig.responseDelay)
+    );
+
+    // Simulate typing
     await this.simulateTyping(message.content.length);
+
+    // Add the message
     await this.addMessage(conversationId, message);
+
+    // Add post-message delay
+    await new Promise((resolve) => setTimeout(resolve, typingDelay));
   }
 
   private isValidMessageContent(content: string): boolean {
     if (!content) return false;
 
+    // Only block critical sentiment/analysis patterns
     const invalidPatterns = [
-      /^[\d.]+$/, // Pure numbers
-      /^\d+\s*\w+$/, // Numbers with single word
-      /^sentiment:/i,
-      /^rating:/i,
-      /^score:/i,
-      /^analysis:/i,
-      /^mood:/i,
-      /^emotion:/i,
-      /^confidence:/i,
-      /^probability:/i,
-      /^[\d.]+%/, // Percentage values
-      /^[\d.]+ out of/i, // Rating formats
-      /^[\d.]+ stars/i, // Star ratings
+      /^sentiment:\s*[\d.]+$/i,
+      /^rating:\s*[\d.]+$/i,
+      /^score:\s*[\d.]+$/i,
+      /^analysis:\s*[\d.]+$/i,
+      /^[\d.]+\s*sentiment$/i,
+      /^[\d.]+\s*rating$/i,
+      /^[\d.]+\s*score$/i,
+      /^[\d.]+\s*analysis$/i,
     ];
 
     // Check against invalid patterns
     if (invalidPatterns.some((pattern) => pattern.test(content.trim()))) {
-      return false;
-    }
-
-    // Check minimum word count
-    if (content.trim().split(/\s+/).length < 3) {
       return false;
     }
 
@@ -1320,9 +1309,9 @@ export class AgentConversationService extends EventEmitter {
         context
       );
 
-      // Add initial response delay
+      // Add initial delay before response
       await new Promise((resolve) =>
-        setTimeout(resolve, this.messageDelayConfig.responseDelay)
+        setTimeout(resolve, this.messageDelayConfig.minDelay)
       );
 
       const response = await this.generateEnhancedResponse(
@@ -1346,15 +1335,23 @@ export class AgentConversationService extends EventEmitter {
 
       await this.addMessageWithDelay(conversation.id, messageObj);
 
-      // Schedule next response only if there are still available participants
+      // Get remaining participants who haven't spoken recently
       const remainingParticipants = conversation.participants.filter(
         (p) => p.id !== nextSpeaker.id && p.id !== lastMessage?.agentId
+      );
+
+      // Schedule next response with random delay between min and max
+      const nextDelay = Math.floor(
+        Math.random() *
+          (this.messageDelayConfig.maxDelay -
+            this.messageDelayConfig.minDelay) +
+          this.messageDelayConfig.minDelay
       );
 
       if (remainingParticipants.length > 0) {
         setTimeout(() => {
           this.continueConversation(conversation).catch(console.error);
-        }, this.messageInterval);
+        }, nextDelay);
       }
     } catch (error) {
       console.error("Error continuing conversation:", error);
@@ -2901,19 +2898,20 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
         response = await this.togetherService.generateResponse(
           speaker,
           conversation.messages,
-          systemPrompt
+          systemPrompt +
+            "\n\nIMPORTANT: Respond naturally as your character. Do not output sentiment scores or analysis. Just have a normal conversation."
         );
 
-        // Validate response is not a sentiment score
-        if (
-          response?.trim() &&
-          !/^[\d.]+$/.test(response.trim()) && // Not just a number
-          !/^sentiment:/i.test(response) && // Not starting with sentiment:
-          !/^rating:/i.test(response) && // Not starting with rating:
-          !/^score:/i.test(response) && // Not starting with score:
-          !/^analysis:/i.test(response) && // Not starting with analysis:
-          response.trim().split(/\s+/).length >= 3 // At least 3 words
-        ) {
+        // Check if response is valid
+        if (response?.trim()) {
+          // If it's just a number or sentiment score, retry
+          if (/^[\d.]+$/.test(response.trim())) {
+            console.warn(
+              `Attempt ${attempt}: Response was just a number, retrying...`,
+              response
+            );
+            continue;
+          }
           break;
         }
 
@@ -2946,10 +2944,14 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
     state: ConversationState
   ): Promise<void> {
     const conversation = this.activeConversations.get(conversationId);
-    if (!conversation || conversation.status === "ended") return;
+    if (!conversation || conversation.status !== "active") {
+      // Skip if conversation doesn't exist or is already ended/inactive
+      return;
+    }
 
-    // Mark as inactive to prevent multiple conclusions
-    conversation.status = "inactive";
+    // Immediately mark as ended to prevent multiple endings
+    conversation.status = "ended";
+    this.activeConversations.delete(conversationId);
 
     try {
       // Update final metrics
@@ -2975,10 +2977,6 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
       };
       await this.addMessage(conversationId, systemMessage);
 
-      // Clean up conversation
-      conversation.status = "ended";
-      this.activeConversations.delete(conversationId);
-
       // Emit conversation ended event with final metrics (only once)
       this.emit("conversationEnded", {
         conversationId,
@@ -2992,9 +2990,6 @@ Important: You are having a real conversation in Neurova City. Don't narrate act
       });
     } catch (error) {
       console.error("Error ending conversation:", error);
-      // Ensure conversation is marked as ended even if there's an error
-      conversation.status = "ended";
-      this.activeConversations.delete(conversationId);
     }
   }
 

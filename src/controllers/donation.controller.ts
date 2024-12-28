@@ -138,6 +138,16 @@ interface DonationMetadata {
 
 export const DonationController = (donationService: DonationService) =>
   new Elysia({ prefix: "/donations" })
+    .onRequest((context) => {
+      // Only protect donate routes
+      if (context.request.url.includes("/donate")) {
+        const apiKey = context.request.headers.get("x-api-key");
+        if (!apiKey || apiKey !== process.env.BACKEND_API_KEY) {
+          context.set.status = 401;
+          throw new Error("Unauthorized - Invalid API Key");
+        }
+      }
+    })
 
     .post(
       "/",

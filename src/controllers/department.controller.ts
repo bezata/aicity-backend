@@ -43,6 +43,16 @@ interface PerformanceMetadata {
 }
 
 export const DepartmentController = new Elysia({ prefix: "/departments" })
+  .onRequest((context) => {
+    // Only protect budget donate routes
+    if (context.request.url.includes("/budget/donate")) {
+      const apiKey = context.request.headers.get("x-api-key");
+      if (!apiKey || apiKey !== process.env.BACKEND_API_KEY) {
+        context.set.status = 401;
+        throw new Error("Unauthorized - Invalid API Key");
+      }
+    }
+  })
   .get("/", async ({ store }) => {
     const appStore = store as AppStore;
     return await appStore.services.departmentService.getAllDepartments();

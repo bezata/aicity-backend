@@ -468,3 +468,253 @@ interface ErrorResponse {
 3. Follow code style guidelines
 4. Write tests
 5. Submit pull request
+
+## AI Implementation Details
+
+### 1. Agent Conversation System
+
+```typescript
+interface AgentConversationService {
+  // Core conversation management
+  startNewConversation(
+    agentIds: string[],
+    context: ConversationContext
+  ): Promise<Conversation>;
+
+  handleUserMessage(conversationId: string, message: string): Promise<void>;
+
+  // Response generation
+  generateResponse(
+    districtId: string,
+    agentId: string,
+    message: string,
+    context?: ConversationContext
+  ): Promise<{
+    response: string;
+    sentiment: number;
+    topics: string[];
+  }>;
+
+  // Agent lifecycle management
+  registerAgent(agent: Agent): Promise<void>;
+  getRegisteredAgents(): Map<string, Agent>;
+}
+
+// Conversation State Analysis
+interface ConversationState {
+  emotionalDynamics: {
+    tension: number;
+    agreement: number;
+    empathy: number;
+  };
+  interactionPatterns: {
+    turnTakingBalance: number;
+    responseLatency: number[];
+    topicInitiationCount: Map<string, number>;
+  };
+  environmentalContext: {
+    noise: number;
+    crowding: number;
+    timeConstraints: boolean;
+  };
+}
+```
+
+### 2. AI Integration System
+
+```typescript
+interface AIIntegrationService {
+  // System Management
+  initializeSystem(config: {
+    agents: string[];
+    protocol: SystemProtocol;
+    initialState?: Record<string, any>;
+  }): Promise<InitializationResult>;
+
+  // Pattern Management
+  storePattern(
+    pattern: string,
+    context: Record<string, any>,
+    confidence: number
+  ): Promise<void>;
+
+  findSimilarPatterns(
+    content: string,
+    limit?: number
+  ): Promise<Array<{ pattern: string; confidence: number }>>;
+
+  // Decision Management
+  recordDecision(
+    agentId: string,
+    decision: string,
+    context: Record<string, any>
+  ): Promise<void>;
+
+  findSimilarDecisions(
+    content: string,
+    limit?: number
+  ): Promise<Array<{ decision: string; context: Record<string, any> }>>;
+}
+
+// System Protocol Definition
+interface SystemProtocol {
+  name: string;
+  version: string;
+  rules: string[];
+}
+```
+
+### 3. Vector Store Integration
+
+```typescript
+interface VectorStoreService {
+  createEmbedding(text: string): Promise<number[]>;
+
+  query(params: {
+    vector: number[];
+    filter?: Record<string, any>;
+    topK?: number;
+    includeMetadata?: boolean;
+  }): Promise<QueryResult>;
+
+  upsert(params: {
+    id: string;
+    values: number[];
+    metadata: Record<string, any>;
+  }): Promise<void>;
+}
+```
+
+### 4. AI Service Lifecycle
+
+#### Initialization Process
+
+```typescript
+// Service startup sequence
+1. Initialize Vector Store connection
+2. Register AI agents
+3. Start heartbeat monitoring
+4. Initialize conversation service
+5. Start lifecycle management
+
+// Heartbeat monitoring
+private startHeartbeatMonitoring() {
+  setInterval(() => this.checkAgentHeartbeats(), 60 * 1000);
+}
+
+// Agent registration
+public async registerAgent(agent: Agent): Promise<void> {
+  this.registeredAgents.set(agent.id, agent);
+  await this.generateAIRoutines(agent);
+}
+```
+
+#### Conversation Management
+
+```typescript
+// Conversation lifecycle
+1. Start conversation
+2. Process messages
+3. Generate responses
+4. Monitor state
+5. End conversation
+
+// Conversation state monitoring
+private async shouldEndConversation(
+  conversation: AgentConversation,
+  lastMessage: Message,
+  state: ConversationState
+): Promise<boolean> {
+  return [
+    state.conversationDepth > 0.8,
+    state.turnsInCurrentTopic > 10,
+    state.emotionalDynamics.agreement > 0.7,
+    conversation.messages.length > 20,
+    Math.random() > 0.8,
+  ].filter(Boolean).length >= 3;
+}
+```
+
+### 5. AI Response Generation
+
+```typescript
+// Response generation process
+async generateEnhancedResponse(
+  speaker: Agent,
+  conversation: AgentConversation,
+  systemPrompt: string,
+  state: ConversationState
+): Promise<string> {
+  // 1. Retry logic
+  const maxRetries = 3;
+
+  // 2. Response validation
+  if (/^[\d.]+$/.test(response.trim())) {
+    // Retry if response is just a number
+    continue;
+  }
+
+  // 3. Context enhancement
+  systemPrompt += "\n\nIMPORTANT: Respond naturally as your character. " +
+    "Do not output sentiment scores or analysis. " +
+    "Just have a normal conversation.";
+
+  // 4. Error handling
+  try {
+    response = await this.togetherService.generateResponse(
+      speaker,
+      conversation.messages,
+      systemPrompt
+    );
+  } catch (error) {
+    // Handle error and retry
+  }
+}
+```
+
+### 6. Performance Optimizations
+
+```typescript
+// Message deduplication
+const isDuplicateMessage = (
+  messageHistory: Map<string, { content: string; timestamp: number }>,
+  type: string,
+  content: string
+): boolean => {
+  const key = `${type}-${content}`;
+  const lastMessage = messageHistory.get(key);
+  const now = Date.now();
+
+  return lastMessage && now - lastMessage.timestamp < 5000;
+};
+
+// Vector store query optimization
+const queryConfig = {
+  dimension: 1536, // Together AI embeddings
+  metric: "cosine",
+  pods: 1,
+  replicas: 1,
+  pod_type: "p1.x1",
+};
+```
+
+### 7. Rate Limiting
+
+```typescript
+// Service rate limits
+const limits = {
+  maxConcurrentConversations: 1,
+  messageInterval: 60000,
+  maxDailyAPICalls: 100000,
+  conversationCooldown: 60000,
+  topicSwitchThreshold: 5,
+};
+
+// Conversation timing
+const timing = {
+  minDelay: 5000,
+  maxDelay: 10000,
+  responseDelay: 5000,
+  typingSpeed: 100,
+};
+```

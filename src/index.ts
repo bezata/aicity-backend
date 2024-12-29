@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { swagger } from "@elysiajs/swagger";
+import { jwt } from "@elysiajs/jwt";
 import { ErrorResponse } from "./types/responses";
 import { agents, residentAgents } from "./config/agents";
 import { cityManagementAgents, allCityAgents } from "./config/city-agents";
@@ -110,6 +111,27 @@ const app = new Elysia()
       },
     })
   )
+  .use(
+    jwt({
+      name: "jwt",
+      secret: process.env.JWT_SECRET || "your-secret-key",
+    })
+  )
+
+  .onError(({ code, error }) => {
+    console.error(`Error ${code}:`, error);
+    return {
+      success: false,
+      error: error.message,
+      code: typeof code === "string" ? 500 : code,
+    } as ErrorResponse;
+  })
+  .derive(({ jwt }) => {
+    return {
+      jwt,
+      store,
+    };
+  })
   .onRequest((context) => {
     console.log(
       `[${new Date().toISOString()}] ${context.request.method} ${

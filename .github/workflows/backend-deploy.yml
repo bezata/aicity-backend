@@ -30,34 +30,28 @@ jobs:
 
       - name: Deploy Backend to EC2
         run: |
-          ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
+          ssh ec2 "cd /home/ec2-user/apps/backend/aicity-backend && \
           git pull origin master && \
-          echo "Initial cleanup..." && \
-          # First attempt to stop and remove
-          docker stop aicity-backend || echo "No container to stop" && \
-          docker rm -f aicity-backend || echo "No container to remove" && \
-          # Verify removal
-          if docker ps -a --format "{{.Names}}" | grep -q "^aicity-backend$"; then \
-            echo "Container still exists after first removal attempt" && \
-            docker rm -f $(docker ps -a -q --filter name=aicity-backend) || true && \
-            sleep 3 \
+          echo 'Initial cleanup...' && \
+          docker stop aicity-backend || echo 'No container to stop' && \
+          docker rm -f aicity-backend || echo 'No container to remove' && \
+          if docker ps -a --format '{{.Names}}' | grep -q '^aicity-backend$'; then \
+            echo 'Container still exists after first removal attempt' && \
+            docker rm -f \$(docker ps -a -q --filter name=aicity-backend) || true && \
+            sleep 3; \
           fi && \
-          # Final verification
-          if docker ps -a --format "{{.Names}}" | grep -q "^aicity-backend$"; then \
-            echo "Failed to remove container completely" && exit 1 \
+          if docker ps -a --format '{{.Names}}' | grep -q '^aicity-backend$'; then \
+            echo 'Failed to remove container completely' && exit 1; \
           fi && \
-          echo "Container cleanup verified" && \
-          # Remove old images
-          echo "Cleaning up old images..." && \
+          echo 'Container cleanup verified' && \
+          echo 'Cleaning up old images...' && \
           docker image prune -f && \
-          # Build and run new container
-          echo "Building new image..." && \
+          echo 'Building new image...' && \
           docker build -t aicity-backend . && \
-          echo "Starting new container..." && \
-          # Final check before running
-          if docker ps -a --format "{{.Names}}" | grep -q "^aicity-backend$"; then \
-            echo "Container still exists before running new one" && \
-            docker rm -f $(docker ps -a -q --filter name=aicity-backend) || true && \
-            sleep 3 \
+          echo 'Starting new container...' && \
+          if docker ps -a --format '{{.Names}}' | grep -q '^aicity-backend$'; then \
+            echo 'Container still exists before running new one' && \
+            docker rm -f \$(docker ps -a -q --filter name=aicity-backend) || true && \
+            sleep 3; \
           fi && \
-          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend'
+          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend"

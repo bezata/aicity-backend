@@ -166,10 +166,10 @@ Issue Detected ➡️ Analysis ➡️ Solution ➡️ Implementation
 
 ### Growth Tracking
 
-- Population Trends
-- Resource Usage
-- Infrastructure Needs
-- Economic Development
+- Population Trends 📈
+- Resource Usage 💡
+- Infrastructure Needs 🛠️
+- Economic Development 💰
 
 ### Sustainability Goals
 

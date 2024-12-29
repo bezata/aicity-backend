@@ -32,10 +32,13 @@ jobs:
         run: |
           ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
           git pull origin master && \
-          # Stop and remove any existing containers
-          if docker ps -a | grep -q aicity-backend; then
-            echo "Stopping existing container..." && \
-            docker stop aicity-backend && \
+          # Check for running container and stop it
+          if [ -n "$(docker ps -q -f name=aicity-backend)" ]; then
+            echo "Stopping running container..." && \
+            docker stop aicity-backend
+          fi && \
+          # Check for existing container (including stopped ones) and remove it
+          if [ -n "$(docker ps -aq -f name=aicity-backend)" ]; then
             echo "Removing existing container..." && \
             docker rm aicity-backend
           fi && \

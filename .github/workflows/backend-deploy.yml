@@ -5,7 +5,7 @@ on:
     branches: [master]
 
 jobs:
-  deploy:
+  check-commit:
     runs-on: ubuntu-latest
     if: contains(github.event.head_commit.message, 'DEPLOY')
     steps:
@@ -31,23 +31,19 @@ jobs:
       - name: Deploy Backend to EC2
         run: |
           ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
-          echo "Pulling latest changes..." && \
           git pull origin main && \
-          echo "Checking for running container..." && \
-          if docker ps -q -f name=aicity-backend; then \
-            echo "Stopping running container..." && \
-            docker stop aicity-backend; \
+          # Stop and remove any existing containers
+          if docker ps -a | grep -q aicity-backend; then
+            echo "Stopping existing container..." && \
+            docker stop aicity-backend && \
+            echo "Removing existing container..." && \
+            docker rm aicity-backend
           fi && \
-          echo "Removing old container..." && \
-          docker rm -f aicity-backend || true && \
+          # Remove old images
+          echo "Cleaning up old images..." && \
+          docker image prune -f && \
+          # Build and run new container
           echo "Building new image..." && \
           docker build -t aicity-backend . && \
           echo "Starting new container..." && \
-          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend && \
-          echo "Verifying deployment..." && \
-          sleep 5 && \
-          if docker ps | grep aicity-backend; then \
-            echo "✅ Deployment successful!"; \
-          else \
-            echo "❌ Deployment failed!" && exit 1; \
-          fi'
+          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend'

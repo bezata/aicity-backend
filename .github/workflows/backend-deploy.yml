@@ -36,6 +36,10 @@ jobs:
           echo "Cleaning up existing containers..." && \
           docker stop aicity-backend || true && \
           docker rm -f aicity-backend || true && \
+          sleep 2 && \
+          # Double check no container exists
+          docker ps -a | grep aicity-backend && docker rm -f aicity-backend || true && \
+          sleep 2 && \
           # Remove old images
           echo "Cleaning up old images..." && \
           docker image prune -f && \
@@ -43,7 +47,17 @@ jobs:
           echo "Building new image..." && \
           docker build -t aicity-backend . && \
           echo "Starting new container..." && \
-          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend || \
-          (echo "Failed to start container. Attempting cleanup and retry..." && \
-          docker rm -f aicity-backend || true && \
-          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend)'
+          for i in 1 2 3; do \
+            echo "Attempt $i to start container..." && \
+            docker rm -f aicity-backend || true && \
+            sleep 2 && \
+            if docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend; then \
+              echo "Container started successfully" && break; \
+            else \
+              echo "Attempt $i failed, cleaning up..." && \
+              sleep 2; \
+            fi; \
+            if [ $i -eq 3 ]; then \
+              echo "All attempts failed" && exit 1; \
+            fi \
+          done'

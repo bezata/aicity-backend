@@ -32,14 +32,21 @@ jobs:
         run: |
           ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
           git pull origin master && \
-          # Stop and remove any containers with this name (force removal)
-          echo "Cleaning up existing containers..." && \
-          docker stop aicity-backend || true && \
-          docker rm -f aicity-backend || true && \
-          sleep 2 && \
-          # Double check no container exists
-          docker ps -a | grep aicity-backend && docker rm -f aicity-backend || true && \
-          sleep 2 && \
+          echo "Initial cleanup..." && \
+          # First attempt to stop and remove
+          docker stop aicity-backend || echo "No container to stop" && \
+          docker rm -f aicity-backend || echo "No container to remove" && \
+          # Verify removal
+          if docker ps -a --format "{{.Names}}" | grep -q "^aicity-backend$"; then \
+            echo "Container still exists after first removal attempt" && \
+            docker rm -f $(docker ps -a -q --filter name=aicity-backend) || true && \
+            sleep 3 \
+          fi && \
+          # Final verification
+          if docker ps -a --format "{{.Names}}" | grep -q "^aicity-backend$"; then \
+            echo "Failed to remove container completely" && exit 1 \
+          fi && \
+          echo "Container cleanup verified" && \
           # Remove old images
           echo "Cleaning up old images..." && \
           docker image prune -f && \
@@ -47,17 +54,10 @@ jobs:
           echo "Building new image..." && \
           docker build -t aicity-backend . && \
           echo "Starting new container..." && \
-          for i in 1 2 3; do \
-            echo "Attempt $i to start container..." && \
-            docker rm -f aicity-backend || true && \
-            sleep 2 && \
-            if docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend; then \
-              echo "Container started successfully" && break; \
-            else \
-              echo "Attempt $i failed, cleaning up..." && \
-              sleep 2; \
-            fi; \
-            if [ $i -eq 3 ]; then \
-              echo "All attempts failed" && exit 1; \
-            fi \
-          done'
+          # Final check before running
+          if docker ps -a --format "{{.Names}}" | grep -q "^aicity-backend$"; then \
+            echo "Container still exists before running new one" && \
+            docker rm -f $(docker ps -a -q --filter name=aicity-backend) || true && \
+            sleep 3 \
+          fi && \
+          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend'

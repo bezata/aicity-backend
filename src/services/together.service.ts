@@ -25,7 +25,7 @@ interface ConversationMessage {
 export class TogetherService {
   private client: Together;
   private readonly embeddingModel = "togethercomputer/m2-bert-80M-8k-retrieval";
-  private readonly chatModel = "google/gemma-2-27b-it";
+  private readonly chatModel = "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo";
   private lastRequestTime: number = 0;
   private messageCache: Map<string, MessageCache> = new Map();
   private readonly cacheDuration = 30000; // 30 seconds cache
@@ -281,7 +281,7 @@ export class TogetherService {
       model?: string;
     } = {}
   ): Promise<string> {
-    const defaultModel = "google/gemma-2-27b-it";
+    const defaultModel = "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo";
 
     for (let attempt = 0; attempt < this.retryConfig.maxRetries; attempt++) {
       try {

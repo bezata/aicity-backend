@@ -1,8 +1,5 @@
 import { Elysia, t } from "elysia";
 import { swagger } from "@elysiajs/swagger";
-import { jwt } from "@elysiajs/jwt";
-import { cors } from "@elysiajs/cors";
-import { verifyAuth } from "./middleware/auth";
 import { ErrorResponse } from "./types/responses";
 import { agents, residentAgents } from "./config/agents";
 import { cityManagementAgents, allCityAgents } from "./config/city-agents";
@@ -112,26 +109,7 @@ const app = new Elysia()
         },
       },
     })
-  );
-app
-  .use(
-    cors({
-      origin: ["https://neurova.fun"],
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization"],
-      credentials: true,
-      maxAge: 86400, // 24 hours
-    })
   )
-  .onError(({ code, error }) => {
-    console.error(`Error ${code}:`, error);
-    return {
-      success: false,
-      error: error.message,
-      code: typeof code === "string" ? 500 : code,
-    } as ErrorResponse;
-  })
-
   .onRequest((context) => {
     console.log(
       `[${new Date().toISOString()}] ${context.request.method} ${
@@ -174,18 +152,14 @@ const apiGroup = app.group("/api", ((app: any) => {
         return app
           .post(
             "/initialize",
-            async ({ body, jwt }: { body: any; jwt: any }) => {
+            async ({ body }: { body: any }) => {
               const result =
                 await store.services.aiIntegration.initializeSystem(body);
-              const accessToken = await jwt.sign({
-                systemId: result.systemId,
-                timestamp: Date.now(),
-              });
+
               return {
                 success: true,
                 data: {
                   ...result,
-                  accessToken,
                 },
               };
             },
@@ -208,14 +182,6 @@ const apiGroup = app.group("/api", ((app: any) => {
               return { success: true, data: null };
             },
             {
-              beforeHandle: [
-                verifyAuth as any,
-                () => {
-                  if (!store.services.aiIntegration.isInitialized()) {
-                    throw new Error("System not initialized");
-                  }
-                },
-              ],
               body: t.Object({
                 agentId: t.String(),
                 decision: t.String(),
@@ -234,14 +200,6 @@ const apiGroup = app.group("/api", ((app: any) => {
               return { success: true, data: null };
             },
             {
-              beforeHandle: [
-                verifyAuth as any,
-                () => {
-                  if (!store.services.aiIntegration.isInitialized()) {
-                    throw new Error("System not initialized");
-                  }
-                },
-              ],
               body: t.Object({
                 pattern: t.String(),
                 context: t.Record(t.String(), t.Any()),
@@ -260,14 +218,6 @@ const apiGroup = app.group("/api", ((app: any) => {
               return { success: true, data: decisions };
             },
             {
-              beforeHandle: [
-                verifyAuth as any,
-                () => {
-                  if (!store.services.aiIntegration.isInitialized()) {
-                    throw new Error("System not initialized");
-                  }
-                },
-              ],
               query: t.Object({
                 content: t.String(),
                 limit: t.Optional(t.String()),
@@ -285,37 +235,16 @@ const apiGroup = app.group("/api", ((app: any) => {
               return { success: true, data: patterns };
             },
             {
-              beforeHandle: [
-                verifyAuth as any,
-                () => {
-                  if (!store.services.aiIntegration.isInitialized()) {
-                    throw new Error("System not initialized");
-                  }
-                },
-              ],
               query: t.Object({
                 content: t.String(),
                 limit: t.Optional(t.String()),
               }),
             }
           )
-          .get(
-            "/status",
-            async () => {
-              const status = store.services.aiIntegration.getSystemStatus();
-              return { success: true, data: status };
-            },
-            {
-              beforeHandle: [
-                verifyAuth as any,
-                () => {
-                  if (!store.services.aiIntegration.isInitialized()) {
-                    throw new Error("System not initialized");
-                  }
-                },
-              ],
-            }
-          );
+          .get("/status", async () => {
+            const status = store.services.aiIntegration.getSystemStatus();
+            return { success: true, data: status };
+          });
       })
   );
 }) as unknown as ElysiaConfig);

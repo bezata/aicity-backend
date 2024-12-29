@@ -112,8 +112,17 @@ const app = new Elysia()
         },
       },
     })
+  );
+app
+  .use(
+    cors({
+      origin: ["https://neurova.fun"],
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+      credentials: true,
+      maxAge: 86400, // 24 hours
+    })
   )
-  .use(cors())
   .onError(({ code, error }) => {
     console.error(`Error ${code}:`, error);
     return {
@@ -123,7 +132,6 @@ const app = new Elysia()
     } as ErrorResponse;
   })
 
- 
   .onRequest((context) => {
     console.log(
       `[${new Date().toISOString()}] ${context.request.method} ${

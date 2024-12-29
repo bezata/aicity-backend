@@ -317,7 +317,7 @@ export class TogetherService {
       }
     }
 
-    throw new Error("Text generation failed");
+    throw new Error("Text generation failed.");
   }
 
   async createEmbedding(text: string): Promise<number[]> {

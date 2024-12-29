@@ -31,7 +31,7 @@ jobs:
       - name: Deploy Backend to EC2
         run: |
           ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
-          git pull origin main && \
+          git pull origin master && \
           # Stop and remove any existing containers
           if docker ps -a | grep -q aicity-backend; then
             echo "Stopping existing container..." && \

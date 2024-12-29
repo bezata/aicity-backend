@@ -1,0 +1,38 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  check-commit:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'DEPLOY')
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          mkdir -p ~/.ssh/
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat >>~/.ssh/config <<END
+          Host ec2
+            HostName $SSH_HOST
+            User $SSH_USER
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking no
+          END
+
+      - name: Deploy Backend to EC2
+        run: |
+          ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
+          git pull origin main && \
+          docker stop aicity-backend || true && \
+          docker rm aicity-backend || true && \
+          docker build -t aicity-backend . && \
+          docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend'

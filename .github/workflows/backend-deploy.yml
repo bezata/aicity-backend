@@ -33,6 +33,6 @@ jobs:
           ssh ec2 'cd /home/ec2-user/apps/backend/aicity-backend && \
           git pull origin main && \
           docker stop aicity-backend || true && \
-          docker rm aicity-backend || true && \
+          docker rm -f aicity-backend  || true && \
           docker build -t aicity-backend . && \
           docker run --name aicity-backend --network aicity-network -p 3001:3001 -p 3002:3002 --env-file .env -d aicity-backend'
